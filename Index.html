@@ -957,6 +957,13 @@ function renderActivitySetup(body,article){
   DEPTS.forEach(function(d){deptData[d]=[];});
   var actRateMap={};
   MASTER_ACTS.forEach(function(ma){actRateMap[ma.name]=ma.stdRate;});
+  var SECT_MAP={
+    'Cutting':     ['cut'],
+    'Preparation': ['prep','2'],
+    'Fitter':      ['fitt','upper','making'],
+    'Lasting':     ['last'],
+    'Finishing':   ['finish']
+  };
 
   var wrap=el('div',{style:'padding:14px 16px'});
   wrap.appendChild(el('div',{style:'font-size:11px;font-weight:700;color:#4a5578;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px',text:'Set Up Activities'}));
@@ -967,7 +974,9 @@ function renderActivitySetup(body,article){
 
     var actSel=el('select',{style:'width:100%;background:#0f1117;border:1px solid #1e2540;border-radius:8px;padding:8px 10px;color:#e8eaf0;font-size:13px;margin-bottom:6px'});
     actSel.appendChild(el('option',{text:'Select activity...',value:''}));
-    MASTER_ACTS.forEach(function(ma){actSel.appendChild(el('option',{text:ma.name,value:ma.name}));});
+    var kws=SECT_MAP[dept]||[];
+    var deptActs=MASTER_ACTS.filter(function(ma){var s=(ma.section||'').toLowerCase();return kws.some(function(k){return s.indexOf(k)>-1;});});
+    (deptActs.length?deptActs:MASTER_ACTS).forEach(function(ma){actSel.appendChild(el('option',{text:ma.name,value:ma.name}));});
     section.appendChild(actSel);
 
     var rateInp=el('input',{type:'number',placeholder:'Rate ₹',style:'flex:1;background:#0f1117;border:1px solid #1e2540;border-radius:8px;padding:8px;color:#e8eaf0;font-size:13px;text-align:center;min-width:0'});
