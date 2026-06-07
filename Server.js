@@ -238,11 +238,32 @@ function getEntryData() {
   try {
     var mr = ss.getSheetByName('MASTER_RATES');
     if (mr && mr.getLastRow() > 3) {
-      mr.getRange(4, 2, mr.getLastRow()-3, 5).getValues().forEach(function(r){
+      mr.getRange(4, 2, mr.getLastRow()-3, 5).getValues().forEach(function(r, i){
         if (r[0] && r[4] && safeStr(r[4]).toLowerCase() !== 'tbd')
           masterActivities.push({ name:safeStr(r[0]), section:safeStr(r[1]),
-            minRate:safeNum(r[2]), maxRate:safeNum(r[3]), stdRate:safeNum(r[4]) });
+            minRate:safeNum(r[2]), maxRate:safeNum(r[3]), stdRate:safeNum(r[4]),
+            rowIndex: 4 + i });
       });
+      try {
+        var rq2 = ss.getSheetByName('REQUESTS');
+        if (rq2 && rq2.getLastRow() > 3) {
+          rq2.getRange(4, 1, rq2.getLastRow()-3, 6).getValues().forEach(function(rr) {
+            if (safeStr(rr[3]) !== 'RATE_EDIT') return;
+            var st = safeStr(rr[5]).toUpperCase();
+            if (st !== 'PENDING' && st !== 'REJECTED') return;
+            try {
+              var pl = JSON.parse(safeStr(rr[4]));
+              if (!pl || !pl.rowIndex) return;
+              masterActivities.forEach(function(ma) {
+                if (ma.rowIndex === pl.rowIndex) {
+                  if (st === 'PENDING') { ma.hasPendingRateEdit = true; ma.pendingReqId = safeStr(rr[0]); }
+                  else { ma.hasRejectedRateEdit = true; ma.rejectedRate = pl.newRate; ma.rejectedComm = pl.newComm; ma.rejectedReqId = safeStr(rr[0]); }
+                }
+              });
+            } catch(pe) {}
+          });
+        }
+      } catch(e2) {}
     }
   } catch(e) {}
 
@@ -351,6 +372,13 @@ function processRequest(rowNum, action, notes) {
     if (action === 'APPROVE' && safeStr(row[3]) === 'NEW ORDER') {
       sheetCreated = createNewArtSheet(safeStr(row[4]));
       rq.getRange(rowNum, 10).setValue(sheetCreated);
+    }
+    if (action === 'APPROVE' && safeStr(row[3]) === 'ACTIVITY_SETUP') {
+      try {
+        var setupPayload = JSON.parse(safeStr(row[4]));
+        if (setupPayload && setupPayload.sheet && setupPayload.activities)
+          saveActivitySetup(setupPayload.sheet, setupPayload.activities);
+      } catch(pe) { Logger.log('ACTIVITY_SETUP error: ' + pe.message); }
     }
     SpreadsheetApp.flush();
     return { success:true, action:action, sheetCreated:sheetCreated };
@@ -644,6 +672,29 @@ function getPrintSummary() {
   return records;
 }
 
+
+function rejectRequest(reqId) {
+  var user = getUserInfo();
+  if (user.role !== 'admin') return { success:false, error:'Only Ayush can reject' };
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var rq = ss.getSheetByName('REQUESTS');
+    if (!rq || rq.getLastRow() < 4) return { success:false, error:'No requests found' };
+    var data = rq.getRange(4, 1, rq.getLastRow()-3, 1).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (safeStr(data[i][0]) === reqId) {
+        var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
+        rq.getRange(i + 4, 6).setValue('REJECTED');
+        rq.getRange(i + 4, 7).setValue('Rejected');
+        rq.getRange(i + 4, 8).setValue(now);
+        rq.getRange(i + 4, 9).setValue('Yes');
+        SpreadsheetApp.flush();
+        return { success:true };
+      }
+    }
+    return { success:false, error:'Request not found: ' + reqId };
+  } catch(e) { return { success:false, error:e.message }; }
+}
 
 function WIPE_AND_RESET() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();

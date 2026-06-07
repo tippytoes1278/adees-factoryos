@@ -25,7 +25,7 @@ input,select,textarea{font-family:inherit;outline:none;border:none}
 .role-dot{width:7px;height:7px;border-radius:50%;background:#4f8ef7}
 .role-dot.admin{background:#10b981}.role-dot.store{background:#f59e0b}
 .content{flex:1;overflow-y:auto;padding:14px;padding-bottom:88px}
-.bottom-nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:#161b2e;border-top:1px solid #1e2540;display:flex;overflow-x:auto;white-space:nowrap;padding:8px 0 calc(8px + env(safe-area-inset-bottom));z-index:100}
+.bottom-nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:#161b2e;border-top:1px solid #1e2540;display:flex;overflow-x:auto;white-space:nowrap;justify-content:center;padding:8px 0 calc(8px + env(safe-area-inset-bottom));z-index:100}
 .nav-btn{flex-shrink:0;min-width:60px;display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 0;background:none;color:#4a5578}
 .nav-btn.active{color:#4f8ef7}
 .nav-icon{font-size:20px;line-height:1}
@@ -487,16 +487,32 @@ function renderRequests(c){
     var card=el('div',{cls:'req-card'});
     card.appendChild(el('div',{cls:'req-type',text:r.type}));
     var det=el('div',{cls:'req-details'});
-    var parts=r.details.split('|');
-    parts.forEach(function(p){det.appendChild(el('div',{text:p.trim()}));});
+    if(r.type==='RATE_EDIT'){
+      try{var pl=JSON.parse(r.details);det.appendChild(el('div',{text:'Rate Change: ₹'+pl.newRate+'/pr, ₹'+pl.newComm+' comm per pair'}));det.appendChild(el('div',{style:'font-size:11px;color:#4a5578',text:'MASTER_RATES row '+pl.rowIndex}));}
+      catch(e){det.appendChild(el('div',{text:r.details}));}
+    } else if(r.type==='ACTIVITY_SETUP'){
+      try{var pl2=JSON.parse(r.details);var n=pl2.activities?pl2.activities.length:0;det.appendChild(el('div',{text:'Activity Setup: '+(pl2.sheet||'?')+' — '+n+' activit'+(n===1?'y':'ies')}));}
+      catch(e2){det.appendChild(el('div',{text:r.details}));}
+    } else {
+      var parts=r.details.split('|');
+      parts.forEach(function(p){det.appendChild(el('div',{text:p.trim()}));});
+    }
     card.appendChild(det);
     card.appendChild(el('div',{cls:'req-meta',text:'From: '+r.submittedBy+' on '+r.date}));
     var acts=el('div',{cls:'req-actions'});
-    var ab=el('button',{cls:'ap-btn',text:'Approve'});
-    (function(rowNum){ab.onclick=function(){processReq(rowNum,'APPROVE');};})(r.rowNum);
-    var rb=el('button',{cls:'rj-btn',text:'Reject'});
-    (function(rowNum){rb.onclick=function(){processReq(rowNum,'REJECT');};})(r.rowNum);
-    acts.appendChild(ab); acts.appendChild(rb);
+    if(r.type==='RATE_EDIT'){
+      var ab=el('button',{cls:'ap-btn',text:'Approve'});
+      (function(reqId){ab.onclick=function(){doApproveRateEdit(reqId);};})(r.reqId);
+      var rb=el('button',{cls:'rj-btn',text:'Reject'});
+      (function(reqId){rb.onclick=function(){doRejectRequest(reqId);};})(r.reqId);
+      acts.appendChild(ab);acts.appendChild(rb);
+    } else {
+      var ab2=el('button',{cls:'ap-btn',text:'Approve'});
+      (function(rowNum){ab2.onclick=function(){processReq(rowNum,'APPROVE');};})(r.rowNum);
+      var rb2=el('button',{cls:'rj-btn',text:'Reject'});
+      (function(rowNum){rb2.onclick=function(){processReq(rowNum,'REJECT');};})(r.rowNum);
+      acts.appendChild(ab2);acts.appendChild(rb2);
+    }
     card.appendChild(acts);
     c.appendChild(card);
   });
@@ -510,6 +526,26 @@ function processReq(rowNum,action){
     })
     .withFailureHandler(function(){toast('Error',true);})
     .processRequest(rowNum,action,'');
+}
+
+function doApproveRateEdit(reqId){
+  google.script.run
+    .withSuccessHandler(function(r){
+      if(r.success){toast('Rate change approved');setTimeout(function(){loadTab('requests');},600);}
+      else toast(r.error||'Error',true);
+    })
+    .withFailureHandler(function(){toast('Error',true);})
+    .approveRateEdit(reqId);
+}
+
+function doRejectRequest(reqId){
+  google.script.run
+    .withSuccessHandler(function(r){
+      if(r.success){toast('Rejected');setTimeout(function(){loadTab('requests');},600);}
+      else toast(r.error||'Error',true);
+    })
+    .withFailureHandler(function(){toast('Error',true);})
+    .rejectRequest(reqId);
 }
 
 // ── ARVIND HOME ───────────────────────────────────────────────────────────────
@@ -941,14 +977,63 @@ function renderActivities(c){
   c.innerHTML='';
   c.appendChild(sectionTitle('Master Activities'));
   if(!MASTER_ACTS.length){c.appendChild(el('div',{style:'color:#4a5578;padding:40px;text-align:center',text:'No activities — open Entry tab first'}));return;}
-  var card=el('div',{cls:'card'});
   MASTER_ACTS.forEach(function(ma){
-    var row=el('div',{style:'padding:10px 0;border-bottom:1px solid #1a1f35'});
-    row.appendChild(el('div',{style:'font-size:13px;font-weight:600;color:#c5cae9',text:ma.name}));
-    if(ma.section)row.appendChild(el('div',{style:'font-size:11px;color:#4a5578;margin-top:2px',text:'Section: '+ma.section+(ma.stdRate?' | Std rate: ₹'+ma.stdRate:'')}));
-    card.appendChild(row);
+    var card=el('div',{cls:'card',style:'margin-bottom:10px;padding:12px 14px'});
+    var top=el('div',{style:'display:flex;align-items:center;justify-content:space-between;gap:8px'});
+    var nameDiv=el('div',{style:'flex:1;min-width:0'});
+    nameDiv.appendChild(el('div',{style:'font-size:13px;font-weight:700;color:#c5cae9',text:ma.name}));
+    if(ma.section)nameDiv.appendChild(el('div',{style:'font-size:11px;color:#4a5578;margin-top:2px',text:ma.section+' | ₹'+ma.stdRate+'/pr'}));
+    top.appendChild(nameDiv);
+    card.appendChild(top);
+    if(ma.hasPendingRateEdit){
+      top.appendChild(el('span',{cls:'badge yellow',text:'RATE CHANGE PENDING'}));
+    } else if(ma.hasRejectedRateEdit){
+      top.appendChild(el('span',{cls:'badge red',text:'RATE CHANGE REJECTED'}));
+      var rejDiv=el('div',{style:'margin-top:8px;padding:8px 10px;background:#450a0a;border-radius:8px;display:flex;align-items:center;justify-content:space-between;gap:8px'});
+      rejDiv.appendChild(el('span',{style:'font-size:11px;color:#ef4444',text:'Proposed: ₹'+ma.rejectedRate+'/pr'+(ma.rejectedComm?' + ₹'+ma.rejectedComm+' comm':'')}));
+      var dismissLink=el('a',{style:'font-size:11px;color:#7986a3;cursor:pointer;text-decoration:underline;flex-shrink:0',text:'Dismiss'});
+      (function(reqId){dismissLink.onclick=function(){
+        google.script.run
+          .withSuccessHandler(function(res){if(res&&res.success){D.entry=null;loadTab('activities');}else toast((res&&res.error)||'Error',true);})
+          .withFailureHandler(function(){toast('Error',true);})
+          .dismissRateEdit(reqId);
+      };})(ma.rejectedReqId);
+      rejDiv.appendChild(dismissLink);
+      card.appendChild(rejDiv);
+    } else {
+      var editBtn=el('button',{text:'Edit',style:'background:#1e2540;color:#4f8ef7;font-size:12px;font-weight:700;padding:6px 12px;border-radius:8px;flex-shrink:0'});
+      top.appendChild(editBtn);
+      var editForm=el('div',{style:'display:none;margin-top:10px;padding-top:10px;border-top:1px solid #1e2540'});
+      var r2=el('div',{style:'display:flex;gap:8px;margin-bottom:8px'});
+      var rInp=el('input',{type:'number',placeholder:'New Rate ₹',style:'flex:1;background:#0f1117;border:1px solid #1e2540;border-radius:8px;padding:8px;color:#e8eaf0;font-size:13px;text-align:center'});
+      var cInp=el('input',{type:'number',placeholder:'New Comm ₹',style:'flex:1;background:#0f1117;border:1px solid #1e2540;border-radius:8px;padding:8px;color:#e8eaf0;font-size:13px;text-align:center'});
+      r2.appendChild(rInp);r2.appendChild(cInp);
+      editForm.appendChild(r2);
+      var subRow=el('div',{style:'display:flex;gap:8px;align-items:center'});
+      var subBtn=el('button',{text:'Submit for Approval',style:'background:linear-gradient(135deg,#1d4ed8,#4f8ef7);color:#fff;font-size:12px;font-weight:700;padding:8px 14px;border-radius:8px'});
+      var cancelBtn=el('a',{style:'font-size:12px;color:#4a5578;cursor:pointer;text-decoration:underline',text:'Cancel'});
+      subRow.appendChild(subBtn);subRow.appendChild(cancelBtn);
+      editForm.appendChild(subRow);
+      card.appendChild(editForm);
+      (function(m,ri,ci,ef,sb,eb,cb){
+        eb.onclick=function(){ef.style.display='block';eb.style.display='none';};
+        cb.onclick=function(){ef.style.display='none';eb.style.display='';};
+        sb.onclick=function(){
+          var nr=parseFloat(ri.value);var nc=parseFloat(ci.value)||0;
+          if(!nr){toast('Enter a rate',true);return;}
+          sb.disabled=true;sb.textContent='Submitting...';
+          google.script.run
+            .withSuccessHandler(function(res){
+              if(res&&res.success){toast('Rate change submitted');D.entry=null;setTimeout(function(){loadTab('activities');},600);}
+              else{toast((res&&res.error)||'Error',true);sb.disabled=false;sb.textContent='Submit for Approval';}
+            })
+            .withFailureHandler(function(){toast('Error',true);sb.disabled=false;sb.textContent='Submit for Approval';})
+            .requestActivityRateEdit(m.rowIndex,nr,nc);
+        };
+      })(ma,rInp,cInp,editForm,subBtn,editBtn,cancelBtn);
+    }
+    c.appendChild(card);
   });
-  c.appendChild(card);
 }
 
 function renderActivitySetup(body,article){
