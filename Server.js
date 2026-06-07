@@ -661,6 +661,125 @@ function WIPE_AND_RESET() {
   return { success:true };
 }
 
+function saveActivitySetup(sheet, activities) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ws = ss.getSheetByName(sheet);
+    if (!ws) return { success:false, error:'Sheet not found: ' + sheet };
+    ws.getRange(5, 1, 45, 4).clearContent();
+    var rows = activities.map(function(a, i) {
+      return [i + 1, safeStr(a.activityName), safeNum(a.rate), safeNum(a.comm)];
+    });
+    if (rows.length > 0) ws.getRange(5, 1, rows.length, 4).setValues(rows);
+    SpreadsheetApp.flush();
+    return { success:true };
+  } catch(e) { return { success:false, error:e.message }; }
+}
+
+function getActivitySetup(sheet) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ws = ss.getSheetByName(sheet);
+    if (!ws) return [];
+    var data = ws.getRange(5, 1, 45, 4).getValues();
+    var result = [];
+    data.forEach(function(r, i) {
+      var actName = safeStr(r[1]);
+      if (!actName || actName.match(/^[-=]/)) return;
+      result.push({ rowIndex:i+5, activityName:actName,
+        rate:safeNum(r[2]), comm:safeNum(r[3]), department:'' });
+    });
+    return result;
+  } catch(e) { return []; }
+}
+
+function requestActivityRateEdit(rowIndex, newRate, newComm) {
+  var user = getUserInfo();
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var rq = ss.getSheetByName('REQUESTS');
+    var lastRow = Math.max(rq.getLastRow(), 3) + 1;
+    var reqId = 'REQ-' + ('00' + (lastRow - 3)).slice(-3);
+    var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
+    var payload = JSON.stringify({ rowIndex:rowIndex, newRate:newRate, newComm:newComm });
+    rq.getRange(lastRow, 1, 1, 10).setValues([[
+      reqId, now, user.name, 'RATE_EDIT', payload, 'PENDING', '', '', 'No', ''
+    ]]);
+    SpreadsheetApp.flush();
+    return { success:true, reqId:reqId };
+  } catch(e) { return { success:false, error:e.message }; }
+}
+
+function approveRateEdit(requestId) {
+  var user = getUserInfo();
+  if (user.role !== 'admin') return { success:false, error:'Only Ayush can approve' };
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var rq = ss.getSheetByName('REQUESTS');
+    if (!rq || rq.getLastRow() < 4) return { success:false, error:'No requests found' };
+    var data = rq.getRange(4, 1, rq.getLastRow()-3, 10).getValues();
+    var targetRow = -1, payload = null;
+    for (var i = 0; i < data.length; i++) {
+      if (safeStr(data[i][0]) === requestId && safeStr(data[i][3]) === 'RATE_EDIT') {
+        targetRow = i + 4;
+        try { payload = JSON.parse(safeStr(data[i][4])); } catch(pe) {}
+        break;
+      }
+    }
+    if (targetRow === -1) return { success:false, error:'Request not found: ' + requestId };
+    if (!payload) return { success:false, error:'Invalid payload for: ' + requestId };
+    var ma = ss.getSheetByName('MASTER_RATES');
+    if (!ma) return { success:false, error:'MASTER_RATES sheet not found' };
+    ma.getRange(payload.rowIndex, 3).setValue(payload.newRate);
+    ma.getRange(payload.rowIndex, 4).setValue(payload.newComm);
+    var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
+    rq.getRange(targetRow, 6).setValue('APPROVED');
+    rq.getRange(targetRow, 8).setValue(now);
+    rq.getRange(targetRow, 9).setValue('Yes');
+    SpreadsheetApp.flush();
+    return { success:true };
+  } catch(e) { return { success:false, error:e.message }; }
+}
+
+function dismissRateEdit(reqId) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var rq = ss.getSheetByName('REQUESTS');
+    if (!rq || rq.getLastRow() < 4) return { success:false, error:'No requests found' };
+    var data = rq.getRange(4, 1, rq.getLastRow()-3, 1).getValues();
+    for (var i = 0; i < data.length; i++) {
+      if (safeStr(data[i][0]) === reqId) {
+        rq.getRange(i + 4, 6).setValue('DISMISSED');
+        SpreadsheetApp.flush();
+        return { success:true };
+      }
+    }
+    return { success:false, error:'Request not found: ' + reqId };
+  } catch(e) { return { success:false, error:e.message }; }
+}
+
+function getPaymentPeriods() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ph = ss.getSheetByName('PAYMENT_HISTORY');
+    if (!ph || ph.getLastRow() < 4) return { success:true, periods:[] };
+    var data = ph.getRange(4, 1, ph.getLastRow()-3, 8).getValues();
+    var periodMap = {};
+    data.forEach(function(r) {
+      var weekEnding = safeStr(r[0]);
+      if (!weekEnding) return;
+      var periodId = 'P-' + weekEnding.replace(/[^a-zA-Z0-9]/g, '');
+      if (!periodMap[periodId]) {
+        periodMap[periodId] = { periodId:periodId, weekLabel:weekEnding,
+          totalAmount:0, status:safeStr(r[6]) ? 'APPROVED' : 'PENDING' };
+      }
+      periodMap[periodId].totalAmount += safeNum(r[5]);
+    });
+    var periods = Object.keys(periodMap).map(function(k){ return periodMap[k]; });
+    return { success:true, periods:periods };
+  } catch(e) { return { success:false, error:e.message, periods:[] }; }
+}
+
 function createArtTemplate() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var existing = ss.getSheetByName('ART-TEMPLATE');
