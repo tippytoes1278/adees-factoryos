@@ -274,10 +274,7 @@ function getEntryData() {
       var ppData = pp.getRange(2, 1, pp.getLastRow()-1, 7).getValues();
       for (var pi = 0; pi < ppData.length; pi++) {
         if (safeStr(ppData[pi][6]).trim().toUpperCase() === 'OPEN') {
-          var wStart = safeStr(ppData[pi][3]), wEnd = safeStr(ppData[pi][4]);
-          var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-          var fmtD = function(d){ var dt=new Date(d); return dt.getDate()+' '+months[dt.getMonth()]+' '+dt.getFullYear(); };
-          week = { weekStart: wStart, weekEnd: wEnd, weekLabel: fmtD(wStart) + ' – ' + fmtD(wEnd) };
+          week = { weekLabel: safeStr(ppData[pi][2]), weekStart: safeStr(ppData[pi][3]), weekEnd: safeStr(ppData[pi][4]) };
           break;
         }
       }
@@ -736,11 +733,11 @@ function saveActivitySetup(sheet, activities) {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var ws = ss.getSheetByName(sheet);
     if (!ws) return { success:false, error:'Sheet not found: ' + sheet };
-    ws.getRange(5, 1, 45, 4).clearContent();
+    ws.getRange(5, 1, 45, 6).clearContent();
     var rows = activities.map(function(a, i) {
-      return [i + 1, safeStr(a.activityName), safeNum(a.rate), safeNum(a.comm)];
+      return [i + 1, safeStr(a.activityName), '', '', safeNum(a.rate), safeNum(a.comm)];
     });
-    if (rows.length > 0) ws.getRange(5, 1, rows.length, 4).setValues(rows);
+    if (rows.length > 0) ws.getRange(5, 1, rows.length, 6).setValues(rows);
     SpreadsheetApp.flush();
     return { success:true };
   } catch(e) { return { success:false, error:e.message }; }
