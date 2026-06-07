@@ -242,7 +242,7 @@ window.onload=function(){
 // ── NAV ───────────────────────────────────────────────────────────────────────
 var NAVS={
   admin:   [{id:'home',icon:'Home',label:'Home'},{id:'orders',icon:'Orders',label:'Orders'},{id:'approve',icon:'Approve',label:'Approve'},{id:'payment',icon:'Pay',label:'Payment'},{id:'requests',icon:'Req',label:'Requests'}],
-  accounts:[{id:'home',icon:'Home',label:'Home'},{id:'entry',icon:'Entry',label:'Entry'},{id:'neworder',icon:'New',label:'New Order'},{id:'review',icon:'Review',label:'Review'}],
+  accounts:[{id:'home',icon:'Home',label:'Home'},{id:'entry',icon:'Entry',label:'Entry'},{id:'neworder',icon:'New',label:'New Order'},{id:'review',icon:'Review',label:'Review'},{id:'contractors',icon:'Ctrs',label:'Contractors'},{id:'activities',icon:'Acts',label:'Activities'}],
   store:   [{id:'home',icon:'Home',label:'Home'},{id:'wip',icon:'WIP',label:'WIP'}],
   viewer:  [{id:'home',icon:'Home',label:'Home'}]
 };
@@ -293,6 +293,10 @@ function loadTab(id){
     if(D.wip){renderTab(id);return;}
     showLoading();
     google.script.run.withSuccessHandler(function(d){D.wip=d;renderTab(id);}).withFailureHandler(showErr).getWIPData();
+  } else if(id==='contractors'||id==='activities'){
+    if(D.entry){renderTab(id);return;}
+    showLoading();
+    google.script.run.withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];renderTab(id);}).withFailureHandler(showErr).getEntryData();
   }
 }
 
@@ -321,6 +325,8 @@ function renderTab(id){
   else if(id==='neworder'){renderNewOrder(c);}
   else if(id==='payment'){renderPayment(c);}
   else if(id==='wip'){renderWIP(c);}
+  else if(id==='contractors'){renderContractors(c);}
+  else if(id==='activities'){renderActivities(c);}
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
@@ -612,7 +618,10 @@ function renderEntry(c,reviewOnly){
 
     var body=el('div',{cls:'art-body',id:bodyId});
     var acts=a.activities?a.activities.filter(function(ac){return !reviewOnly||ac.qty>0;}):[];
-    if(!acts.length){body.appendChild(el('div',{style:'color:#4a5578;padding:14px 16px;font-size:12px',text:reviewOnly?'No entries this week':'No activities'}));}
+    if(!acts.length){
+      if(!reviewOnly){renderActivitySetup(body,a);}
+      else{body.appendChild(el('div',{style:'color:#4a5578;padding:14px 16px;font-size:12px',text:'No entries this week'}));}
+    }
     else{
       acts.forEach(function(ac){
         var row=el('div',{cls:'act-row'});
@@ -912,6 +921,122 @@ function renderWIP(c){
     card.appendChild(row);
   });
   c.appendChild(card);
+}
+
+// ── CONTRACTORS & ACTIVITIES ──────────────────────────────────────────────────
+function renderContractors(c){
+  c.innerHTML='';
+  c.appendChild(sectionTitle('Contractors'));
+  if(!CONTRACTORS.length){c.appendChild(el('div',{style:'color:#4a5578;padding:40px;text-align:center',text:'No contractors — open Entry tab first'}));return;}
+  var card=el('div',{cls:'card'});
+  CONTRACTORS.forEach(function(name){
+    var row=el('div',{style:'padding:10px 0;border-bottom:1px solid #1a1f35;font-size:13px;font-weight:600;color:#c5cae9'});
+    row.textContent=name;
+    card.appendChild(row);
+  });
+  c.appendChild(card);
+}
+
+function renderActivities(c){
+  c.innerHTML='';
+  c.appendChild(sectionTitle('Master Activities'));
+  if(!MASTER_ACTS.length){c.appendChild(el('div',{style:'color:#4a5578;padding:40px;text-align:center',text:'No activities — open Entry tab first'}));return;}
+  var card=el('div',{cls:'card'});
+  MASTER_ACTS.forEach(function(ma){
+    var row=el('div',{style:'padding:10px 0;border-bottom:1px solid #1a1f35'});
+    row.appendChild(el('div',{style:'font-size:13px;font-weight:600;color:#c5cae9',text:ma.name}));
+    if(ma.section)row.appendChild(el('div',{style:'font-size:11px;color:#4a5578;margin-top:2px',text:'Section: '+ma.section+(ma.stdRate?' | Std rate: ₹'+ma.stdRate:'')}));
+    card.appendChild(row);
+  });
+  c.appendChild(card);
+}
+
+function renderActivitySetup(body,article){
+  var DEPTS=['Cutting','Preparation','Fitter','Lasting','Finishing'];
+  var deptData={};
+  DEPTS.forEach(function(d){deptData[d]=[];});
+  var actRateMap={};
+  MASTER_ACTS.forEach(function(ma){actRateMap[ma.name]=ma.stdRate;});
+
+  var wrap=el('div',{style:'padding:14px 16px'});
+  wrap.appendChild(el('div',{style:'font-size:11px;font-weight:700;color:#4a5578;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px',text:'Set Up Activities'}));
+
+  DEPTS.forEach(function(dept){
+    var section=el('div',{style:'margin-bottom:16px'});
+    section.appendChild(el('div',{style:'font-size:12px;font-weight:700;color:#7986a3;text-transform:uppercase;margin-bottom:6px',text:dept}));
+
+    var actSel=el('select',{style:'width:100%;background:#0f1117;border:1px solid #1e2540;border-radius:8px;padding:8px 10px;color:#e8eaf0;font-size:13px;margin-bottom:6px'});
+    actSel.appendChild(el('option',{text:'Select activity...',value:''}));
+    MASTER_ACTS.forEach(function(ma){actSel.appendChild(el('option',{text:ma.name,value:ma.name}));});
+    section.appendChild(actSel);
+
+    var rateInp=el('input',{type:'number',placeholder:'Rate ₹',style:'flex:1;background:#0f1117;border:1px solid #1e2540;border-radius:8px;padding:8px;color:#e8eaf0;font-size:13px;text-align:center;min-width:0'});
+    var commInp=el('input',{type:'number',placeholder:'Comm ₹/pr',style:'flex:1;background:#0f1117;border:1px solid #1e2540;border-radius:8px;padding:8px;color:#e8eaf0;font-size:13px;text-align:center;min-width:0'});
+    var addBtn=el('button',{text:'+ Add Activity',style:'background:#1e2540;color:#4f8ef7;font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px;white-space:nowrap;flex-shrink:0'});
+    var ctrlRow=el('div',{style:'display:flex;gap:6px;align-items:center;margin-bottom:6px'});
+    ctrlRow.appendChild(rateInp);ctrlRow.appendChild(commInp);ctrlRow.appendChild(addBtn);
+    section.appendChild(ctrlRow);
+
+    actSel.onchange=function(){
+      var std=actRateMap[actSel.value];
+      if(std&&!rateInp.value)rateInp.value=std;
+    };
+
+    var addedList=el('div');
+    section.appendChild(addedList);
+
+    (function(d,aSel,rInp,cInp,aList,entries){
+      addBtn.onclick=function(){
+        var name=aSel.value;
+        if(!name){toast('Select an activity',true);return;}
+        var rate=parseFloat(rInp.value)||0;
+        var comm=parseFloat(cInp.value)||0;
+        var chk=el('input',{type:'checkbox',checked:true,style:'width:15px;height:15px;flex-shrink:0;accent-color:#4f8ef7'});
+        var rowEl=el('div',{style:'display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid #1a1f35'});
+        rowEl.appendChild(chk);
+        rowEl.appendChild(el('div',{style:'flex:1;font-size:12px;color:#c5cae9',text:name}));
+        rowEl.appendChild(el('div',{style:'font-size:11px;color:#4a5578;white-space:nowrap',text:'₹'+rate+(comm?' +₹'+comm+'/pr':'')}));
+        entries.push({chk:chk,department:d,activityName:name,rate:rate,comm:comm});
+        aList.appendChild(rowEl);
+        aSel.value='';rInp.value='';cInp.value='';
+      };
+    })(dept,actSel,rateInp,commInp,addedList,deptData[dept]);
+
+    wrap.appendChild(section);
+  });
+
+  var subBtn=el('button',{cls:'primary-btn',text:'Submit Selected for Approval',style:'margin-top:6px'});
+  (function(art){
+    subBtn.onclick=function(){
+      var selected=[];
+      DEPTS.forEach(function(d){
+        deptData[d].forEach(function(e){
+          if(e.chk.checked)selected.push({department:e.department,activityName:e.activityName,rate:e.rate,comm:e.comm});
+        });
+      });
+      if(!selected.length){toast('Add and select at least one activity',true);return;}
+      subBtn.disabled=true;subBtn.textContent='Submitting...';
+      google.script.run
+        .withSuccessHandler(function(r){
+          if(r&&r.success){
+            toast('Submitted for approval');
+            D.entry=null;
+            setTimeout(function(){loadTab('entry');},600);
+          } else {
+            toast((r&&r.error)||'Error',true);
+            subBtn.disabled=false;subBtn.textContent='Submit Selected for Approval';
+          }
+        })
+        .withFailureHandler(function(){
+          toast('Error',true);
+          subBtn.disabled=false;subBtn.textContent='Submit Selected for Approval';
+        })
+        .submitRequest('ACTIVITY_SETUP',JSON.stringify({sheet:art.sheet,activities:selected}));
+    };
+  })(article);
+
+  wrap.appendChild(subBtn);
+  body.appendChild(wrap);
 }
 
 // ── PRINT SUMMARY ─────────────────────────────────────────────────────────────
