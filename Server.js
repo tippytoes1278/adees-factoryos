@@ -274,7 +274,10 @@ function getEntryData() {
       var ppData = pp.getRange(2, 1, pp.getLastRow()-1, 7).getValues();
       for (var pi = 0; pi < ppData.length; pi++) {
         if (safeStr(ppData[pi][6]).toUpperCase() === 'OPEN') {
-          week = { weekLabel: safeStr(ppData[pi][2]), weekStart: safeStr(ppData[pi][3]), weekEnd: safeStr(ppData[pi][4]) };
+          var wStart = safeStr(ppData[pi][3]), wEnd = safeStr(ppData[pi][4]);
+          var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          var fmtD = function(d){ var dt=new Date(d); return dt.getDate()+' '+months[dt.getMonth()]+' '+dt.getFullYear(); };
+          week = { weekStart: wStart, weekEnd: wEnd, weekLabel: fmtD(wStart) + ' – ' + fmtD(wEnd) };
           break;
         }
       }
@@ -389,6 +392,7 @@ function processRequest(rowNum, action, notes) {
     if (action === 'APPROVE' && safeStr(row[3]) === 'ACTIVITY_SETUP') {
       try {
         var setupPayload = JSON.parse(safeStr(row[4]));
+        Logger.log('ACTIVITY_SETUP: sheet=' + (setupPayload&&setupPayload.sheet) + ' activities=' + (setupPayload&&setupPayload.activities?setupPayload.activities.length:0));
         if (setupPayload && setupPayload.sheet && setupPayload.activities)
           saveActivitySetup(setupPayload.sheet, setupPayload.activities);
       } catch(pe) { Logger.log('ACTIVITY_SETUP error: ' + pe.message); }
@@ -727,6 +731,7 @@ function WIPE_AND_RESET() {
 }
 
 function saveActivitySetup(sheet, activities) {
+  Logger.log('saveActivitySetup: sheet=' + sheet + ' count=' + (activities?activities.length:0));
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var ws = ss.getSheetByName(sheet);
@@ -778,6 +783,7 @@ function requestActivityRateEdit(rowIndex, newRate, newComm) {
 function approveRateEdit(requestId) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only Ayush can approve' };
+  Logger.log('approveRateEdit: requestId=' + requestId);
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var rq = ss.getSheetByName('REQUESTS');
@@ -793,6 +799,7 @@ function approveRateEdit(requestId) {
     }
     if (targetRow === -1) return { success:false, error:'Request not found: ' + requestId };
     if (!payload) return { success:false, error:'Invalid payload for: ' + requestId };
+    Logger.log('approveRateEdit: rowIndex=' + payload.rowIndex + ' newRate=' + payload.newRate + ' newComm=' + payload.newComm);
     var ma = ss.getSheetByName('MASTER_RATES');
     if (!ma) return { success:false, error:'MASTER_RATES sheet not found' };
     ma.getRange(payload.rowIndex, 3).setValue(payload.newRate);
