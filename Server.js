@@ -273,7 +273,7 @@ function getEntryData() {
     if (pp && pp.getLastRow() > 1) {
       var ppData = pp.getRange(2, 1, pp.getLastRow()-1, 7).getValues();
       for (var pi = 0; pi < ppData.length; pi++) {
-        if (safeStr(ppData[pi][6]).toUpperCase() === 'OPEN') {
+        if (safeStr(ppData[pi][6]).trim().toUpperCase() === 'OPEN') {
           var wStart = safeStr(ppData[pi][3]), wEnd = safeStr(ppData[pi][4]);
           var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
           var fmtD = function(d){ var dt=new Date(d); return dt.getDate()+' '+months[dt.getMonth()]+' '+dt.getFullYear(); };
