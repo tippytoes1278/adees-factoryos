@@ -389,7 +389,7 @@ function processRequest(rowNum, action, notes) {
     if (action === 'APPROVE' && safeStr(row[3]) === 'ACTIVITY_SETUP') {
       try {
         var setupPayload = JSON.parse(safeStr(row[4]));
-        Logger.log('ACTIVITY_SETUP: sheet=' + (setupPayload&&setupPayload.sheet) + ' activities=' + (setupPayload&&setupPayload.activities?setupPayload.activities.length:0));
+        Logger.log('ACTIVITY_SETUP payload: ' + JSON.stringify(setupPayload));
         if (setupPayload && setupPayload.sheet && setupPayload.activities)
           saveActivitySetup(setupPayload.sheet, setupPayload.activities);
       } catch(pe) { Logger.log('ACTIVITY_SETUP error: ' + pe.message); }
