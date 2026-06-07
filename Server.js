@@ -421,6 +421,14 @@ function processRequest(rowNum, action, notes) {
         }
       } catch(pe) { Logger.log('CUSTOM_PERIOD_REQUEST error: ' + pe.message); }
     }
+    if (action === 'APPROVE' && safeStr(row[3]) === 'NEW_ORDER') {
+      try {
+        var noPayload = JSON.parse(safeStr(row[4]));
+        var noResult = createOrder(noPayload);
+        if (noResult.success) sheetCreated = noResult.bomNumber + ' → ' + noResult.artSheet;
+        Logger.log('NEW_ORDER: ' + JSON.stringify(noResult));
+      } catch(pe) { Logger.log('NEW_ORDER error: ' + pe.message); }
+    }
     SpreadsheetApp.flush();
     return { success:true, action:action, sheetCreated:sheetCreated };
   } catch(e) { return { success:false, error:e.message }; }
@@ -913,4 +921,109 @@ function createArtTemplate() {
   ws.getRange('Q2').setFormula('=M4');
   Logger.log('ART-TEMPLATE created');
   return 'ART-TEMPLATE created';
+}
+
+function searchTS(query) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var tm = ss.getSheetByName('TS_MASTER');
+    if (!tm || tm.getLastRow() < 2) return [];
+    var data = tm.getRange(2, 1, tm.getLastRow()-1, 5).getValues();
+    var q = safeStr(query).trim().toLowerCase();
+    var results = [];
+    if (!q) {
+      var start = Math.max(0, data.length - 10);
+      for (var i = start; i < data.length; i++) {
+        if (data[i][0]) results.push({ tsNumber:safeStr(data[i][0]), styleName:safeStr(data[i][1]), category:safeStr(data[i][2]), season:safeStr(data[i][3]), activitiesJSON:safeStr(data[i][4]) });
+      }
+    } else {
+      data.forEach(function(r) {
+        if (r[0] && safeStr(r[1]).toLowerCase().indexOf(q) > -1)
+          results.push({ tsNumber:safeStr(r[0]), styleName:safeStr(r[1]), category:safeStr(r[2]), season:safeStr(r[3]), activitiesJSON:safeStr(r[4]) });
+      });
+    }
+    return results;
+  } catch(e) { Logger.log('searchTS error: ' + e.message); return []; }
+}
+
+function createTS(styleName, category, season, activities) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var tm = ss.getSheetByName('TS_MASTER');
+    if (!tm) return { success:false, error:'TS_MASTER sheet not found' };
+    var lastRow = Math.max(tm.getLastRow(), 1);
+    var seq = String(lastRow);
+    while (seq.length < 3) seq = '0' + seq;
+    var tsNumber = 'TS-' + (season||'SS26') + '-' + seq;
+    tm.getRange(lastRow + 1, 1, 1, 5).setValues([[tsNumber, styleName, category||'', season||'SS26', JSON.stringify(activities||[])]]);
+    SpreadsheetApp.flush();
+    return { success:true, tsNumber:tsNumber };
+  } catch(e) { return { success:false, error:e.message }; }
+}
+
+function createOrder(payload) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var tz = Session.getScriptTimeZone();
+    var now = Utilities.formatDate(new Date(), tz, 'dd-MMM-yyyy');
+    var oi = ss.getSheetByName('ORDER_INDEX');
+    var oiCount = oi ? Math.max(oi.getLastRow() - 3, 0) : 0;
+    var bomSeq = String(oiCount + 1);
+    while (bomSeq.length < 3) bomSeq = '0' + bomSeq;
+    var bomNumber = 'BOM-' + new Date().getFullYear() + '-' + bomSeq;
+    var artSheets = ss.getSheets().filter(isArtSheet);
+    var nums = artSheets.map(function(s){ return parseInt(s.getName().replace('ART-',''))||0; });
+    var nextNum = String(Math.max.apply(null,[0].concat(nums))+1);
+    while (nextNum.length < 3) nextNum = '0' + nextNum;
+    var artSheet = 'ART-' + nextNum;
+    var template = ss.getSheetByName('ART-TEMPLATE') || ss.getSheetByName('ART-001');
+    var ws = template.copyTo(ss);
+    ws.setName(artSheet);
+    ws.getRange('B5:B49').clearContent();
+    ws.getRange('C5:F49').clearContent();
+    ws.getRange('H5:H49').clearContent();
+    ws.getRange('J5:J49').clearContent();
+    var lotSize = safeNum(payload.lotSize);
+    var article = safeStr(payload.styleName) + (payload.color ? ' - ' + safeStr(payload.color) : '');
+    ws.getRange('B2').setValue(article);
+    ws.getRange('E2').setValue(safeStr(payload.buyer));
+    ws.getRange('H2').setValue(lotSize);
+    ws.getRange('J2').setValue(now);
+    ws.getRange('M14').setValue(bomNumber);
+    ws.getRange('M15').setValue(safeStr(payload.color));
+    for (var r = 5; r <= 49; r++) {
+      ws.getRange('G'+r).setFormula('=IF(D'+r+'="",0,D'+r+'*F'+r+')');
+      ws.getRange('I'+r).setFormula('=IF(D'+r+'="",0,(D'+r+'*E'+r+')+G'+r+'+IF(H'+r+'="",0,H'+r+'))');
+    }
+    if (oi) {
+      var oiRow = Math.max(oi.getLastRow(), 3) + 1;
+      oi.getRange(oiRow, 1, 1, 12).setValues([[
+        bomNumber, artSheet, safeStr(payload.styleName), safeStr(payload.color),
+        safeStr(payload.buyer), safeStr(payload.tsNumber), '', '', lotSize,
+        now, 'Active', safeStr(payload.poNumber)
+      ]]);
+    }
+    var ot = ss.getSheetByName('ORDER_TRACKER');
+    if (ot) {
+      var otRow = Math.max(ot.getLastRow(), 3) + 1;
+      ot.getRange(otRow, 1, 1, 3).setValues([[artSheet, article, safeStr(payload.buyer)]]);
+      ot.getRange(otRow, 4).setFormula("='"+artSheet+"'!H2");
+      ot.getRange(otRow, 5).setValue(0);
+      ot.getRange(otRow, 6).setFormula("=IFERROR('"+artSheet+"'!Q2,0)");
+      ot.getRange(otRow, 7).setFormula('=E'+otRow+'+F'+otRow);
+      ot.getRange(otRow, 8).setFormula('=IF(D'+otRow+'="","--",D'+otRow+'-G'+otRow+')');
+      ot.getRange(otRow, 9).setFormula('=IF(D'+otRow+'="","NO LOT SET",IF(G'+otRow+'>D'+otRow+',"OVER BY "&(G'+otRow+'-D'+otRow+')&" PAIRS",IF(G'+otRow+'=D'+otRow+',"LOT COMPLETE","OK - "&(D'+otRow+'-G'+otRow+')&" LEFT")))');
+    }
+    var wr = ss.getSheetByName('WIP_RECONCILIATION');
+    if (wr) {
+      var wrRow = Math.max(wr.getLastRow(), 4) + 1;
+      wr.getRange(wrRow, 1, 1, 3).setValues([[artSheet, article, 'Upper Making']]);
+      wr.getRange(wrRow, 5).setFormula("=IFERROR('"+artSheet+"'!Q2,0)");
+      wr.getRange(wrRow, 6).setFormula('=IF(D'+wrRow+'="","--",D'+wrRow+'-E'+wrRow+')');
+      wr.getRange(wrRow, 7).setFormula('=IF(D'+wrRow+'="","AWAITING",IF(D'+wrRow+'=E'+wrRow+',"MATCH",IF(E'+wrRow+'>D'+wrRow+',"PAID > MADE","UNDER-PAID")))');
+    }
+    SpreadsheetApp.flush();
+    Logger.log('createOrder: ' + bomNumber + ' → ' + artSheet);
+    return { success:true, bomNumber:bomNumber, artSheet:artSheet };
+  } catch(e) { Logger.log('createOrder error: ' + e.message); return { success:false, error:e.message }; }
 }

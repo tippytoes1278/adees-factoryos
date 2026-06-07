@@ -183,6 +183,7 @@ input,select,textarea{font-family:inherit;outline:none;border:none}
 
 <script>
 var USER=null, TAB='home', D={}, CONTRACTORS=[], MASTER_ACTS=[];
+var NO_STEP=1, NO_TS=null;
 
 function fmt(n){return '₹'+Number(n).toLocaleString('en-IN',{maximumFractionDigits:0});}
 
@@ -496,6 +497,9 @@ function renderRequests(c){
     } else if(r.type==='CUSTOM_PERIOD_REQUEST'){
       try{var pl3=JSON.parse(r.details);det.appendChild(el('div',{text:'Custom Period: '+(pl3.fromDate||'?')+' → '+(pl3.toDate||'?')}));if(pl3.reason)det.appendChild(el('div',{style:'font-size:11px;color:#4a5578',text:'Reason: '+pl3.reason}));}
       catch(e3){det.appendChild(el('div',{text:r.details}));}
+    } else if(r.type==='NEW_ORDER'){
+      try{var plno=JSON.parse(r.details);det.appendChild(el('div',{text:(plno.styleName||'?')+(plno.color?' — '+plno.color:'')+' for '+(plno.buyer||'?')}));det.appendChild(el('div',{style:'font-size:11px;color:#4a5578',text:'TS: '+(plno.tsNumber||'?')+' | Lot: '+(plno.lotSize||0)+' pairs | Del: '+(plno.deliveryDate||'?')}));}
+      catch(e4){det.appendChild(el('div',{text:r.details}));}
     } else {
       var parts=r.details.split('|');
       parts.forEach(function(p){det.appendChild(el('div',{text:p.trim()}));});
@@ -715,130 +719,166 @@ function saveRow(sn,rowNum,sel,qInp){
 // ── NEW ORDER ─────────────────────────────────────────────────────────────────
 function renderNewOrder(c){
   c.innerHTML='';
-  c.appendChild(sectionTitle('New Order Request'));
-  c.appendChild(alert_('blue','Submit for Ayush Approval','Ayush reviews and approves. Activities are set up separately after approval.'));
-
-  var card=el('div',{cls:'card'});
-
-  function fg(label,id,type,placeholder,required){
-    var g=el('div',{cls:'form-group'});
-    var lbl=el('label',{cls:'form-label',text:label+(required?' *':'')});
-    g.appendChild(lbl);
-    var inp=el('input',{cls:'form-input',id:id,type:type||'text',placeholder:placeholder||''});
-    g.appendChild(inp); card.appendChild(g);
-    return inp;
-  }
-  function fgSel(label,id,opts,required){
-    var g=el('div',{cls:'form-group'});
-    g.appendChild(el('label',{cls:'form-label',text:label+(required?' *':'')}));
-    var sel=el('select',{cls:'form-select',id:id});
-    sel.appendChild(el('option',{text:'Select...',value:''}));
-    opts.forEach(function(o){sel.appendChild(el('option',{text:o,value:o}));});
-    g.appendChild(sel); card.appendChild(g);
-    return sel;
-  }
-
-  // Order details
-  fg('Article Number','no-article','text','e.g. 203090',true);
-  fg('Color','no-color','text','e.g. White, Black, Navy',true);
-
-  // Customer with "Add new" option
-  var custG=el('div',{cls:'form-group'});
-  custG.appendChild(el('label',{cls:'form-label',text:'Customer *'}));
-  var custSel=el('select',{cls:'form-select',id:'no-customer'});
-  ['','Snitch','Tata','Van Heusen','Mothercare','+ Add New Customer'].forEach(function(o){
-    custSel.appendChild(el('option',{text:o||'Select...',value:o}));
-  });
-  custG.appendChild(custSel);
-  var newCustDiv=el('div',{id:'new-cust-div',style:'display:none;margin-top:8px'});
-  var newCustInp=el('input',{cls:'form-input',id:'no-new-customer',placeholder:'Type new customer name',type:'text'});
-  newCustDiv.appendChild(newCustInp);
-  custG.appendChild(newCustDiv);
-  custSel.onchange=function(){
-    newCustDiv.style.display=custSel.value==='+  Add New Customer'||custSel.value==='+ Add New Customer'?'block':'none';
-  };
-  card.appendChild(custG);
-
-  fg('Brand','no-brand','text','If different from customer (optional)');
-  fg('Order Qty (Lot Size)','no-lot','number','e.g. 1200',true);
-  fgSel('Article Type','no-type',['Sneakers','Formal/Casual','Kids'],true);
-  fgSel('Material','no-material',['Leather','Synthetic'],true);
-  fgSel('Season','no-season',['SS26','AW26','SS27','AW27'],true);
-  fgSel('Month','no-month',['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],true);
-  fg('Order Receive Date','no-receive','date','',true);
-  fg('Delivery Date','no-delivery','date','',true);
-
-  card.appendChild(el('div',{style:'font-size:10px;color:#4a5578;margin-top:4px',text:'* Required fields'}));
-  c.appendChild(card);
-
-  var card2=el('div',{cls:'card'});
-  var noteG=el('div',{cls:'form-group'});
-  noteG.appendChild(el('label',{cls:'form-label',text:'Notes for Ayush (optional)'}));
-  noteG.appendChild(el('textarea',{cls:'form-textarea',id:'no-notes',placeholder:'Special instructions, urgent delivery, client requirements...'}));
-  card2.appendChild(noteG);
-  var subBtn=el('button',{cls:'primary-btn',text:'Submit for Ayush Approval',id:'submitBtn'});
-  subBtn.onclick=submitNewOrder;
-  card2.appendChild(subBtn);
-  c.appendChild(card2);
+  if(NO_STEP===2&&NO_TS) renderNO_Step2(c);
+  else renderNO_Step1(c);
 }
 
-function submitNewOrder(){
-  var article=document.getElementById('no-article').value.trim();
-  var color=document.getElementById('no-color').value.trim();
-  var custSel=document.getElementById('no-customer').value;
-  var customer=custSel==='+ Add New Customer'?
-    document.getElementById('no-new-customer').value.trim() : custSel;
-  var brand=document.getElementById('no-brand').value.trim();
-  var lot=document.getElementById('no-lot').value.trim();
-  var type=document.getElementById('no-type').value;
-  var material=document.getElementById('no-material').value;
-  var season=document.getElementById('no-season').value;
-  var month=document.getElementById('no-month').value;
-  var receiveDate=document.getElementById('no-receive').value;
-  var deliveryDate=document.getElementById('no-delivery').value;
-  var notes=document.getElementById('no-notes').value.trim();
-
-  if(!article||!color||!customer||!lot||!type||!material||!season||!month||!receiveDate||!deliveryDate){
-    toast('Fill all required fields (*)',true);return;
+function renderNO_Step1(c){
+  c.appendChild(sectionTitle('Find Technical Spec'));
+  var sc=el('div',{cls:'card'});
+  var sr=el('div',{style:'display:flex;gap:8px;margin-bottom:10px'});
+  var sI=el('input',{cls:'form-input',placeholder:'Search style name…',type:'text',style:'flex:1;padding:10px 12px'});
+  var sB=el('button',{style:'background:#1d4ed8;color:#fff;font-size:13px;font-weight:700;padding:10px 16px;border-radius:10px;flex-shrink:0',text:'Search'});
+  sr.appendChild(sI);sr.appendChild(sB);sc.appendChild(sr);
+  var rL=el('div');sc.appendChild(rL);c.appendChild(sc);
+  var nc=el('div',{cls:'card'});
+  nc.appendChild(el('div',{style:'font-size:12px;color:#4a5578;margin-bottom:10px',text:'No matching TS? Create one:'}));
+  var nB=el('button',{cls:'primary-btn',text:'+ Create New TS',style:'background:linear-gradient(135deg,#374151,#6b7280)'});
+  nB.onclick=function(){renderNO_CreateTS(c);};nc.appendChild(nB);c.appendChild(nc);
+  function doSearch(){
+    var q=sI.value.trim();
+    rL.innerHTML='<div style="color:#4a5578;font-size:12px;padding:6px 0">Searching…</div>';
+    google.script.run
+      .withSuccessHandler(function(res){
+        rL.innerHTML='';
+        if(!res||!res.length){rL.appendChild(el('div',{style:'color:#4a5578;font-size:12px;padding:6px 0',text:q?'No results for "'+q+'"':'No TS records yet'}));return;}
+        res.forEach(function(ts){
+          var row=el('div',{style:'padding:10px 0;border-bottom:1px solid #1a1f35;cursor:pointer;display:flex;align-items:center;justify-content:space-between'});
+          var inf=el('div');
+          inf.appendChild(el('div',{style:'font-size:13px;font-weight:700;color:#c5cae9',text:ts.styleName}));
+          inf.appendChild(el('div',{style:'font-size:11px;color:#4a5578;margin-top:2px',text:ts.tsNumber+(ts.season?' · '+ts.season:'')}));
+          row.appendChild(inf);row.appendChild(el('span',{cls:'badge blue',text:'Select'}));
+          (function(t){row.onclick=function(){NO_TS=t;NO_STEP=2;renderTab('neworder');};})(ts);
+          rL.appendChild(row);
+        });
+      })
+      .withFailureHandler(function(){rL.innerHTML='<div style="color:#ef4444;font-size:12px">Search failed</div>';})
+      .searchTS(q);
   }
+  sB.onclick=doSearch;sI.onkeydown=function(e){if(e.key==='Enter')doSearch();};doSearch();
+}
 
-  var details=[
-    'Article: '+article,
-    'Color: '+color,
-    'Customer: '+customer,
-    'Brand: '+(brand||customer),
-    'Lot: '+lot,
-    'Type: '+type,
-    'Material: '+material,
-    'Season: '+season,
-    'Month: '+month,
-    'ReceiveDate: '+receiveDate,
-    'DeliveryDate: '+deliveryDate,
-    'Activities: ',
-    'Rates: ',
-    'Comms: '
-  ].join(' | ');
-  if(notes)details+=' | Notes: '+notes;
+function renderNO_CreateTS(c){
+  c.innerHTML='';
+  c.appendChild(sectionTitle('Create New TS'));
+  var bk=el('button',{style:'background:#1e2540;color:#7986a3;font-size:12px;padding:8px 14px;border-radius:8px;margin-bottom:12px',text:'← Back'});
+  bk.onclick=function(){renderTab('neworder');};c.appendChild(bk);
+  var card=el('div',{cls:'card'});
+  var stG=el('div',{cls:'form-group'});stG.appendChild(el('label',{cls:'form-label',text:'Style Name *'}));
+  var stI=el('input',{cls:'form-input',type:'text',placeholder:'e.g. 203090 Full Black'});stG.appendChild(stI);card.appendChild(stG);
+  var gr2=el('div',{style:'display:grid;grid-template-columns:1fr 1fr;gap:10px'});
+  var ctG=el('div',{cls:'form-group',style:'margin-bottom:0'});ctG.appendChild(el('label',{cls:'form-label',text:'Category'}));
+  var ctI=el('input',{cls:'form-input',type:'text',placeholder:'e.g. Sneakers'});ctG.appendChild(ctI);gr2.appendChild(ctG);
+  var snG=el('div',{cls:'form-group',style:'margin-bottom:0'});snG.appendChild(el('label',{cls:'form-label',text:'Season'}));
+  var snS=el('select',{cls:'form-select'});['SS26','AW26','SS27','AW27'].forEach(function(s){snS.appendChild(el('option',{text:s,value:s}));});snG.appendChild(snS);gr2.appendChild(snG);
+  card.appendChild(gr2);c.appendChild(card);
+  var DEPTS=['Cutting','Preparation','Fitter','Lasting','Finishing'];
+  var SECT_MAP={'Cutting':['1 — Cutting'],'Preparation':['2 — Preparation','2.1 — Mat. Cut'],'Fitter':['3 — Fitter'],'Lasting':['4 — Lasting'],'Finishing':['5 — Finish']};
+  var armMap={};MASTER_ACTS.forEach(function(ma){armMap[ma.name]=ma.stdRate;});
+  var tsAD={};DEPTS.forEach(function(d){tsAD[d]=[];});
+  var acCard=el('div',{cls:'card'});acCard.appendChild(el('div',{cls:'section-title',text:'Activities & Rates'}));
+  DEPTS.forEach(function(dept){
+    var sec=el('div',{style:'margin-bottom:16px'});
+    sec.appendChild(el('div',{style:'font-size:12px;font-weight:700;color:#7986a3;text-transform:uppercase;margin-bottom:6px',text:dept}));
+    var aS=el('select',{style:'width:100%;background:#0f1117;border:1px solid #1e2540;border-radius:8px;padding:8px 10px;color:#e8eaf0;font-size:13px;margin-bottom:6px'});
+    aS.appendChild(el('option',{text:'Select activity…',value:''}));
+    var dA=MASTER_ACTS.filter(function(ma){return SECT_MAP[dept]&&SECT_MAP[dept].indexOf(ma.section)>-1;});
+    (dA.length?dA:MASTER_ACTS).forEach(function(ma){aS.appendChild(el('option',{text:ma.name,value:ma.name}));});
+    sec.appendChild(aS);
+    var cr=el('div',{style:'display:flex;gap:6px;align-items:center;margin-bottom:6px'});
+    var rI=el('input',{type:'number',placeholder:'Rate ₹',style:'flex:1;background:#0f1117;border:1px solid #1e2540;border-radius:8px;padding:8px;color:#e8eaf0;font-size:13px;text-align:center;min-width:0'});
+    var cI=el('input',{type:'number',placeholder:'Comm ₹',style:'flex:1;background:#0f1117;border:1px solid #1e2540;border-radius:8px;padding:8px;color:#e8eaf0;font-size:13px;text-align:center;min-width:0'});
+    var aB=el('button',{text:'+ Add',style:'background:#1e2540;color:#4f8ef7;font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px;white-space:nowrap;flex-shrink:0'});
+    cr.appendChild(rI);cr.appendChild(cI);cr.appendChild(aB);sec.appendChild(cr);
+    aS.onchange=function(){var std=armMap[aS.value];if(std&&!rI.value)rI.value=std;};
+    var aL=el('div');sec.appendChild(aL);
+    (function(d,as,ri,ci,al,en){
+      aB.onclick=function(){
+        var nm=as.value;if(!nm){toast('Select an activity',true);return;}
+        var rt=parseFloat(ri.value)||0,cm=parseFloat(ci.value)||0;
+        var re=el('div',{style:'display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid #1a1f35'});
+        var ch=el('input',{type:'checkbox',checked:true,style:'width:15px;height:15px;flex-shrink:0;accent-color:#4f8ef7'});
+        re.appendChild(ch);re.appendChild(el('div',{style:'flex:1;font-size:12px;color:#c5cae9',text:nm}));
+        re.appendChild(el('div',{style:'font-size:11px;color:#4a5578;white-space:nowrap',text:'₹'+rt+(cm?' +₹'+cm:'')}));
+        en.push({chk:ch,department:d,activityName:nm,rate:rt,comm:cm});
+        al.appendChild(re);as.value='';ri.value='';ci.value='';
+      };
+    })(dept,aS,rI,cI,aL,tsAD[dept]);
+    acCard.appendChild(sec);
+  });
+  c.appendChild(acCard);
+  var sbC=el('div',{cls:'card'});
+  var sbB=el('button',{cls:'primary-btn',text:'Create TS & Continue'});
+  sbB.onclick=function(){
+    var sty=stI.value.trim();if(!sty){toast('Enter style name',true);return;}
+    var acts=[];DEPTS.forEach(function(d){tsAD[d].forEach(function(e){if(e.chk.checked)acts.push({department:e.department,activityName:e.activityName,rate:e.rate,comm:e.comm});});});
+    sbB.disabled=true;sbB.textContent='Creating…';
+    google.script.run
+      .withSuccessHandler(function(r){
+        if(r&&r.success){NO_TS={tsNumber:r.tsNumber,styleName:sty,category:ctI.value.trim(),season:snS.value,activities:acts};NO_STEP=2;renderTab('neworder');}
+        else{toast((r&&r.error)||'Error',true);sbB.disabled=false;sbB.textContent='Create TS & Continue';}
+      })
+      .withFailureHandler(function(){toast('Error',true);sbB.disabled=false;sbB.textContent='Create TS & Continue';})
+      .createTS(sty,ctI.value.trim(),snS.value,acts);
+  };
+  sbC.appendChild(sbB);c.appendChild(sbC);
+}
 
-  var btn=document.getElementById('submitBtn');
-  btn.textContent='Submitting...';btn.disabled=true;
-  google.script.run
-    .withSuccessHandler(function(r){
-      if(r.success){
-        toast('Submitted — waiting for Ayush approval');
-        setTimeout(function(){loadTab('home');},800);
-      } else {
-        toast(r.error||'Error',true);
-        btn.disabled=false;
-        btn.textContent='Submit for Ayush Approval';
-      }
-    })
-    .withFailureHandler(function(){
-      toast('Error',true);
-      btn.disabled=false;
-      btn.textContent='Submit for Ayush Approval';
-    })
-    .submitRequest('NEW ORDER',details);
+function renderNO_Step2(c){
+  c.appendChild(sectionTitle('Order Details'));
+  var pill=el('div',{style:'display:flex;align-items:center;gap:8px;margin-bottom:12px;background:#1e2540;border-radius:20px;padding:8px 14px'});
+  pill.appendChild(el('span',{style:'font-size:11px;font-weight:700;color:#4f8ef7',text:'TS'}));
+  pill.appendChild(el('span',{style:'font-size:12px;color:#c5cae9',text:NO_TS.tsNumber+' — '+NO_TS.styleName}));
+  var xb=el('button',{style:'background:none;color:#7986a3;font-size:18px;padding:0 4px;margin-left:auto',text:'×'});
+  xb.onclick=function(){NO_STEP=1;NO_TS=null;renderTab('neworder');};
+  pill.appendChild(xb);c.appendChild(pill);
+  var card=el('div',{cls:'card'});
+  var bmG=el('div',{cls:'form-group'});bmG.appendChild(el('label',{cls:'form-label',text:'BOM Number'}));
+  bmG.appendChild(el('div',{style:'padding:12px 14px;background:#0f1117;border:1px solid #1e2540;border-radius:10px;color:#4a5578;font-size:13px',text:'Auto-assigned on approval'}));card.appendChild(bmG);
+  var aG=el('div',{cls:'form-group'});aG.appendChild(el('label',{cls:'form-label',text:'Article Number *'}));
+  var aI=el('input',{cls:'form-input',type:'text',placeholder:'e.g. 203090',value:NO_TS.styleName||''});aG.appendChild(aI);card.appendChild(aG);
+  var clG=el('div',{cls:'form-group'});clG.appendChild(el('label',{cls:'form-label',text:'Color *'}));
+  var clI=el('input',{cls:'form-input',type:'text',placeholder:'e.g. Full Black'});clG.appendChild(clI);card.appendChild(clG);
+  var byG=el('div',{cls:'form-group'});byG.appendChild(el('label',{cls:'form-label',text:'Buyer *'}));
+  var byS=el('select',{cls:'form-select'});['','Snitch','Tata/Westside','Van Heusen','Mothercare','Other'].forEach(function(b){byS.appendChild(el('option',{text:b||'Select buyer…',value:b}));});byG.appendChild(byS);card.appendChild(byG);
+  var poG=el('div',{cls:'form-group'});poG.appendChild(el('label',{cls:'form-label',text:'PO Number'}));
+  var poI=el('input',{cls:'form-input',type:'text',placeholder:'e.g. PO-2026-001'});poG.appendChild(poI);card.appendChild(poG);
+  var ddG=el('div',{cls:'form-group'});ddG.appendChild(el('label',{cls:'form-label',text:'Delivery Date *'}));
+  var ddI=el('input',{cls:'form-input',type:'date'});ddG.appendChild(ddI);card.appendChild(ddG);
+  c.appendChild(card);
+  var srCard=el('div',{cls:'card'});srCard.appendChild(el('div',{cls:'section-title',text:'Size Run'}));
+  var srG=el('div',{style:'display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:10px'});
+  var sIs={};
+  [6,7,8,9,10,11].forEach(function(sz){
+    var col=el('div',{style:'text-align:center'});
+    col.appendChild(el('div',{style:'font-size:10px;font-weight:700;color:#7986a3;margin-bottom:4px',text:'UK '+sz}));
+    var si=el('input',{type:'number',min:0,placeholder:'0',style:'width:100%;background:#0f1117;border:1px solid #1e2540;border-radius:6px;padding:6px 4px;color:#e8eaf0;font-size:14px;font-weight:700;text-align:center'});
+    sIs[sz]=si;col.appendChild(si);srG.appendChild(col);
+  });
+  srCard.appendChild(srG);
+  var ltRow=el('div',{style:'display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:1px solid #1e2540'});
+  ltRow.appendChild(el('span',{style:'font-size:12px;color:#7986a3',text:'Total Lot'}));
+  var ltV=el('span',{style:'font-size:18px;font-weight:800;color:#4f8ef7',text:'0'});
+  ltRow.appendChild(ltV);srCard.appendChild(ltRow);c.appendChild(srCard);
+  function recalc(){var t=0;[6,7,8,9,10,11].forEach(function(sz){t+=parseInt(sIs[sz].value)||0;});ltV.textContent=String(t);}
+  [6,7,8,9,10,11].forEach(function(sz){sIs[sz].oninput=recalc;});
+  var sbC=el('div',{cls:'card'});
+  var sbB=el('button',{cls:'primary-btn',text:'Submit for Approval'});
+  sbB.onclick=function(){
+    var art=aI.value.trim(),col=clI.value.trim(),buyer=byS.value,dd=ddI.value;
+    if(!art||!col||!buyer||!dd){toast('Fill all required fields (*)',true);return;}
+    var sr={};[6,7,8,9,10,11].forEach(function(sz){var v=parseInt(sIs[sz].value)||0;if(v)sr[sz]=v;});
+    var lot=0;Object.keys(sr).forEach(function(k){lot+=safeNum(sr[k]);});
+    sbB.disabled=true;sbB.textContent='Submitting…';
+    google.script.run
+      .withSuccessHandler(function(r){
+        if(r&&r.success){toast('Submitted — waiting for Ayush approval');NO_STEP=1;NO_TS=null;setTimeout(function(){loadTab('home');},800);}
+        else{toast((r&&r.error)||'Error',true);sbB.disabled=false;sbB.textContent='Submit for Approval';}
+      })
+      .withFailureHandler(function(){toast('Error',true);sbB.disabled=false;sbB.textContent='Submit for Approval';})
+      .submitRequest('NEW_ORDER',JSON.stringify({tsNumber:NO_TS.tsNumber,styleName:art,color:col,buyer:buyer,poNumber:poI.value.trim(),deliveryDate:dd,sizeRun:sr,lotSize:lot}));
+  };
+  sbC.appendChild(sbB);c.appendChild(sbC);
 }
 
 // ── PAYMENT LIST ─────────────────────────────────────────────────────────────
