@@ -394,6 +394,33 @@ function processRequest(rowNum, action, notes) {
           saveActivitySetup(setupPayload.sheet, setupPayload.activities);
       } catch(pe) { Logger.log('ACTIVITY_SETUP error: ' + pe.message); }
     }
+    if (action === 'APPROVE' && safeStr(row[3]) === 'CUSTOM_PERIOD_REQUEST') {
+      try {
+        var cpPayload = JSON.parse(safeStr(row[4]));
+        if (cpPayload && cpPayload.fromDate && cpPayload.toDate) {
+          var pp = ss.getSheetByName('PAYMENT_PERIODS');
+          if (pp) {
+            if (pp.getLastRow() > 1) {
+              var ppVals = pp.getRange(2, 1, pp.getLastRow()-1, 7).getValues();
+              for (var pi = 0; pi < ppVals.length; pi++) {
+                if (safeStr(ppVals[pi][6]).trim().toUpperCase() === 'OPEN')
+                  pp.getRange(pi + 2, 7).setValue('CLOSED');
+              }
+            }
+            var cpDays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+            var cpMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            var fmtCp = function(ds) { var d = new Date(ds); return cpDays[d.getDay()]+' '+d.getDate()+' '+cpMonths[d.getMonth()]+' '+d.getFullYear(); };
+            var cpLabel = fmtCp(cpPayload.fromDate) + ' – ' + fmtCp(cpPayload.toDate);
+            var cpId = 'W-' + cpPayload.fromDate.replace(/-/g, '');
+            pp.getRange(pp.getLastRow() + 1, 1, 1, 7).setValues([[
+              cpId, 'Custom', cpLabel, cpPayload.fromDate, cpPayload.toDate,
+              cpPayload.reason || '', 'OPEN'
+            ]]);
+            Logger.log('CUSTOM_PERIOD_REQUEST: created ' + cpId + ' ' + cpLabel);
+          }
+        }
+      } catch(pe) { Logger.log('CUSTOM_PERIOD_REQUEST error: ' + pe.message); }
+    }
     SpreadsheetApp.flush();
     return { success:true, action:action, sheetCreated:sheetCreated };
   } catch(e) { return { success:false, error:e.message }; }
