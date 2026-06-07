@@ -644,6 +644,18 @@ function getPrintSummary() {
   return records;
 }
 
+function getDistinctSections() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var mr = ss.getSheetByName('MASTER_RATES');
+  if (!mr || mr.getLastRow() < 4) return { sections: [] };
+  var seen = {}, sections = [];
+  mr.getRange(4, 2, mr.getLastRow()-3, 2).getValues().forEach(function(r) {
+    var sec = safeStr(r[1]);
+    if (sec && !seen[sec]) { seen[sec] = true; sections.push(sec); }
+  });
+  return { sections: sections };
+}
+
 function WIPE_AND_RESET() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   ss.getSheets().filter(isArtSheet).forEach(function(s){ ss.deleteSheet(s); });
