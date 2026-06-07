@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(clasp clone *)",
+      "Bash(npm root *)",
+      "Bash(npm bin *)",
+      "Bash(npm prefix *)",
+      "Bash(/Users/Ayush/.npm-global/bin/clasp clone *)",
+      "Bash(/Users/Ayush/.npm-global/bin/clasp push *)",
+      "Bash(/Users/Ayush/.npm-global/bin/clasp deployments *)",
+      "Bash(/Users/Ayush/.npm-global/bin/clasp deploy *)",
+      "Bash(/Users/Ayush/.npm-global/bin/clasp login *)",
+      "Bash(clasp deploy *)",
+      "Bash(npx *)",
+      "Bash(python3 *)",
+      "Bash(/usr/bin/python3 *)",
+      "Bash(sed -i '' '1047s/.*/      var acts=a.activities?a.activities.filter\\(function\\(ac\\){var n=\\(ac.activity||'\"'\"''\"'\"'\\).trim\\(\\);return n\\\\&\\\\&n!=='\"'\"'—'\"'\"'\\\\&\\\\&\\(!reviewOnly||ac.qty>0\\);}\\):[];/' /Users/Ayush/adees-factoryos/Index.html)",
+      "Bash(sed -n '1047p' /Users/Ayush/adees-factoryos/Index.html)",
+      "Bash(wait)",
+      "Bash(echo \"EXIT:$?\")"
+    ]
+  }
+}
