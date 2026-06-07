@@ -493,6 +493,9 @@ function renderRequests(c){
     } else if(r.type==='ACTIVITY_SETUP'){
       try{var pl2=JSON.parse(r.details);var n=pl2.activities?pl2.activities.length:0;det.appendChild(el('div',{text:'Activity Setup: '+(pl2.sheet||'?')+' — '+n+' activit'+(n===1?'y':'ies')}));}
       catch(e2){det.appendChild(el('div',{text:r.details}));}
+    } else if(r.type==='CUSTOM_PERIOD_REQUEST'){
+      try{var pl3=JSON.parse(r.details);det.appendChild(el('div',{text:'Custom Period: '+(pl3.fromDate||'?')+' → '+(pl3.toDate||'?')}));if(pl3.reason)det.appendChild(el('div',{style:'font-size:11px;color:#4a5578',text:'Reason: '+pl3.reason}));}
+      catch(e3){det.appendChild(el('div',{text:r.details}));}
     } else {
       var parts=r.details.split('|');
       parts.forEach(function(p){det.appendChild(el('div',{text:p.trim()}));});
@@ -624,7 +627,7 @@ function renderEntry(c,reviewOnly){
     google.script.run
       .withSuccessHandler(function(){toast('Request submitted');cpForm.style.display='none';cpLink.style.display='';cpSubmit.disabled=false;cpSubmit.textContent='Submit Request';})
       .withFailureHandler(function(){toast('Error submitting request',true);cpSubmit.disabled=false;cpSubmit.textContent='Submit Request';})
-      .submitRequest({type:'CUSTOM_PERIOD_REQUEST',payload:JSON.stringify({fromDate:from,toDate:to,reason:reason})});
+      .submitRequest('CUSTOM_PERIOD_REQUEST',JSON.stringify({fromDate:from,toDate:to,reason:reason}));
   };
   cpCancel.onclick=function(){cpForm.style.display='none';cpLink.style.display='';};
   cpBtnRow.appendChild(cpSubmit);
