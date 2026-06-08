@@ -309,7 +309,11 @@ function loadTab(id){
     if(D.wip){renderTab(id);return;}
     showLoading();
     google.script.run.withSuccessHandler(function(d){D.wip=d;renderTab(id);}).withFailureHandler(showErr).getWIPData();
-  } else if(id==='contractors'||id==='activities'){
+  } else if(id==='contractors'){
+    if(D.ctrs){renderTab(id);return;}
+    showLoading();
+    google.script.run.withSuccessHandler(function(d){D.ctrs=d;renderTab(id);}).withFailureHandler(showErr).getContractorsData();
+  } else if(id==='activities'){
     if(D.entry){renderTab(id);return;}
     showLoading();
     google.script.run.withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];renderTab(id);}).withFailureHandler(showErr).getEntryData();
@@ -323,7 +327,7 @@ function showLoading(){
 
 // Refresh: force reload from server (pull to refresh equivalent)
 function refreshTab(){
-  D.dash=null; D.entry=null; D.wip=null; D.reqs=null; PS_DATA=null; ENTRY_PERIOD=null;
+  D.dash=null; D.entry=null; D.wip=null; D.reqs=null; PS_DATA=null; ENTRY_PERIOD=null; D.ctrs=null;
   loadTab(TAB);
 }
 
@@ -1056,14 +1060,65 @@ function renderWIP(c){
 function renderContractors(c){
   c.innerHTML='';
   c.appendChild(sectionTitle('Contractors'));
-  if(!CONTRACTORS.length){c.appendChild(el('div',{style:'color:#4a5578;padding:40px;text-align:center',text:'No contractors — open Entry tab first'}));return;}
-  var card=el('div',{cls:'card'});
-  CONTRACTORS.forEach(function(name){
-    var row=el('div',{style:'padding:10px 0;border-bottom:1px solid #1a1f35;font-size:13px;font-weight:600;color:#c5cae9'});
-    row.textContent=name;
-    card.appendChild(row);
+  var addWrap=el('div',{style:'margin-bottom:12px'});
+  var addBtn=el('button',{cls:'primary-btn',text:'+ Add Contractor',style:'background:linear-gradient(135deg,#374151,#6b7280);margin-bottom:0'});
+  var addForm=el('div',{style:'display:none;background:#161b2e;border:1px solid #1e2540;border-radius:12px;padding:14px;margin-top:8px'});
+  var afNG=el('div',{cls:'form-group'});afNG.appendChild(el('label',{cls:'form-label',text:'Name *'}));
+  var afName=el('input',{cls:'form-input',type:'text',placeholder:'e.g. Raju Kumar'});afNG.appendChild(afName);addForm.appendChild(afNG);
+  var afDG=el('div',{cls:'form-group'});afDG.appendChild(el('label',{cls:'form-label',text:'Department'}));
+  var afDept=el('select',{cls:'form-select'});
+  [{v:'cutting',l:'Cutting'},{v:'prep',l:'Prep'},{v:'fitter',l:'Fitter'},{v:'lasting',l:'Lasting'},{v:'finish',l:'Finish'},{v:'dispatch',l:'Dispatch'}].forEach(function(d){afDept.appendChild(el('option',{text:d.l,value:d.v}));});
+  afDG.appendChild(afDept);addForm.appendChild(afDG);
+  var afPMG=el('div',{cls:'form-group'});afPMG.appendChild(el('label',{cls:'form-label',text:'Payment Method'}));
+  var afPM=el('select',{cls:'form-select'});
+  ['Cash','UPI','Bank Transfer'].forEach(function(m){afPM.appendChild(el('option',{text:m,value:m}));});
+  afPMG.appendChild(afPM);addForm.appendChild(afPMG);
+  var afPhG=el('div',{cls:'form-group'});afPhG.appendChild(el('label',{cls:'form-label',text:'Phone'}));
+  var afPhone=el('input',{cls:'form-input',type:'tel',placeholder:'e.g. 9876543210'});afPhG.appendChild(afPhone);addForm.appendChild(afPhG);
+  var afBR=el('div',{style:'display:flex;gap:8px;align-items:center'});
+  var afSub=el('button',{cls:'primary-btn',text:'Save Contractor',style:'flex:1;padding:12px'});
+  var afCnl=el('a',{style:'font-size:12px;color:#4a5578;cursor:pointer;text-decoration:underline',text:'Cancel'});
+  afBR.appendChild(afSub);afBR.appendChild(afCnl);addForm.appendChild(afBR);
+  addBtn.onclick=function(){addForm.style.display='block';addBtn.style.display='none';};
+  afCnl.onclick=function(){addForm.style.display='none';addBtn.style.display='';};
+  afSub.onclick=function(){
+    var nm=afName.value.trim();if(!nm){toast('Enter contractor name',true);return;}
+    afSub.disabled=true;afSub.textContent='Saving…';
+    google.script.run
+      .withSuccessHandler(function(r){
+        afSub.disabled=false;afSub.textContent='Save Contractor';
+        if(r&&r.success){toast('Contractor saved');D.ctrs=null;loadTab('contractors');}
+        else toast((r&&r.error)||'Error',true);
+      })
+      .withFailureHandler(function(){afSub.disabled=false;afSub.textContent='Save Contractor';toast('Error',true);})
+      .saveContractor({name:nm,dept:afDept.value,paymentMethod:afPM.value,phone:afPhone.value.trim()});
+  };
+  addWrap.appendChild(addBtn);addWrap.appendChild(addForm);c.appendChild(addWrap);
+  var ctrs=D.ctrs&&D.ctrs.contractors?D.ctrs.contractors:[];
+  if(!ctrs.length){c.appendChild(el('div',{style:'color:#4a5578;padding:40px;text-align:center',text:'No contractors yet'}));return;}
+  var DEPT_ORDER=['cutting','prep','fitter','lasting','finish','dispatch'];
+  var deptMap={};
+  ctrs.forEach(function(ct){var d=(ct.dept||'other').toLowerCase();if(!deptMap[d])deptMap[d]=[];deptMap[d].push(ct);});
+  var deptKeys=DEPT_ORDER.filter(function(k){return deptMap[k];});
+  Object.keys(deptMap).forEach(function(k){if(DEPT_ORDER.indexOf(k)<0)deptKeys.push(k);});
+  deptKeys.forEach(function(dept){
+    var ctList=deptMap[dept];
+    c.appendChild(el('div',{style:'font-size:10px;font-weight:700;color:#4a5578;letter-spacing:1px;text-transform:uppercase;margin:10px 2px 6px',text:'● '+dept.toUpperCase()+' ('+ctList.length+')'}));
+    var card=el('div',{cls:'card',style:'margin-bottom:10px;padding:0'});
+    ctList.forEach(function(ct,i){
+      var row=el('div',{style:'padding:11px 14px;'+(i<ctList.length-1?'border-bottom:1px solid #1a1f35':'')});
+      var top=el('div',{style:'display:flex;align-items:center;justify-content:space-between;gap:8px'});
+      top.appendChild(el('div',{style:'font-size:13px;font-weight:700;color:#c5cae9',text:ct.name}));
+      top.appendChild(el('span',{cls:'badge '+(ct.status&&ct.status.toLowerCase()==='active'?'green':'grey'),text:ct.status||'ACTIVE'}));
+      row.appendChild(top);
+      var meta=[];
+      if(ct.paymentMethod)meta.push(ct.paymentMethod);
+      if(ct.phone)meta.push(ct.phone);
+      if(meta.length)row.appendChild(el('div',{style:'font-size:11px;color:#4a5578;margin-top:3px',text:meta.join(' · ')}));
+      card.appendChild(row);
+    });
+    c.appendChild(card);
   });
-  c.appendChild(card);
 }
 
 function renderActivities(c){

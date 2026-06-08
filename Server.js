@@ -361,6 +361,45 @@ function getEntryData() {
   return { articles:articles, contractors:contractors, masterActivities:masterActivities, week:week, periods:periods };
 }
 
+function getContractorsData() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var mc = ss.getSheetByName('MASTER_CONTRACTORS');
+    var contractors = [];
+    if (mc && mc.getLastRow() > 3) {
+      mc.getRange(4, 2, mc.getLastRow()-3, 6).getValues().forEach(function(r) {
+        if (!r[0]) return;
+        contractors.push({
+          name: safeStr(r[0]),
+          paymentMethod: safeStr(r[1]) || 'Cash',
+          status: safeStr(r[2]),
+          dept: safeStr(r[3]),
+          phone: safeStr(r[4])
+        });
+      });
+    }
+    return { success: true, contractors: contractors };
+  } catch(e) { return { success: false, error: e.message, contractors: [] }; }
+}
+
+function saveContractor(payload) {
+  var user = getUserInfo();
+  if (user.role !== 'accounts' && user.role !== 'admin')
+    return { success: false, error: 'Not authorised' };
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var mc = ss.getSheetByName('MASTER_CONTRACTORS');
+    if (!mc) return { success: false, error: 'MASTER_CONTRACTORS sheet not found' };
+    var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
+    mc.getRange(mc.getLastRow() + 1, 2, 1, 6).setValues([[
+      safeStr(payload.name), safeStr(payload.paymentMethod) || 'Cash',
+      'ACTIVE', safeStr(payload.dept), safeStr(payload.phone), now
+    ]]);
+    SpreadsheetApp.flush();
+    return { success: true };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
 function saveEntry(sheetName, row, contractor, qty, conveyance, remarks) {
   var user = getUserInfo();
   if (user.role !== 'accounts' && user.role !== 'admin')
