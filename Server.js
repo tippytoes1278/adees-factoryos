@@ -421,7 +421,7 @@ function saveContractor(payload) {
   } catch(e) { return { success: false, error: e.message }; }
 }
 
-function saveEntry(sheetName, row, contractor, qty, conveyance, remarks) {
+function saveEntry(sheetName, row, contractor, qty, conveyance, remarks, rate, comm) {
   var user = getUserInfo();
   if (user.role !== 'accounts' && user.role !== 'admin')
     return { success:false, error:'Not authorised' };
@@ -439,6 +439,8 @@ function saveEntry(sheetName, row, contractor, qty, conveyance, remarks) {
     }
     if (contractor) ws.getRange('C'+row).setValue(contractor);
     ws.getRange('D'+row).setValue(qty||0);
+    if (rate)  ws.getRange('E'+row).setValue(rate);
+    if (comm !== null && comm !== undefined) ws.getRange('F'+row).setValue(comm);
     if (conveyance) ws.getRange('H'+row).setValue(conveyance);
     if (remarks)    ws.getRange('J'+row).setValue(remarks);
     SpreadsheetApp.flush();
@@ -446,6 +448,37 @@ function saveEntry(sheetName, row, contractor, qty, conveyance, remarks) {
       lotStatus: safeStr(ws.getRange('M7').getValue()),
       thisWeek:  safeNum(ws.getRange('M4').getValue()),
       remaining: safeNum(ws.getRange('M6').getValue()) };
+  } catch(e) { return { success:false, error:e.message }; }
+}
+
+function deleteOrder(sheetName) {
+  var user = getUserInfo();
+  if (user.role !== 'admin') return { success:false, error:'Only Ayush can delete orders' };
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ws = ss.getSheetByName(sheetName);
+    if (!ws) return { success:false, error:'Sheet not found: '+sheetName };
+    var hasPaid = false;
+    ws.getRange(5, 4, 45, 1).getValues().forEach(function(r){ if(safeNum(r[0])>0) hasPaid=true; });
+    if (hasPaid) return { success:false, error:'Cannot delete — order has paid entries' };
+    var oi = ss.getSheetByName('ORDER_INDEX');
+    if (oi && oi.getLastRow()>3) {
+      var oiD=oi.getRange(4,2,oi.getLastRow()-3,1).getValues();
+      for(var i=0;i<oiD.length;i++){if(safeStr(oiD[i][0])===sheetName){oi.deleteRow(i+4);break;}}
+    }
+    var ot = ss.getSheetByName('ORDER_TRACKER');
+    if (ot && ot.getLastRow()>3) {
+      var otD=ot.getRange(4,1,ot.getLastRow()-3,1).getValues();
+      for(var j=0;j<otD.length;j++){if(safeStr(otD[j][0])===sheetName){ot.deleteRow(j+4);break;}}
+    }
+    var wr = ss.getSheetByName('WIP_RECONCILIATION');
+    if (wr && wr.getLastRow()>4) {
+      var wrD=wr.getRange(5,1,wr.getLastRow()-4,1).getValues();
+      for(var k=0;k<wrD.length;k++){if(safeStr(wrD[k][0])===sheetName){wr.deleteRow(k+5);break;}}
+    }
+    ss.deleteSheet(ws);
+    SpreadsheetApp.flush();
+    return { success:true };
   } catch(e) { return { success:false, error:e.message }; }
 }
 
