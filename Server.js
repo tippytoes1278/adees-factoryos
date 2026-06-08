@@ -300,20 +300,28 @@ function getEntryData() {
   } catch(e) {}
 
   var week = null;
+  var periods = [];
   try {
     var pp = ss.getSheetByName('PAYMENT_PERIODS');
     if (pp && pp.getLastRow() > 1) {
       var ppData = pp.getRange(2, 1, pp.getLastRow()-1, 7).getValues();
       for (var pi = 0; pi < ppData.length; pi++) {
         if (safeStr(ppData[pi][6]).trim().toUpperCase() === 'OPEN') {
-          week = { weekLabel: safeStr(ppData[pi][2]), weekStart: safeStr(ppData[pi][3]), weekEnd: safeStr(ppData[pi][4]) };
-          break;
+          var pEntry = {
+            periodId:  safeStr(ppData[pi][0]),
+            weekLabel: safeStr(ppData[pi][2]),
+            weekStart: safeStr(ppData[pi][3]),
+            weekEnd:   safeStr(ppData[pi][4]),
+            status:    'OPEN'
+          };
+          periods.push(pEntry);
+          if (!week) week = pEntry;
         }
       }
     }
   } catch(e3) {}
   if (!week) week = getCurrentWeek();
-  return { articles:articles, contractors:contractors, masterActivities:masterActivities, week:week };
+  return { articles:articles, contractors:contractors, masterActivities:masterActivities, week:week, periods:periods };
 }
 
 function saveEntry(sheetName, row, contractor, qty, conveyance, remarks) {
