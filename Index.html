@@ -381,8 +381,8 @@ function kpiEl(label,value,sub,colorClass){
 
 function orderRowEl(o){
   var pct=o.orderQty>0?Math.min(100,Math.round(o.cumul/o.orderQty*100)):0;
-  var over=o.status&&o.status.indexOf('OVER')>-1;
-  var done=o.status&&o.status.indexOf('COMPLETE')>-1;
+  var over=o.orderQty>0&&o.cumul>o.orderQty;
+  var done=!over&&o.orderQty>0&&o.cumul>=o.orderQty;
   var bClass=over?'red':done?'green':o.remaining>0?'blue':'grey';
   var bText=over?'OVER':done?'DONE':o.remaining>0?(o.remaining+' left'):'NO LOT';
 
@@ -1312,7 +1312,7 @@ function renderPrintSummary(){
   else renderPSByPeriod(c);
 }
 
-function psGroup(data,keyFn,cols,rowFn){
+function psGroup(data,keyFn,cols,rowFn,noSort){
   var order=[],groups={};
   data.forEach(function(r){
     var k=keyFn(r);
@@ -1320,7 +1320,7 @@ function psGroup(data,keyFn,cols,rowFn){
     groups[k].push(r);
   });
   var html='',grand=0;
-  order.sort().forEach(function(k){
+  (noSort?order:order.sort()).forEach(function(k){
     var rows=groups[k];
     var sub=rows.reduce(function(s,r){return s+r.amount;},0);
     grand+=sub;
@@ -1378,7 +1378,8 @@ function renderPSByPeriod(c){
       (r.article||'—')+(r.customer?' ('+r.customer+')':''),
       r.activityName||'—', r.qty,
       psVal(r.rate), psVal(r.comm), psVal(r.conv), fmtPS(r.amount)
-    ];}
+    ];},
+    true
   );
 }
 

@@ -144,15 +144,17 @@ function getDashboardData() {
       var otData = ot.getRange(4, 1, ot.getLastRow()-3, 9).getValues();
       otData.forEach(function(r) {
         if (!r[0]) return;
+        var oQty   = safeNum(r[3]);
+        var cumul  = safeNum(r[6]);
         var status = safeStr(r[8]);
         orders.push({
           sheet:r[0], article:safeStr(r[1]), customer:safeStr(r[2]),
-          orderQty:safeNum(r[3]), prior:safeNum(r[4]),
-          thisWeek:safeNum(r[5]), cumul:safeNum(r[6]),
+          orderQty:oQty, prior:safeNum(r[4]),
+          thisWeek:safeNum(r[5]), cumul:cumul,
           remaining:safeNum(r[7]), status:status
         });
-        if (status.indexOf('OVER') > -1)     redCount++;
-        if (status.indexOf('COMPLETE') > -1) completeCount++;
+        if (oQty > 0 && cumul > oQty)   redCount++;
+        if (oQty > 0 && cumul === oQty) completeCount++;
       });
     }
   } catch(e) { Logger.log('OT error: ' + e.message); }
@@ -798,7 +800,10 @@ function getPrintSummary() {
     var ph = ss.getSheetByName('PAYMENT_HISTORY');
     if (ph && ph.getLastRow() > 3) {
       ph.getRange(4, 1, ph.getLastRow()-3, 8).getValues().forEach(function(r) {
-        var weekEnding  = safeStr(r[0]);
+        var weekRaw    = r[0];
+        var weekEnding = weekRaw instanceof Date
+          ? Utilities.formatDate(weekRaw, Session.getScriptTimeZone(), 'dd-MMM-yyyy')
+          : safeStr(weekRaw);
         var artName     = safeStr(r[1]);
         var customer    = safeStr(r[2]);
         var contractor  = safeStr(r[3]);
