@@ -557,8 +557,18 @@ function renderRequests(c){
       catch(e){det.appendChild(el('div',{text:r.details}));}
     } else if(r.type==='ACTIVITY_SETUP'){
       try{var pl2=JSON.parse(r.details);
-        if(pl2.activityName){det.appendChild(el('div',{text:'New Activity: '+pl2.activityName+' ('+pl2.dept+') — ₹'+pl2.rate+' rate, ₹'+pl2.comm+' comm'}));}
-        else{var n=pl2.activities?pl2.activities.length:0;det.appendChild(el('div',{text:'Activity Setup: '+(pl2.sheet||'?')+' — '+n+' activit'+(n===1?'y':'ies')}));}
+        if(pl2.activityName){
+          det.appendChild(el('div',{style:'font-weight:700;color:#e8eaf0;margin-bottom:4px',text:'New Activity Request'}));
+          if(pl2.sheet)det.appendChild(el('div',{text:'Article: '+pl2.sheet}));
+          det.appendChild(el('div',{text:'Activity: '+pl2.activityName}));
+          det.appendChild(el('div',{text:'Dept: '+(pl2.dept||'—')+' | Rate: ₹'+(pl2.rate||0)+'/pr'+(pl2.comm?' | Comm: ₹'+pl2.comm+'/pr':'')}));
+        } else {
+          det.appendChild(el('div',{style:'font-weight:700;color:#e8eaf0;margin-bottom:4px',text:'Activity Setup: '+(pl2.sheet||'?')}));
+          (pl2.activities||[]).forEach(function(act){
+            det.appendChild(el('div',{style:'font-size:11px;color:#c5cae9;padding:2px 0;border-bottom:1px solid #1a1f35',text:(act.activityName||'?')+' | '+(act.department||'—')+' | ₹'+(act.rate||0)+'/pr'+(act.comm?' | ₹'+act.comm+' comm':'')}));
+          });
+          if(!pl2.activities||!pl2.activities.length)det.appendChild(el('div',{text:'No activities listed'}));
+        }
       }catch(e2){det.appendChild(el('div',{text:r.details}));}
     } else if(r.type==='CUSTOM_PERIOD_REQUEST'){
       try{var pl3=JSON.parse(r.details);det.appendChild(el('div',{text:'Custom Period: '+(pl3.fromDate||'?')+' → '+(pl3.toDate||'?')}));if(pl3.reason)det.appendChild(el('div',{style:'font-size:11px;color:#4a5578',text:'Reason: '+pl3.reason}));}
