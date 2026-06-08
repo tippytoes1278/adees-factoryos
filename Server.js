@@ -337,14 +337,16 @@ function getEntryData() {
   try {
     var pp = ss.getSheetByName('PAYMENT_PERIODS');
     if (pp && pp.getLastRow() > 1) {
-      var ppData = pp.getRange(2, 1, pp.getLastRow()-1, 7).getValues();
+      var ppTz = Session.getScriptTimeZone();
+    var fmtPpD = function(v) { return v instanceof Date ? Utilities.formatDate(v, ppTz, 'dd-MMM-yyyy') : safeStr(v); };
+    var ppData = pp.getRange(2, 1, pp.getLastRow()-1, 7).getValues();
       for (var pi = 0; pi < ppData.length; pi++) {
         if (safeStr(ppData[pi][6]).trim().toUpperCase() === 'OPEN') {
           var pEntry = {
             periodId:  safeStr(ppData[pi][0]),
             weekLabel: safeStr(ppData[pi][2]),
-            weekStart: safeStr(ppData[pi][3]),
-            weekEnd:   safeStr(ppData[pi][4]),
+            weekStart: fmtPpD(ppData[pi][3]),
+            weekEnd:   fmtPpD(ppData[pi][4]),
             status:    'OPEN'
           };
           periods.push(pEntry);
@@ -484,14 +486,16 @@ function processRequest(rowNum, action, notes) {
         if (setupPayload && setupPayload.sheet && setupPayload.activities) {
           saveActivitySetup(setupPayload.sheet, setupPayload.activities);
         } else if (setupPayload && setupPayload.activityName) {
-          var mr2 = ss.getSheetByName('MASTER_RATES');
-          if (mr2) {
-            var mrNewRow = mr2.getLastRow() + 1;
-            mr2.getRange(mrNewRow, 2, 1, 5).setValues([[
-              safeStr(setupPayload.activityName), safeStr(setupPayload.dept),
-              safeNum(setupPayload.comm), safeNum(setupPayload.rate), safeNum(setupPayload.rate)
-            ]]);
+          var ma2 = ss.getSheetByName('MASTER_ACTIVITIES');
+          if (!ma2) {
+            ma2 = ss.insertSheet('MASTER_ACTIVITIES');
+            ma2.getRange(1, 1, 1, 7).setValues([['Dept','ActivityName','Rate','Comm','Status','RequestedBy','RequestedDate']]);
           }
+          ma2.getRange(ma2.getLastRow() + 1, 1, 1, 7).setValues([[
+            safeStr(setupPayload.dept), safeStr(setupPayload.activityName),
+            safeNum(setupPayload.rate), safeNum(setupPayload.comm),
+            'APPROVED', safeStr(row[2]), safeStr(row[1])
+          ]]);
         }
       } catch(pe) { Logger.log('ACTIVITY_SETUP error: ' + pe.message); }
     }

@@ -188,6 +188,17 @@ var ENTRY_PERIOD=null;
 
 function fmt(n){return '₹'+Number(n).toLocaleString('en-IN',{maximumFractionDigits:0});}
 
+function fmtPd(ds,yr){
+  if(!ds)return '';
+  var m=String(ds).match(/^(\d{1,2})-([A-Za-z]+)-(\d{4})$/);
+  var mo={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+  var d=m?new Date(+m[3],mo[m[2].toLowerCase()],+m[1]):new Date(ds);
+  if(isNaN(d.getTime()))return String(ds);
+  var dn=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var mn=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return dn[d.getDay()]+' '+d.getDate()+' '+mn[d.getMonth()]+(yr?' '+d.getFullYear():'');
+}
+
 // ── BOOT ──────────────────────────────────────────────────────────────────────
 window.onload=function(){
   google.script.run
@@ -638,7 +649,7 @@ function renderEntry(c,reviewOnly){
     pWrap.appendChild(el('div',{style:'font-size:11px;font-weight:700;color:#4a5578;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px',text:'Payment Period'}));
     var pSel=el('select',{style:'width:100%;background:#0f1117;border:1px solid #1e2540;border-radius:10px;padding:11px 14px;color:#e8eaf0;font-size:14px;font-weight:600'});
     openPeriods.forEach(function(p){
-      var opt=el('option',{text:p.weekLabel,value:p.periodId});
+      var opt=el('option',{text:fmtPd(p.weekStart)+' – '+fmtPd(p.weekEnd,true),value:p.periodId});
       if(activePeriod&&p.periodId===activePeriod.periodId)opt.selected=true;
       pSel.appendChild(opt);
     });
@@ -653,7 +664,7 @@ function renderEntry(c,reviewOnly){
   }
   if(activePeriod&&activePeriod.weekLabel){
     var wb=el('div',{style:'background:#1a3a2a;border-left:3px solid #22c55e;padding:12px 16px;border-radius:8px;margin-bottom:12px'});
-    wb.appendChild(el('span',{style:'font-size:13px;font-weight:700;color:#22c55e',text:'Week: '+activePeriod.weekStart+' – '+activePeriod.weekEnd}));
+    wb.appendChild(el('span',{style:'font-size:13px;font-weight:700;color:#22c55e',text:fmtPd(activePeriod.weekStart)+' – '+fmtPd(activePeriod.weekEnd,true)}));
     c.appendChild(wb);
   } else {
     c.appendChild(alert_('yellow','No active period','Week not configured — tap Refresh or contact admin'));
@@ -1058,7 +1069,7 @@ function renderActivities(c){
   var addForm=el('div',{style:'display:none;background:#161b2e;border:1px solid #1e2540;border-radius:12px;padding:14px;margin-top:8px'});
   var afDG=el('div',{cls:'form-group'});afDG.appendChild(el('label',{cls:'form-label',text:'Department'}));
   var afDept=el('select',{cls:'form-select'});
-  [{v:'cutting',l:'Cutting'},{v:'prep',l:'Prep'},{v:'mat_cut',l:'Mat Cut'},{v:'fitter',l:'Fitter'},{v:'lasting',l:'Lasting'},{v:'finish',l:'Finish'},{v:'dispatch',l:'Dispatch'}].forEach(function(d){afDept.appendChild(el('option',{text:d.l,value:d.v}));});
+  [{v:'cutting',l:'Cutting'},{v:'prep',l:'Prep'},{v:'fitter',l:'Fitter'},{v:'lasting',l:'Lasting'},{v:'finish',l:'Finish'},{v:'dispatch',l:'Dispatch'}].forEach(function(d){afDept.appendChild(el('option',{text:d.l,value:d.v}));});
   afDG.appendChild(afDept);addForm.appendChild(afDG);
   var afNG=el('div',{cls:'form-group'});afNG.appendChild(el('label',{cls:'form-label',text:'Activity Name'}));
   var afName=el('input',{cls:'form-input',type:'text',placeholder:'e.g. Upper Making'});afNG.appendChild(afName);addForm.appendChild(afNG);
