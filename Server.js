@@ -1151,6 +1151,37 @@ function requestActivitySetup(payload) {
   } catch(e) { return { success:false, error:e.message }; }
 }
 
+function approveEditRequest(reqId) {
+  var user = getUserInfo();
+  if (user.role !== 'admin') return { success:false, error:'Only Ayush can approve' };
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var rq = ss.getSheetByName('REQUESTS');
+    if (!rq || rq.getLastRow() < 4) return { success:false, error:'No requests found' };
+    var data = rq.getRange(4, 1, rq.getLastRow()-3, 10).getValues();
+    var targetRow = -1, payload = null;
+    for (var i = 0; i < data.length; i++) {
+      if (safeStr(data[i][0]) === reqId && safeStr(data[i][3]) === 'EDIT_REQUEST') {
+        targetRow = i + 4;
+        try { payload = JSON.parse(safeStr(data[i][4])); } catch(pe) {}
+        break;
+      }
+    }
+    if (targetRow === -1) return { success:false, error:'Request not found: '+reqId };
+    if (!payload) return { success:false, error:'Invalid payload' };
+    var ws = ss.getSheetByName(payload.sheet);
+    if (!ws) return { success:false, error:'Sheet not found: '+payload.sheet };
+    ws.getRange('L'+payload.rowNum).setValue('DRAFT');
+    var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
+    rq.getRange(targetRow, 6).setValue('APPROVED');
+    rq.getRange(targetRow, 7).setValue('Edit approved');
+    rq.getRange(targetRow, 8).setValue(now);
+    rq.getRange(targetRow, 9).setValue('Yes');
+    SpreadsheetApp.flush();
+    return { success:true };
+  } catch(e) { return { success:false, error:e.message }; }
+}
+
 function approveRateEdit(requestId) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only Ayush can approve' };
