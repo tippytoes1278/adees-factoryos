@@ -816,10 +816,13 @@ function renderEntry(c,reviewOnly){
         })(a.sheet,subBtn,submitBtnWrap);
         submitBtnWrap.appendChild(subBtn);
       }
+      var actCounts={},actSeen={};acts.forEach(function(ac){actCounts[ac.activity]=(actCounts[ac.activity]||0)+1;});
       acts.forEach(function(ac){
+        actSeen[ac.activity]=(actSeen[ac.activity]||0)+1;
+        var isCont=actSeen[ac.activity]>1,isLast=actSeen[ac.activity]===actCounts[ac.activity];
         var row=el('div',{cls:'act-row'});
         var ai=el('div',{cls:'act-info'});
-        ai.appendChild(el('div',{cls:'act-name',text:ac.activity}));
+        ai.appendChild(el('div',{cls:'act-name',text:(isCont?'↳ ':'')+ac.activity}));
         var dispRate=ac.rate,dispComm=ac.comm;
         if(!dispRate){MASTER_ACTS.forEach(function(ma){if(ma.name===ac.activity&&!dispRate){dispRate=ma.stdRate;if(!dispComm)dispComm=ma.comm;}});}
         ai.appendChild(el('div',{cls:'act-meta',text:'₹'+(dispRate||0)+'/pr'+(dispComm?' + ₹'+dispComm+' comm':'')}));
@@ -863,12 +866,75 @@ function renderEntry(c,reviewOnly){
           row.appendChild(subRow);
         }
         body.appendChild(row);
+        if(!reviewOnly&&isLast&&ac.qty>0){
+          var contWrap=el('div',{style:'padding:2px 16px 6px 24px'});
+          var newRowsCont=el('div');
+          var addLink=el('a',{text:'+ Add Contractor',style:'font-size:11px;color:#4f8ef7;cursor:pointer'});
+          (function(sname,aname,dr,dc,nrc,subw){addLink.onclick=function(){nrc.appendChild(buildContRow(sname,aname,dr,dc,subw));};
+          })(a.sheet,ac.activity,dispRate||0,dispComm||0,newRowsCont,submitBtnWrap);
+          contWrap.appendChild(newRowsCont);contWrap.appendChild(addLink);
+          body.appendChild(contWrap);
+        }
       });
       if(!reviewOnly&&submitBtnWrap)body.appendChild(submitBtnWrap);
     }
     item.appendChild(body);
     c.appendChild(item);
   });
+}
+
+function buildContRow(sname,actName,rate,comm,subWrap){
+  var row=el('div',{cls:'act-row',style:'flex-wrap:wrap;border-left:2px solid #1e2540'});
+  var ai=el('div',{cls:'act-info'});
+  ai.appendChild(el('div',{cls:'act-name',text:'↳ '+actName}));
+  ai.appendChild(el('div',{cls:'act-meta',text:'₹'+(rate||0)+'/pr'+(comm?' + ₹'+comm+' comm':'')}));
+  row.appendChild(ai);
+  var sel=el('select',{cls:'act-contractor'});
+  sel.appendChild(el('option',{text:'Select contractor',value:''}));
+  CONTRACTORS.forEach(function(cn){sel.appendChild(el('option',{text:cn,value:cn}));});
+  var qInp=el('input',{cls:'act-qty',type:'number',placeholder:'QTY'});qInp.min=0;
+  var convInp=el('input',{type:'number',placeholder:'Conv ₹',style:'width:72px;background:#0f1117;border:1px solid #1e2540;border-radius:6px;padding:6px 8px;color:#e8eaf0;font-size:12px;text-align:center'});
+  var remInp=el('input',{type:'text',placeholder:'Remarks',style:'flex:1;background:#0f1117;border:1px solid #1e2540;border-radius:6px;padding:6px 8px;color:#e8eaf0;font-size:12px'});
+  var stWrap=el('div',{style:'display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0'});
+  var saveB=el('button',{text:'Save',style:'background:#10b981;color:#fff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});
+  (function(s,q,sb,sw,subw,cinp,rinp){
+    sb.onclick=function(){
+      var qty=parseInt(q.value)||0;
+      var contractor=s.value;
+      if(!contractor){toast('Select a contractor',true);return;}
+      if(!qty){toast('Enter quantity',true);return;}
+      var conveyance=parseFloat(cinp.value)||null;
+      var remarks=rinp.value.trim()||null;
+      var pid=ENTRY_PERIOD?ENTRY_PERIOD.periodId:null;
+      sb.disabled=true;sb.textContent='Saving…';q.style.borderColor='#f59e0b';
+      google.script.run
+        .withSuccessHandler(function(r){
+          if(r.success){
+            var rowNum=r.row;
+            q.classList.add('saved');q.style.borderColor='#10b981';
+            s.disabled=true;q.disabled=true;cinp.disabled=true;rinp.disabled=true;
+            sw.innerHTML='';
+            var sc=el('span',{cls:'badge green',text:'SAVED'});
+            var eB=el('button',{text:'Edit',style:'background:#1e2540;color:#4f8ef7;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});
+            (function(ss2,qq,c,ri,chip,eb,sww,subww){
+              eb.onclick=function(){ss2.disabled=false;qq.disabled=false;c.disabled=false;ri.disabled=false;chip.style.display='none';eb.style.display='none';var sb2=el('button',{text:'Save',style:'background:#10b981;color:#fff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});sb2.onclick=function(){saveRow(sname,rowNum,ss2,qq,sb2,sww,subww,c,ri);};sww.appendChild(sb2);};
+            })(s,q,cinp,rinp,sc,eB,sw,subw);
+            sw.appendChild(sc);sw.appendChild(eB);
+            if(subw)subw.style.display='';
+            if(r.lotStatus&&r.lotStatus.indexOf('OVER')>-1)toast('Over lot cap!',true);
+            else toast('Saved');
+          } else {sb.disabled=false;sb.textContent='Save';q.style.borderColor='#ef4444';toast(r.error||'Error',true);}
+        })
+        .withFailureHandler(function(){sb.disabled=false;sb.textContent='Save';q.style.borderColor='#ef4444';toast('Save failed',true);})
+        .addContinuationRow(sname,actName,rate,comm,contractor,qty,conveyance,remarks,pid);
+    };
+  })(sel,qInp,saveB,stWrap,subWrap,convInp,remInp);
+  stWrap.appendChild(saveB);
+  row.appendChild(sel);row.appendChild(qInp);row.appendChild(stWrap);
+  var subRow=el('div',{style:'flex-basis:100%;display:flex;gap:6px;margin-top:4px'});
+  subRow.appendChild(convInp);subRow.appendChild(remInp);
+  row.appendChild(subRow);
+  return row;
 }
 
 function saveRow(sn,rowNum,sel,qInp,saveBtn,stWrap,subWrap,convInp,remInp){

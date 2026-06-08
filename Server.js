@@ -509,6 +509,42 @@ function submitArticleEntries(sheetName, periodId) {
   } catch(e) { return { success:false, error:e.message }; }
 }
 
+function addContinuationRow(sheetName, activityName, rate, comm, contractor, qty, conveyance, remarks, periodId) {
+  var user = getUserInfo();
+  if (user.role !== 'accounts' && user.role !== 'admin')
+    return { success:false, error:'Not authorised' };
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ws = ss.getSheetByName(sheetName);
+    if (!ws) return { success:false, error:'Sheet not found' };
+    var data = ws.getRange(5, 1, 45, 2).getValues();
+    var emptyRow = -1, maxSno = 0;
+    for (var i = 0; i < data.length; i++) {
+      var sno = safeNum(data[i][0]);
+      if (sno > maxSno) maxSno = sno;
+      if (emptyRow === -1 && !safeStr(data[i][1]).trim() && !sno) emptyRow = i + 5;
+    }
+    if (emptyRow === -1) return { success:false, error:'No empty rows in sheet' };
+    ws.getRange(emptyRow, 1).setValue(maxSno + 1);
+    ws.getRange(emptyRow, 2).setValue(activityName);
+    if (rate)  ws.getRange(emptyRow, 5).setValue(rate);
+    if (comm !== null && comm !== undefined) ws.getRange(emptyRow, 6).setValue(comm);
+    ws.getRange('G'+emptyRow).setFormula('=IF(D'+emptyRow+'="",0,D'+emptyRow+'*F'+emptyRow+')');
+    ws.getRange('I'+emptyRow).setFormula('=IF(D'+emptyRow+'="",0,(D'+emptyRow+'*E'+emptyRow+')+G'+emptyRow+'+IF(H'+emptyRow+'="",0,H'+emptyRow+'))');
+    if (contractor) ws.getRange(emptyRow, 3).setValue(contractor);
+    ws.getRange(emptyRow, 4).setValue(qty||0);
+    if (conveyance) ws.getRange(emptyRow, 8).setValue(conveyance);
+    if (remarks)    ws.getRange(emptyRow, 10).setValue(remarks);
+    if (periodId)   ws.getRange('K'+emptyRow).setValue(periodId);
+    ws.getRange('L'+emptyRow).setValue('DRAFT');
+    SpreadsheetApp.flush();
+    return { success:true, row:emptyRow,
+      lotStatus: safeStr(ws.getRange('M7').getValue()),
+      thisWeek:  safeNum(ws.getRange('M4').getValue()),
+      remaining: safeNum(ws.getRange('M6').getValue()) };
+  } catch(e) { return { success:false, error:e.message }; }
+}
+
 function deleteOrder(sheetName) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only Ayush can delete orders' };
