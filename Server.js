@@ -275,8 +275,7 @@ function getEntryData(periodId) {
         var act = safeStr(r[1]);
         if (act && act.trim() && !act.match(/^[-=]/) && safeNum(r[0]) > 0) {
           var rowPeriodId = safeStr(r[10]);
-          var inPeriod = rowPeriodId === effectivePeriodId ||
-                         (!rowPeriodId && effectivePeriodId === firstOpenId);
+          var inPeriod = rowPeriodId === effectivePeriodId;
           activities.push({
             row:i+5, activity:act.trim(),
             contractor: inPeriod ? safeStr(r[2]) : '',
