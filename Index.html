@@ -504,11 +504,13 @@ function renderRequests(c){
     card.appendChild(el('div',{cls:'req-type',text:r.type}));
     var det=el('div',{cls:'req-details'});
     if(r.type==='RATE_EDIT'){
-      try{var pl=JSON.parse(r.details);det.appendChild(el('div',{text:'Rate Change: ₹'+pl.newRate+'/pr, ₹'+pl.newComm+' comm per pair'}));det.appendChild(el('div',{style:'font-size:11px;color:#4a5578',text:r.activityName||('Row '+pl.rowIndex)}));}
+      try{var pl=JSON.parse(r.details);det.appendChild(el('div',{text:'Rate Change: '+(r.activityName||('Row '+pl.rowIndex))+' → ₹'+pl.newRate+' rate, ₹'+pl.newComm+' comm'}));}
       catch(e){det.appendChild(el('div',{text:r.details}));}
     } else if(r.type==='ACTIVITY_SETUP'){
-      try{var pl2=JSON.parse(r.details);var n=pl2.activities?pl2.activities.length:0;det.appendChild(el('div',{text:'Activity Setup: '+(pl2.sheet||'?')+' — '+n+' activit'+(n===1?'y':'ies')}));}
-      catch(e2){det.appendChild(el('div',{text:r.details}));}
+      try{var pl2=JSON.parse(r.details);
+        if(pl2.activityName){det.appendChild(el('div',{text:'New Activity: '+pl2.activityName+' ('+pl2.dept+') — ₹'+pl2.rate+' rate, ₹'+pl2.comm+' comm'}));}
+        else{var n=pl2.activities?pl2.activities.length:0;det.appendChild(el('div',{text:'Activity Setup: '+(pl2.sheet||'?')+' — '+n+' activit'+(n===1?'y':'ies')}));}
+      }catch(e2){det.appendChild(el('div',{text:r.details}));}
     } else if(r.type==='CUSTOM_PERIOD_REQUEST'){
       try{var pl3=JSON.parse(r.details);det.appendChild(el('div',{text:'Custom Period: '+(pl3.fromDate||'?')+' → '+(pl3.toDate||'?')}));if(pl3.reason)det.appendChild(el('div',{style:'font-size:11px;color:#4a5578',text:'Reason: '+pl3.reason}));}
       catch(e3){det.appendChild(el('div',{text:r.details}));}
@@ -1051,6 +1053,41 @@ function renderContractors(c){
 function renderActivities(c){
   c.innerHTML='';
   c.appendChild(sectionTitle('Master Activities'));
+  var addWrap=el('div',{style:'margin-bottom:12px'});
+  var addBtn=el('button',{cls:'primary-btn',text:'+ Add Activity',style:'background:linear-gradient(135deg,#374151,#6b7280);margin-bottom:0'});
+  var addForm=el('div',{style:'display:none;background:#161b2e;border:1px solid #1e2540;border-radius:12px;padding:14px;margin-top:8px'});
+  var afDG=el('div',{cls:'form-group'});afDG.appendChild(el('label',{cls:'form-label',text:'Department'}));
+  var afDept=el('select',{cls:'form-select'});
+  [{v:'cutting',l:'Cutting'},{v:'prep',l:'Prep'},{v:'mat_cut',l:'Mat Cut'},{v:'fitter',l:'Fitter'},{v:'lasting',l:'Lasting'},{v:'finish',l:'Finish'},{v:'dispatch',l:'Dispatch'}].forEach(function(d){afDept.appendChild(el('option',{text:d.l,value:d.v}));});
+  afDG.appendChild(afDept);addForm.appendChild(afDG);
+  var afNG=el('div',{cls:'form-group'});afNG.appendChild(el('label',{cls:'form-label',text:'Activity Name'}));
+  var afName=el('input',{cls:'form-input',type:'text',placeholder:'e.g. Upper Making'});afNG.appendChild(afName);addForm.appendChild(afNG);
+  var afGrid=el('div',{style:'display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px'});
+  var afRG=el('div',{cls:'form-group',style:'margin-bottom:0'});afRG.appendChild(el('label',{cls:'form-label',text:'Rate (₹/pair)'}));
+  var afRate=el('input',{cls:'form-input',type:'number',placeholder:'0'});afRG.appendChild(afRate);afGrid.appendChild(afRG);
+  var afCG=el('div',{cls:'form-group',style:'margin-bottom:0'});afCG.appendChild(el('label',{cls:'form-label',text:'Comm (₹/pair)'}));
+  var afComm=el('input',{cls:'form-input',type:'number',placeholder:'0'});afCG.appendChild(afComm);afGrid.appendChild(afCG);
+  addForm.appendChild(afGrid);
+  var afBR=el('div',{style:'display:flex;gap:8px;align-items:center'});
+  var afSub=el('button',{cls:'primary-btn',text:'Submit for Approval',style:'flex:1;padding:12px'});
+  var afCnl=el('a',{style:'font-size:12px;color:#4a5578;cursor:pointer;text-decoration:underline',text:'Cancel'});
+  afBR.appendChild(afSub);afBR.appendChild(afCnl);addForm.appendChild(afBR);
+  addBtn.onclick=function(){addForm.style.display='block';addBtn.style.display='none';};
+  afCnl.onclick=function(){addForm.style.display='none';addBtn.style.display='';};
+  afSub.onclick=function(){
+    var nm=afName.value.trim();if(!nm){toast('Enter activity name',true);return;}
+    var rt=parseFloat(afRate.value)||0;if(!rt){toast('Enter a rate',true);return;}
+    afSub.disabled=true;afSub.textContent='Submitting…';
+    google.script.run
+      .withSuccessHandler(function(r){
+        afSub.disabled=false;afSub.textContent='Submit for Approval';
+        if(r&&r.success){toast('Submitted for approval');addForm.style.display='none';addBtn.style.display='';afName.value='';afRate.value='';afComm.value='';}
+        else toast((r&&r.error)||'Error',true);
+      })
+      .withFailureHandler(function(){afSub.disabled=false;afSub.textContent='Submit for Approval';toast('Error',true);})
+      .requestActivitySetup({dept:afDept.value,activityName:nm,rate:rt,comm:parseFloat(afComm.value)||0});
+  };
+  addWrap.appendChild(addBtn);addWrap.appendChild(addForm);c.appendChild(addWrap);
   if(!MASTER_ACTS.length){c.appendChild(el('div',{style:'color:#4a5578;padding:40px;text-align:center',text:'No activities — open Entry tab first'}));return;}
   MASTER_ACTS.forEach(function(ma){
     var card=el('div',{cls:'card',style:'margin-bottom:10px;padding:12px 14px'});
@@ -1080,7 +1117,7 @@ function renderActivities(c){
       top.appendChild(editBtn);
       var editForm=el('div',{style:'display:none;margin-top:10px;padding-top:10px;border-top:1px solid #1e2540'});
       var r2=el('div',{style:'display:flex;gap:8px;margin-bottom:8px'});
-      var rInp=el('input',{type:'number',placeholder:'New Rate ₹',style:'flex:1;background:#0f1117;border:1px solid #1e2540;border-radius:8px;padding:8px;color:#e8eaf0;font-size:13px;text-align:center'});
+      var rInp=el('input',{type:'number',placeholder:'New Rate ₹',value:ma.stdRate||'',style:'flex:1;background:#0f1117;border:1px solid #1e2540;border-radius:8px;padding:8px;color:#e8eaf0;font-size:13px;text-align:center'});
       var cInp=el('input',{type:'number',placeholder:'New Comm ₹',style:'flex:1;background:#0f1117;border:1px solid #1e2540;border-radius:8px;padding:8px;color:#e8eaf0;font-size:13px;text-align:center'});
       r2.appendChild(rInp);r2.appendChild(cInp);
       editForm.appendChild(r2);

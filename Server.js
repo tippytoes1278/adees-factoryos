@@ -448,8 +448,18 @@ function processRequest(rowNum, action, notes) {
     if (action === 'APPROVE' && safeStr(row[3]) === 'ACTIVITY_SETUP') {
       try {
         var setupPayload = JSON.parse(safeStr(row[4]));
-        if (setupPayload && setupPayload.sheet && setupPayload.activities)
+        if (setupPayload && setupPayload.sheet && setupPayload.activities) {
           saveActivitySetup(setupPayload.sheet, setupPayload.activities);
+        } else if (setupPayload && setupPayload.activityName) {
+          var mr2 = ss.getSheetByName('MASTER_RATES');
+          if (mr2) {
+            var mrNewRow = mr2.getLastRow() + 1;
+            mr2.getRange(mrNewRow, 2, 1, 5).setValues([[
+              safeStr(setupPayload.activityName), safeStr(setupPayload.dept),
+              safeNum(setupPayload.comm), safeNum(setupPayload.rate), safeNum(setupPayload.rate)
+            ]]);
+          }
+        }
       } catch(pe) { Logger.log('ACTIVITY_SETUP error: ' + pe.message); }
     }
     if (action === 'APPROVE' && safeStr(row[3]) === 'CUSTOM_PERIOD_REQUEST') {
@@ -886,6 +896,22 @@ function requestActivityRateEdit(rowIndex, newRate, newComm) {
     var payload = JSON.stringify({ rowIndex:rowIndex, newRate:newRate, newComm:newComm });
     rq.getRange(lastRow, 1, 1, 10).setValues([[
       reqId, now, user.name, 'RATE_EDIT', payload, 'PENDING', '', '', 'No', ''
+    ]]);
+    SpreadsheetApp.flush();
+    return { success:true, reqId:reqId };
+  } catch(e) { return { success:false, error:e.message }; }
+}
+
+function requestActivitySetup(payload) {
+  var user = getUserInfo();
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var rq = ss.getSheetByName('REQUESTS');
+    var lastRow = Math.max(rq.getLastRow(), 3) + 1;
+    var reqId = 'REQ-' + ('00' + (lastRow - 3)).slice(-3);
+    var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
+    rq.getRange(lastRow, 1, 1, 10).setValues([[
+      reqId, now, user.name, 'ACTIVITY_SETUP', JSON.stringify(payload), 'PENDING', '', '', 'No', ''
     ]]);
     SpreadsheetApp.flush();
     return { success:true, reqId:reqId };
