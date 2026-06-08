@@ -1138,36 +1138,58 @@ function renderActivities(c){
   var addWrap=el('div',{style:'margin-bottom:12px'});
   var addBtn=el('button',{cls:'primary-btn',text:'+ Add Activity',style:'background:linear-gradient(135deg,#374151,#6b7280);margin-bottom:0'});
   var addForm=el('div',{style:'display:none;background:#161b2e;border:1px solid #1e2540;border-radius:12px;padding:14px;margin-top:8px'});
-  var afDG=el('div',{cls:'form-group'});afDG.appendChild(el('label',{cls:'form-label',text:'Department'}));
-  var afDept=el('select',{cls:'form-select'});
-  [{v:'cutting',l:'Cutting'},{v:'prep',l:'Prep'},{v:'fitter',l:'Fitter'},{v:'lasting',l:'Lasting'},{v:'finish',l:'Finish'},{v:'dispatch',l:'Dispatch'}].forEach(function(d){afDept.appendChild(el('option',{text:d.l,value:d.v}));});
-  afDG.appendChild(afDept);addForm.appendChild(afDG);
-  var afNG=el('div',{cls:'form-group'});afNG.appendChild(el('label',{cls:'form-label',text:'Activity Name'}));
-  var afName=el('input',{cls:'form-input',type:'text',placeholder:'e.g. Upper Making'});afNG.appendChild(afName);addForm.appendChild(afNG);
-  var afGrid=el('div',{style:'display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px'});
-  var afRG=el('div',{cls:'form-group',style:'margin-bottom:0'});afRG.appendChild(el('label',{cls:'form-label',text:'Rate (₹/pair)'}));
-  var afRate=el('input',{cls:'form-input',type:'number',placeholder:'0'});afRG.appendChild(afRate);afGrid.appendChild(afRG);
-  var afCG=el('div',{cls:'form-group',style:'margin-bottom:0'});afCG.appendChild(el('label',{cls:'form-label',text:'Comm (₹/pair)'}));
-  var afComm=el('input',{cls:'form-input',type:'number',placeholder:'0'});afCG.appendChild(afComm);afGrid.appendChild(afCG);
-  addForm.appendChild(afGrid);
+  var rowsWrap=el('div');
+  var actRows=[];
+  function makeActRow(){
+    var rowDiv=el('div',{style:'padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid #1e2540'});
+    var dG=el('div',{cls:'form-group'});dG.appendChild(el('label',{cls:'form-label',text:'Department'}));
+    var dSel=el('select',{cls:'form-select'});
+    [{v:'cutting',l:'Cutting'},{v:'prep',l:'Prep'},{v:'fitter',l:'Fitter'},{v:'lasting',l:'Lasting'},{v:'finish',l:'Finish'},{v:'dispatch',l:'Dispatch'}].forEach(function(d){dSel.appendChild(el('option',{text:d.l,value:d.v}));});
+    dG.appendChild(dSel);rowDiv.appendChild(dG);
+    var nG=el('div',{cls:'form-group'});nG.appendChild(el('label',{cls:'form-label',text:'Activity Name *'}));
+    var nI=el('input',{cls:'form-input',type:'text',placeholder:'e.g. Upper Making'});nG.appendChild(nI);rowDiv.appendChild(nG);
+    var grid=el('div',{style:'display:grid;grid-template-columns:1fr 1fr;gap:10px'});
+    var rG=el('div',{cls:'form-group',style:'margin-bottom:0'});rG.appendChild(el('label',{cls:'form-label',text:'Rate (₹/pair) *'}));
+    var rI=el('input',{cls:'form-input',type:'number',placeholder:'0'});rG.appendChild(rI);grid.appendChild(rG);
+    var cG=el('div',{cls:'form-group',style:'margin-bottom:0'});cG.appendChild(el('label',{cls:'form-label',text:'Comm (₹/pair)'}));
+    var cI=el('input',{cls:'form-input',type:'number',placeholder:'0'});cG.appendChild(cI);grid.appendChild(cG);
+    rowDiv.appendChild(grid);
+    var entry={rowDiv:rowDiv,dept:dSel,name:nI,rate:rI,comm:cI};
+    var delBtn=el('button',{text:'✕ Remove',style:'background:none;color:#4a5578;font-size:11px;margin-top:8px;padding:0;cursor:pointer'});
+    (function(e){delBtn.onclick=function(){var i=actRows.indexOf(e);if(i>-1)actRows.splice(i,1);rowsWrap.removeChild(rowDiv);updDel();};})(entry);
+    entry.delBtn=delBtn;rowDiv.appendChild(delBtn);
+    actRows.push(entry);rowsWrap.appendChild(rowDiv);updDel();
+  }
+  function updDel(){actRows.forEach(function(e){e.delBtn.style.display=actRows.length>1?'':'none';});}
+  makeActRow();
+  addForm.appendChild(rowsWrap);
+  var addMoreBtn=el('button',{text:'+ Add Another',style:'background:#1e2540;color:#4f8ef7;font-size:13px;font-weight:700;padding:8px 14px;border-radius:8px;width:100%;margin-bottom:10px'});
+  addMoreBtn.onclick=function(){makeActRow();};
+  addForm.appendChild(addMoreBtn);
   var afBR=el('div',{style:'display:flex;gap:8px;align-items:center'});
-  var afSub=el('button',{cls:'primary-btn',text:'Submit for Approval',style:'flex:1;padding:12px'});
+  var afSub=el('button',{cls:'primary-btn',text:'Submit All for Approval',style:'flex:1;padding:12px'});
   var afCnl=el('a',{style:'font-size:12px;color:#4a5578;cursor:pointer;text-decoration:underline',text:'Cancel'});
   afBR.appendChild(afSub);afBR.appendChild(afCnl);addForm.appendChild(afBR);
   addBtn.onclick=function(){addForm.style.display='block';addBtn.style.display='none';};
-  afCnl.onclick=function(){addForm.style.display='none';addBtn.style.display='';};
+  function resetActForm(){addForm.style.display='none';addBtn.style.display='';rowsWrap.innerHTML='';actRows=[];makeActRow();}
+  afCnl.onclick=resetActForm;
   afSub.onclick=function(){
-    var nm=afName.value.trim();if(!nm){toast('Enter activity name',true);return;}
-    var rt=parseFloat(afRate.value)||0;if(!rt){toast('Enter a rate',true);return;}
+    var items=[],valid=true;
+    actRows.forEach(function(e){
+      var nm=e.name.value.trim(),rt=parseFloat(e.rate.value)||0;
+      if(!nm||!rt){valid=false;return;}
+      items.push({dept:e.dept.value,activityName:nm,rate:rt,comm:parseFloat(e.comm.value)||0});
+    });
+    if(!valid||!items.length){toast('Each activity needs a name and rate',true);return;}
     afSub.disabled=true;afSub.textContent='Submitting…';
     google.script.run
       .withSuccessHandler(function(r){
-        afSub.disabled=false;afSub.textContent='Submit for Approval';
-        if(r&&r.success){toast('Submitted for approval');addForm.style.display='none';addBtn.style.display='';afName.value='';afRate.value='';afComm.value='';}
+        afSub.disabled=false;afSub.textContent='Submit All for Approval';
+        if(r&&r.success){toast('Submitted '+r.count+' activit'+(r.count===1?'y':'ies')+' for approval');resetActForm();D.entry=null;loadTab('activities');}
         else toast((r&&r.error)||'Error',true);
       })
-      .withFailureHandler(function(){afSub.disabled=false;afSub.textContent='Submit for Approval';toast('Error',true);})
-      .requestActivitySetup({dept:afDept.value,activityName:nm,rate:rt,comm:parseFloat(afComm.value)||0});
+      .withFailureHandler(function(){afSub.disabled=false;afSub.textContent='Submit All for Approval';toast('Error',true);})
+      .requestActivitySetup(items);
   };
   addWrap.appendChild(addBtn);addWrap.appendChild(addForm);c.appendChild(addWrap);
   if(!MASTER_ACTS.length){c.appendChild(el('div',{style:'color:#4a5578;padding:40px;text-align:center',text:'No activities — open Entry tab first'}));return;}

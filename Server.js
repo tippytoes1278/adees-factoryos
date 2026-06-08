@@ -1009,14 +1009,19 @@ function requestActivitySetup(payload) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var rq = ss.getSheetByName('REQUESTS');
-    var lastRow = Math.max(rq.getLastRow(), 3) + 1;
-    var reqId = 'REQ-' + ('00' + (lastRow - 3)).slice(-3);
     var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
-    rq.getRange(lastRow, 1, 1, 10).setValues([[
-      reqId, now, user.name, 'ACTIVITY_SETUP', JSON.stringify(payload), 'PENDING', '', '', 'No', ''
-    ]]);
+    var items = Array.isArray(payload) ? payload : [payload];
+    var lastReqId = '';
+    items.forEach(function(item) {
+      var lastRow = Math.max(rq.getLastRow(), 3) + 1;
+      var reqId = 'REQ-' + ('00' + (lastRow - 3)).slice(-3);
+      rq.getRange(lastRow, 1, 1, 10).setValues([[
+        reqId, now, user.name, 'ACTIVITY_SETUP', JSON.stringify(item), 'PENDING', '', '', 'No', ''
+      ]]);
+      lastReqId = reqId;
+    });
     SpreadsheetApp.flush();
-    return { success:true, reqId:reqId };
+    return { success:true, reqId:lastReqId, count:items.length };
   } catch(e) { return { success:false, error:e.message }; }
 }
 
