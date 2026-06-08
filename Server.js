@@ -23,7 +23,6 @@ function getUserInfo() {
   var role  = ROLES[email] || 'viewer';
   var first = email.split('@')[0];
   var name  = first.charAt(0).toUpperCase() + first.slice(1);
-  Logger.log('User: ' + email + ' | Role: ' + role);
   return { email:email, role:role, name:name };
 }
 
@@ -180,12 +179,30 @@ function getDashboardData() {
     }
   } catch(e) { Logger.log('RQ error: ' + e.message); }
 
+  var contractorSummary = [];
+  try {
+    var csMap = {};
+    ss.getSheets().filter(isArtSheet).forEach(function(ws) {
+      try {
+        ws.getRange(5, 2, 45, 8).getValues().forEach(function(r) {
+          var ctr = safeStr(r[1]);
+          var qty = safeNum(r[2]);
+          if (!ctr || !qty) return;
+          if (!csMap[ctr]) csMap[ctr] = {name:ctr, qty:0, amount:0};
+          csMap[ctr].qty += qty;
+          csMap[ctr].amount += qty * safeNum(r[3]) + qty * safeNum(r[4]);
+        });
+      } catch(e) {}
+    });
+    contractorSummary = Object.keys(csMap).map(function(k){return csMap[k];}).sort(function(a,b){return b.amount-a.amount;});
+  } catch(e) {}
+
   return {
     weeklyPayout:weeklyPayout, approvalStatus:approvalStatus,
     weekEnding:weekEnding, orders:orders, redCount:redCount,
     completeCount:completeCount, mismatches:mismatches,
     pendingCount:pendingCount, totalOrders:orders.length,
-    costPerPair:[]
+    contractorSummary:contractorSummary
   };
 }
 
@@ -209,7 +226,7 @@ function getEntryData() {
       var activities = [];
       actData.forEach(function(r, i) {
         var act = safeStr(r[1]);
-        if (act && act.trim() && !act.match(/^[-=]/)) {
+        if (act && act.trim() && !act.match(/^[-=]/) && safeNum(r[0]) > 0) {
           activities.push({
             row:i+5, activity:act.trim(),
             contractor:safeStr(r[2]), qty:safeNum(r[3]),
@@ -222,6 +239,21 @@ function getEntryData() {
         remaining:remaining, activities:activities });
     } catch(e) { Logger.log('ART error ' + ws.getName() + ': ' + e.message); }
   });
+
+  try {
+    var rqSetup = ss.getSheetByName('REQUESTS');
+    if (rqSetup && rqSetup.getLastRow() > 3) {
+      rqSetup.getRange(4, 1, rqSetup.getLastRow()-3, 6).getValues().forEach(function(rr) {
+        if (safeStr(rr[3]) !== 'ACTIVITY_SETUP' || safeStr(rr[5]).toUpperCase() !== 'PENDING') return;
+        try {
+          var setupPl = JSON.parse(safeStr(rr[4]));
+          if (setupPl && setupPl.sheet)
+            for (var ai = 0; ai < articles.length; ai++)
+              if (articles[ai].sheet === setupPl.sheet) articles[ai].hasPendingSetup = true;
+        } catch(pe) {}
+      });
+    }
+  } catch(e4) {}
 
   var contractors = [];
   try {
@@ -292,6 +324,14 @@ function saveEntry(sheetName, row, contractor, qty, conveyance, remarks) {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var ws = ss.getSheetByName(sheetName);
     if (!ws) return { success:false, error:'Sheet not found' };
+    var prevQty = safeNum(ws.getRange('D'+row).getValue());
+    if (prevQty > 0 && (qty||0) !== prevQty) {
+      try {
+        var plog = ss.getSheetByName('PAYMENT_LOG');
+        if (!plog) { plog = ss.insertSheet('PAYMENT_LOG'); plog.getRange(1,1,1,7).setValues([['Timestamp','User','Sheet','Row','Activity','Qty','Status']]); }
+        plog.appendRow([Utilities.formatDate(new Date(),Session.getScriptTimeZone(),'dd-MMM-yyyy HH:mm'), user.name, sheetName, row, safeStr(ws.getRange('B'+row).getValue()), prevQty, 'VOIDED']);
+      } catch(le) {}
+    }
     if (contractor) ws.getRange('C'+row).setValue(contractor);
     ws.getRange('D'+row).setValue(qty||0);
     if (conveyance) ws.getRange('H'+row).setValue(conveyance);
@@ -350,6 +390,17 @@ function getPendingRequests() {
       });
     }
   } catch(e) {}
+  var mrMap = {};
+  try {
+    var mr = ss.getSheetByName('MASTER_RATES');
+    if (mr && mr.getLastRow() > 3)
+      mr.getRange(4, 2, mr.getLastRow()-3, 1).getValues().forEach(function(r,i){ mrMap[4+i] = safeStr(r[0]); });
+  } catch(e) {}
+  requests.forEach(function(req) {
+    if (req.type === 'RATE_EDIT') {
+      try { var pl = JSON.parse(req.details); if (pl && pl.rowIndex) req.activityName = mrMap[pl.rowIndex] || ''; } catch(e) {}
+    }
+  });
   return { requests:requests };
 }
 
@@ -389,7 +440,6 @@ function processRequest(rowNum, action, notes) {
     if (action === 'APPROVE' && safeStr(row[3]) === 'ACTIVITY_SETUP') {
       try {
         var setupPayload = JSON.parse(safeStr(row[4]));
-        Logger.log('ACTIVITY_SETUP payload: ' + JSON.stringify(setupPayload));
         if (setupPayload && setupPayload.sheet && setupPayload.activities)
           saveActivitySetup(setupPayload.sheet, setupPayload.activities);
       } catch(pe) { Logger.log('ACTIVITY_SETUP error: ' + pe.message); }
@@ -409,14 +459,13 @@ function processRequest(rowNum, action, notes) {
             }
             var cpDays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
             var cpMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-            var fmtCp = function(ds) { var d = new Date(ds); return cpDays[d.getDay()]+' '+d.getDate()+' '+cpMonths[d.getMonth()]+' '+d.getFullYear(); };
+            var fmtCp = function(ds) { var p=ds.split('-'); var d=new Date(+p[0],+p[1]-1,+p[2]); return cpDays[d.getDay()]+' '+d.getDate()+' '+cpMonths[d.getMonth()]+' '+d.getFullYear(); };
             var cpLabel = fmtCp(cpPayload.fromDate) + ' – ' + fmtCp(cpPayload.toDate);
             var cpId = 'W-' + cpPayload.fromDate.replace(/-/g, '');
             pp.getRange(pp.getLastRow() + 1, 1, 1, 7).setValues([[
               cpId, 'Custom', cpLabel, cpPayload.fromDate, cpPayload.toDate,
               cpPayload.reason || '', 'OPEN'
             ]]);
-            Logger.log('CUSTOM_PERIOD_REQUEST: created ' + cpId + ' ' + cpLabel);
           }
         }
       } catch(pe) { Logger.log('CUSTOM_PERIOD_REQUEST error: ' + pe.message); }
@@ -426,8 +475,13 @@ function processRequest(rowNum, action, notes) {
         var noPayload = JSON.parse(safeStr(row[4]));
         var noResult = createOrder(noPayload);
         if (noResult.success) sheetCreated = noResult.bomNumber + ' → ' + noResult.artSheet;
-        Logger.log('NEW_ORDER: ' + JSON.stringify(noResult));
       } catch(pe) { Logger.log('NEW_ORDER error: ' + pe.message); }
+    }
+    if (action === 'APPROVE' && safeStr(row[3]) === 'PAYMENT') {
+      try {
+        var wm2 = ss.getSheetByName('WEEKLY PAYMENT MASTER');
+        if (wm2) wm2.getRange('B57').setValue(user.name + ' — ' + now);
+      } catch(pe) { Logger.log('PAYMENT approval error: ' + pe.message); }
     }
     SpreadsheetApp.flush();
     return { success:true, action:action, sheetCreated:sheetCreated };
@@ -721,6 +775,26 @@ function getPrintSummary() {
   return records;
 }
 
+function approvePeriodPayment(weekLabel) {
+  var user = getUserInfo();
+  if (user.role !== 'admin') return { success:false, error:'Only admin can approve' };
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ph = ss.getSheetByName('PAYMENT_HISTORY');
+    if (!ph || ph.getLastRow() < 4) return { success:false, error:'No payment history found' };
+    var data = ph.getRange(4, 1, ph.getLastRow()-3, 8).getValues();
+    var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
+    var count = 0;
+    for (var i = 0; i < data.length; i++) {
+      if (safeStr(data[i][0]) === weekLabel && !safeStr(data[i][6])) {
+        ph.getRange(i + 4, 7).setValue(user.name + ' — ' + now);
+        count++;
+      }
+    }
+    SpreadsheetApp.flush();
+    return { success:true, count:count };
+  } catch(e) { return { success:false, error:e.message }; }
+}
 
 function rejectRequest(reqId) {
   var user = getUserInfo();
@@ -758,12 +832,10 @@ function WIPE_AND_RESET() {
     wr.getRange(5, 1, wr.getLastRow()-4, 10).clearContent();
   var wm = ss.getSheetByName('WEEKLY PAYMENT MASTER');
   if (wm) wm.getRange('B57').clearContent();
-  Logger.log('WIPE COMPLETE');
   return { success:true };
 }
 
 function saveActivitySetup(sheet, activities) {
-  Logger.log('saveActivitySetup: sheet=' + sheet + ' count=' + (activities?activities.length:0));
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var ws = ss.getSheetByName(sheet);
@@ -815,7 +887,6 @@ function requestActivityRateEdit(rowIndex, newRate, newComm) {
 function approveRateEdit(requestId) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only Ayush can approve' };
-  Logger.log('approveRateEdit: requestId=' + requestId);
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var rq = ss.getSheetByName('REQUESTS');
@@ -831,7 +902,6 @@ function approveRateEdit(requestId) {
     }
     if (targetRow === -1) return { success:false, error:'Request not found: ' + requestId };
     if (!payload) return { success:false, error:'Invalid payload for: ' + requestId };
-    Logger.log('approveRateEdit: rowIndex=' + payload.rowIndex + ' newRate=' + payload.newRate + ' newComm=' + payload.newComm);
     var ma = ss.getSheetByName('MASTER_RATES');
     if (!ma) return { success:false, error:'MASTER_RATES sheet not found' };
     ma.getRange(payload.rowIndex, 3).setValue(payload.newRate);
@@ -919,7 +989,6 @@ function createArtTemplate() {
   ws.getRange('L16').setValue('SEASON');   ws.getRange('L17').setValue('MONTH');
   ws.getRange('L18').setValue('BRAND');
   ws.getRange('Q2').setFormula('=M4');
-  Logger.log('ART-TEMPLATE created');
   return 'ART-TEMPLATE created';
 }
 
@@ -1024,7 +1093,6 @@ function createOrder(payload) {
       wr.getRange(wrRow, 7).setFormula('=IF(D'+wrRow+'="","AWAITING",IF(D'+wrRow+'=E'+wrRow+',"MATCH",IF(E'+wrRow+'>D'+wrRow+',"PAID > MADE","UNDER-PAID")))');
     }
     SpreadsheetApp.flush();
-    Logger.log('createOrder: ' + bomNumber + ' → ' + artSheet);
     return { success:true, bomNumber:bomNumber, artSheet:artSheet };
   } catch(e) { Logger.log('createOrder error: ' + e.message); return { success:false, error:e.message }; }
 }
