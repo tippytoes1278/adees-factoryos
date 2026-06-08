@@ -868,8 +868,8 @@ function renderNO_CreateTS(c){
   var snG=el('div',{cls:'form-group',style:'margin-bottom:0'});snG.appendChild(el('label',{cls:'form-label',text:'Season'}));
   var snS=el('select',{cls:'form-select'});['SS26','AW26','SS27','AW27'].forEach(function(s){snS.appendChild(el('option',{text:s,value:s}));});snG.appendChild(snS);gr2.appendChild(snG);
   card.appendChild(gr2);c.appendChild(card);
-  var DEPTS=['Cutting','Preparation','Fitter','Lasting','Finishing'];
-  var SECT_MAP={'Cutting':['1 — Cutting'],'Preparation':['2 — Preparation','2.1 — Mat. Cut'],'Fitter':['3 — Fitter'],'Lasting':['4 — Lasting'],'Finishing':['5 — Finish']};
+  var DEPTS=['Cutting','Preparation','Fitter','Lasting','Finishing','Dispatch'];
+  var DEPT_VAL={'Cutting':'cutting','Preparation':'prep','Fitter':'fitter','Lasting':'lasting','Finishing':'finish','Dispatch':'dispatch'};
   var armMap={};MASTER_ACTS.forEach(function(ma){armMap[ma.name]=ma.stdRate;});
   var tsAD={};DEPTS.forEach(function(d){tsAD[d]=[];});
   var acCard=el('div',{cls:'card'});acCard.appendChild(el('div',{cls:'section-title',text:'Activities & Rates'}));
@@ -878,8 +878,8 @@ function renderNO_CreateTS(c){
     sec.appendChild(el('div',{style:'font-size:12px;font-weight:700;color:#7986a3;text-transform:uppercase;margin-bottom:6px',text:dept}));
     var aS=el('select',{style:'width:100%;background:#0f1117;border:1px solid #1e2540;border-radius:8px;padding:8px 10px;color:#e8eaf0;font-size:13px;margin-bottom:6px'});
     aS.appendChild(el('option',{text:'Select activity…',value:''}));
-    var dA=MASTER_ACTS.filter(function(ma){return SECT_MAP[dept]&&SECT_MAP[dept].indexOf(ma.section)>-1;});
-    (dA.length?dA:MASTER_ACTS).forEach(function(ma){aS.appendChild(el('option',{text:ma.name,value:ma.name}));});
+    var dA=MASTER_ACTS.filter(function(ma){return ma.section===DEPT_VAL[dept];});
+    dA.forEach(function(ma){aS.appendChild(el('option',{text:ma.name,value:ma.name}));});
     sec.appendChild(aS);
     var cr=el('div',{style:'display:flex;gap:6px;align-items:center;margin-bottom:6px'});
     var rI=el('input',{type:'number',placeholder:'Rate ₹',style:'flex:1;background:#0f1117;border:1px solid #1e2540;border-radius:8px;padding:8px;color:#e8eaf0;font-size:13px;text-align:center;min-width:0'});
