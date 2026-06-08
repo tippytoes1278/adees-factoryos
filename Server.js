@@ -257,7 +257,7 @@ function getEntryData() {
       var thisWeek = safeNum(ws.getRange('M4').getValue());
       var remaining= safeNum(ws.getRange('M6').getValue());
 
-      var actData = ws.getRange(5, 1, 45, 10).getValues();
+      var actData = ws.getRange(5, 1, 45, 11).getValues();
       var activities = [];
       actData.forEach(function(r, i) {
         var act = safeStr(r[1]);
@@ -265,7 +265,8 @@ function getEntryData() {
           activities.push({
             row:i+5, activity:act.trim(),
             contractor:safeStr(r[2]), qty:safeNum(r[3]),
-            rate:safeNum(r[4]), comm:safeNum(r[5]), total:safeNum(r[8])
+            rate:safeNum(r[4]), comm:safeNum(r[5]), total:safeNum(r[8]),
+            entryStatus:safeStr(r[10])
           });
         }
       });
@@ -443,11 +444,48 @@ function saveEntry(sheetName, row, contractor, qty, conveyance, remarks, rate, c
     if (comm !== null && comm !== undefined) ws.getRange('F'+row).setValue(comm);
     if (conveyance) ws.getRange('H'+row).setValue(conveyance);
     if (remarks)    ws.getRange('J'+row).setValue(remarks);
+    ws.getRange('K'+row).setValue('DRAFT');
     SpreadsheetApp.flush();
     return { success:true,
       lotStatus: safeStr(ws.getRange('M7').getValue()),
       thisWeek:  safeNum(ws.getRange('M4').getValue()),
       remaining: safeNum(ws.getRange('M6').getValue()) };
+  } catch(e) { return { success:false, error:e.message }; }
+}
+
+function submitArticleEntries(sheetName, periodId) {
+  var user = getUserInfo();
+  if (user.role !== 'accounts' && user.role !== 'admin')
+    return { success:false, error:'Not authorised' };
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ws = ss.getSheetByName(sheetName);
+    if (!ws) return { success:false, error:'Sheet not found' };
+    var data = ws.getRange(5, 1, 45, 11).getValues();
+    var submittedActs = [];
+    data.forEach(function(r, i) {
+      if (!safeStr(r[1]).trim() || safeNum(r[0]) <= 0) return;
+      var st = safeStr(r[10]).toUpperCase();
+      if (st === 'DRAFT' || (safeNum(r[3]) > 0 && st !== 'SUBMITTED')) {
+        ws.getRange('K'+(i+5)).setValue('SUBMITTED');
+        submittedActs.push(safeStr(r[1]));
+      }
+    });
+    if (!submittedActs.length) return { success:false, error:'No saved entries to submit' };
+    SpreadsheetApp.flush();
+    var rq = ss.getSheetByName('REQUESTS');
+    if (!rq) return { success:true, count:submittedActs.length };
+    var lastRow = Math.max(rq.getLastRow(), 3) + 1;
+    var reqId = 'REQ-' + ('00' + (lastRow - 3)).slice(-3);
+    var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
+    var article = safeStr(ws.getRange('B2').getValue());
+    rq.getRange(lastRow, 1, 1, 10).setValues([[
+      reqId, now, user.name, 'PAYMENT_SUBMISSION',
+      JSON.stringify({sheet:sheetName, article:article, periodId:periodId||'', count:submittedActs.length}),
+      'PENDING', '', '', 'No', ''
+    ]]);
+    SpreadsheetApp.flush();
+    return { success:true, count:submittedActs.length, reqId:reqId };
   } catch(e) { return { success:false, error:e.message }; }
 }
 

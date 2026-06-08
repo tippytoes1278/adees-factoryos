@@ -790,6 +790,26 @@ function renderEntry(c,reviewOnly){
       }
     }
     else{
+      var hasDraft=!reviewOnly&&acts.some(function(ac){var s=(ac.entryStatus||'').toUpperCase();return s==='DRAFT'||(ac.qty>0&&s!=='SUBMITTED');});
+      var submitBtnWrap=null;
+      if(!reviewOnly){
+        submitBtnWrap=el('div',{style:'padding:12px 16px;border-top:1px solid #1e2540;'+(hasDraft?'':'display:none')});
+        var subBtn=el('button',{cls:'primary-btn',text:'Submit for Payment',style:'font-size:13px;font-weight:700;padding:12px;border-radius:10px'});
+        (function(sname,btn,wrap){
+          btn.onclick=function(){
+            btn.disabled=true;btn.textContent='Submitting…';
+            var pid=ENTRY_PERIOD?ENTRY_PERIOD.periodId:'';
+            google.script.run
+              .withSuccessHandler(function(r){
+                if(r&&r.success){toast('Submitted '+r.count+' entr'+(r.count===1?'y':'ies')+' for payment');wrap.style.display='none';D.entry=null;}
+                else{toast((r&&r.error)||'Error',true);btn.disabled=false;btn.textContent='Submit for Payment';}
+              })
+              .withFailureHandler(function(){toast('Error',true);btn.disabled=false;btn.textContent='Submit for Payment';})
+              .submitArticleEntries(sname,pid);
+          };
+        })(a.sheet,subBtn,submitBtnWrap);
+        submitBtnWrap.appendChild(subBtn);
+      }
       acts.forEach(function(ac){
         var row=el('div',{cls:'act-row'});
         var ai=el('div',{cls:'act-info'});
@@ -801,54 +821,81 @@ function renderEntry(c,reviewOnly){
         if(reviewOnly){
           row.appendChild(el('span',{cls:'badge '+(ac.qty>0?'green':'grey'),text:ac.qty>0?(ac.qty+' pairs'):'--'}));
         } else {
-          var rInpRow=el('input',{type:'number',value:dispRate||'',placeholder:'Rate',style:'width:58px;background:#0f1117;border:1px solid #1e2540;border-radius:6px;padding:5px;color:#7986a3;font-size:11px;text-align:center;display:none'});
-          var cInpRow=el('input',{type:'number',value:dispComm||'',placeholder:'Comm',style:'width:58px;background:#0f1117;border:1px solid #1e2540;border-radius:6px;padding:5px;color:#7986a3;font-size:11px;text-align:center;display:none'});
-          var rcEditBtn=el('button',{text:'edit rate',style:'background:none;color:#4a5578;font-size:10px;padding:1px 0 0;cursor:pointer;display:block'});
-          (function(ri,ci,eb){eb.onclick=function(){var open=ri.style.display==='none';ri.style.display=open?'inline-block':'none';ci.style.display=open?'inline-block':'none';eb.textContent=open?'done':'edit rate';};})(rInpRow,cInpRow,rcEditBtn);
-          ai.appendChild(rcEditBtn);
-          var rcRow=el('div',{style:'display:flex;gap:4px;margin-top:4px'});
-          rcRow.appendChild(rInpRow);rcRow.appendChild(cInpRow);ai.appendChild(rcRow);
+          var entSt=(ac.entryStatus||'').toUpperCase();
+          var isSubmitted=entSt==='SUBMITTED';
+          var isSaved=entSt==='DRAFT'||(ac.qty>0&&!isSubmitted);
           var sel=el('select',{cls:'act-contractor'});
-          var defOpt=el('option',{text:'Select contractor',value:''});
-          sel.appendChild(defOpt);
-          CONTRACTORS.forEach(function(cn){
-            var opt=el('option',{text:cn,value:cn});
-            if(cn===ac.contractor)opt.selected=true;
-            sel.appendChild(opt);
-          });
+          sel.appendChild(el('option',{text:'Select contractor',value:''}));
+          CONTRACTORS.forEach(function(cn){var opt=el('option',{text:cn,value:cn});if(cn===ac.contractor)opt.selected=true;sel.appendChild(opt);});
           var qInp=el('input',{cls:'act-qty '+(ac.qty>0?'saved':''),type:'number',value:ac.qty||'',placeholder:'QTY'});
           qInp.min=0;
-          var sn=a.sheet, rowNum=ac.row;
+          var sn=a.sheet,rowNum=ac.row;
           sel.onchange=function(){qInp.classList.remove('saved');};
-          qInp.onblur=function(){saveRow(sn,rowNum,sel,qInp,rInpRow,cInpRow);};
-          row.appendChild(sel);
-          row.appendChild(qInp);
+          var stWrap=el('div',{style:'display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0'});
+          if(isSubmitted){
+            sel.disabled=true;qInp.disabled=true;
+            stWrap.appendChild(el('span',{cls:'badge blue',text:'SUBMITTED'}));
+          } else if(isSaved){
+            sel.disabled=true;qInp.disabled=true;
+            var sc=el('span',{cls:'badge green',text:'SAVED'});
+            var eB=el('button',{text:'Edit',style:'background:#1e2540;color:#4f8ef7;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});
+            (function(s,q,chip,eb,sw,subw,sname,rn){
+              eb.onclick=function(){s.disabled=false;q.disabled=false;chip.style.display='none';eb.style.display='none';var sb=el('button',{text:'Save',style:'background:#10b981;color:#fff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});sb.onclick=function(){saveRow(sname,rn,s,q,sb,sw,subw);};sw.appendChild(sb);};
+            })(sel,qInp,sc,eB,stWrap,submitBtnWrap,sn,rowNum);
+            stWrap.appendChild(sc);stWrap.appendChild(eB);
+          } else {
+            var saveB=el('button',{text:'Save',style:'background:#10b981;color:#fff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});
+            (function(s,q,sb,sw,subw,sname,rn){sb.onclick=function(){saveRow(sname,rn,s,q,sb,sw,subw);};})(sel,qInp,saveB,stWrap,submitBtnWrap,sn,rowNum);
+            stWrap.appendChild(saveB);
+          }
+          row.appendChild(sel);row.appendChild(qInp);row.appendChild(stWrap);
         }
         body.appendChild(row);
       });
+      if(!reviewOnly&&submitBtnWrap)body.appendChild(submitBtnWrap);
     }
     item.appendChild(body);
     c.appendChild(item);
   });
 }
 
-function saveRow(sn,rowNum,sel,qInp,rInp,cInp){
+function saveRow(sn,rowNum,sel,qInp,saveBtn,stWrap,subWrap){
   var qty=parseInt(qInp.value)||0;
   var contractor=sel?sel.value:'';
-  var rate=rInp?parseFloat(rInp.value)||null:null;
-  var comm=cInp&&cInp.value!==''?parseFloat(cInp.value):null;
+  if(!contractor){toast('Select a contractor',true);return;}
+  if(!qty){toast('Enter quantity',true);return;}
+  if(saveBtn){saveBtn.disabled=true;saveBtn.textContent='Saving…';}
   qInp.style.borderColor='#f59e0b';
   google.script.run
     .withSuccessHandler(function(r){
       if(r.success){
-        qInp.classList.toggle('saved',qty>0);
-        qInp.style.borderColor=qty>0?'#10b981':'#1e2540';
+        qInp.classList.add('saved');
+        qInp.style.borderColor='#10b981';
+        sel.disabled=true;qInp.disabled=true;
+        if(stWrap){
+          stWrap.innerHTML='';
+          var sc=el('span',{cls:'badge green',text:'SAVED'});
+          var eB=el('button',{text:'Edit',style:'background:#1e2540;color:#4f8ef7;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});
+          (function(s,q,chip,eb,sw,subw){
+            eb.onclick=function(){s.disabled=false;q.disabled=false;chip.style.display='none';eb.style.display='none';var sb=el('button',{text:'Save',style:'background:#10b981;color:#fff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});sb.onclick=function(){saveRow(sn,rowNum,s,q,sb,sw,subw);};sw.appendChild(sb);};
+          })(sel,qInp,sc,eB,stWrap,subWrap);
+          stWrap.appendChild(sc);stWrap.appendChild(eB);
+        }
+        if(subWrap)subWrap.style.display='';
         if(r.lotStatus&&r.lotStatus.indexOf('OVER')>-1)toast('Over lot cap!',true);
-        else if(qty>0)toast('Saved');
-      } else {qInp.style.borderColor='#ef4444';toast(r.error||'Error',true);}
+        else toast('Saved');
+      } else {
+        if(saveBtn){saveBtn.disabled=false;saveBtn.textContent='Save';}
+        qInp.style.borderColor='#ef4444';
+        toast(r.error||'Error',true);
+      }
     })
-    .withFailureHandler(function(){qInp.style.borderColor='#ef4444';toast('Save failed',true);})
-    .saveEntry(sn,rowNum,contractor||null,qty,null,null,rate,comm);
+    .withFailureHandler(function(){
+      if(saveBtn){saveBtn.disabled=false;saveBtn.textContent='Save';}
+      qInp.style.borderColor='#ef4444';
+      toast('Save failed',true);
+    })
+    .saveEntry(sn,rowNum,contractor||null,qty,null,null,null,null);
 }
 
 // ── NEW ORDER ─────────────────────────────────────────────────────────────────
