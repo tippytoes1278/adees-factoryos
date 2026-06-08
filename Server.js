@@ -928,18 +928,18 @@ function searchTS(query) {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var tm = ss.getSheetByName('TS_MASTER');
     if (!tm || tm.getLastRow() < 2) return [];
-    var data = tm.getRange(2, 1, tm.getLastRow()-1, 5).getValues();
+    var data = tm.getRange(2, 1, tm.getLastRow()-1, 7).getValues();
     var q = safeStr(query).trim().toLowerCase();
     var results = [];
     if (!q) {
       var start = Math.max(0, data.length - 10);
       for (var i = start; i < data.length; i++) {
-        if (data[i][0]) results.push({ tsNumber:safeStr(data[i][0]), styleName:safeStr(data[i][1]), category:safeStr(data[i][2]), season:safeStr(data[i][3]), activitiesJSON:safeStr(data[i][4]) });
+        if (data[i][0]) results.push({ tsNumber:safeStr(data[i][0]), styleName:safeStr(data[i][1]), category:safeStr(data[i][2]), season:safeStr(data[i][3]), activitiesJSON:safeStr(data[i][6]) });
       }
     } else {
       data.forEach(function(r) {
         if (r[0] && safeStr(r[1]).toLowerCase().indexOf(q) > -1)
-          results.push({ tsNumber:safeStr(r[0]), styleName:safeStr(r[1]), category:safeStr(r[2]), season:safeStr(r[3]), activitiesJSON:safeStr(r[4]) });
+          results.push({ tsNumber:safeStr(r[0]), styleName:safeStr(r[1]), category:safeStr(r[2]), season:safeStr(r[3]), activitiesJSON:safeStr(r[6]) });
       });
     }
     return results;
@@ -949,13 +949,14 @@ function searchTS(query) {
 function createTS(styleName, category, season, activities) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var user = getUserInfo();
     var tm = ss.getSheetByName('TS_MASTER');
     if (!tm) return { success:false, error:'TS_MASTER sheet not found' };
     var lastRow = Math.max(tm.getLastRow(), 1);
     var seq = String(lastRow);
     while (seq.length < 3) seq = '0' + seq;
     var tsNumber = 'TS-' + (season||'SS26') + '-' + seq;
-    tm.getRange(lastRow + 1, 1, 1, 5).setValues([[tsNumber, styleName, category||'', season||'SS26', JSON.stringify(activities||[])]]);
+    tm.getRange(lastRow + 1, 1, 1, 9).setValues([[tsNumber, styleName, category||'', season||'SS26', '', '', JSON.stringify(activities||[]), new Date(), user.name]]);
     SpreadsheetApp.flush();
     return { success:true, tsNumber:tsNumber };
   } catch(e) { return { success:false, error:e.message }; }
