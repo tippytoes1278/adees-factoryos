@@ -868,7 +868,7 @@ function renderNO_Step2(c){
     var art=aI.value.trim(),col=clI.value.trim(),buyer=byS.value,dd=ddI.value;
     if(!art||!col||!buyer||!dd){toast('Fill all required fields (*)',true);return;}
     var sr={};[6,7,8,9,10,11].forEach(function(sz){var v=parseInt(sIs[sz].value)||0;if(v)sr[sz]=v;});
-    var lot=0;Object.keys(sr).forEach(function(k){lot+=safeNum(sr[k]);});
+    var lot=0;Object.keys(sr).forEach(function(k){lot+=parseFloat(sr[k])||0;});
     sbB.disabled=true;sbB.textContent='Submitting…';
     google.script.run
       .withSuccessHandler(function(r){
