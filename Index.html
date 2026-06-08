@@ -184,6 +184,7 @@ input,select,textarea{font-family:inherit;outline:none;border:none}
 <script>
 var USER=null, TAB='home', D={}, CONTRACTORS=[], MASTER_ACTS=[];
 var NO_STEP=1, NO_TS=null;
+var ENTRY_PERIOD=null;
 
 function fmt(n){return '₹'+Number(n).toLocaleString('en-IN',{maximumFractionDigits:0});}
 
@@ -308,7 +309,7 @@ function showLoading(){
 
 // Refresh: force reload from server (pull to refresh equivalent)
 function refreshTab(){
-  D.dash=null; D.entry=null; D.wip=null; D.reqs=null; PS_DATA=null;
+  D.dash=null; D.entry=null; D.wip=null; D.reqs=null; PS_DATA=null; ENTRY_PERIOD=null;
   loadTab(TAB);
 }
 
@@ -627,10 +628,30 @@ function renderEntry(c,reviewOnly){
     };})(swBtn);
     c.appendChild(swBtn);
   }
-  var week=D.entry&&D.entry.week;
-  if(week&&week.weekLabel){
+  var openPeriods=D.entry&&D.entry.periods?D.entry.periods.filter(function(p){return (p.status||'').toUpperCase()==='OPEN';}):[];
+  if(openPeriods.length>0&&!ENTRY_PERIOD)ENTRY_PERIOD=openPeriods[0];
+  var activePeriod=ENTRY_PERIOD||(D.entry&&D.entry.week)||null;
+  if(openPeriods.length>1){
+    var pWrap=el('div',{style:'margin-bottom:10px'});
+    pWrap.appendChild(el('div',{style:'font-size:11px;font-weight:700;color:#4a5578;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px',text:'Payment Period'}));
+    var pSel=el('select',{style:'width:100%;background:#0f1117;border:1px solid #1e2540;border-radius:10px;padding:11px 14px;color:#e8eaf0;font-size:14px;font-weight:600'});
+    openPeriods.forEach(function(p){
+      var opt=el('option',{text:p.weekLabel,value:p.periodId});
+      if(activePeriod&&p.periodId===activePeriod.periodId)opt.selected=true;
+      pSel.appendChild(opt);
+    });
+    (function(sel,rv,periods){
+      sel.onchange=function(){
+        for(var i=0;i<periods.length;i++){if(periods[i].periodId===sel.value){ENTRY_PERIOD=periods[i];break;}}
+        renderEntry(document.getElementById('mainContent'),rv);
+      };
+    })(pSel,reviewOnly,openPeriods);
+    pWrap.appendChild(pSel);
+    c.appendChild(pWrap);
+  }
+  if(activePeriod&&activePeriod.weekLabel){
     var wb=el('div',{style:'background:#1a3a2a;border-left:3px solid #22c55e;padding:12px 16px;border-radius:8px;margin-bottom:12px'});
-    wb.appendChild(el('span',{style:'font-size:13px;font-weight:700;color:#22c55e',text:'Week: '+week.weekStart+' – '+week.weekEnd}));
+    wb.appendChild(el('span',{style:'font-size:13px;font-weight:700;color:#22c55e',text:'Week: '+activePeriod.weekStart+' – '+activePeriod.weekEnd}));
     c.appendChild(wb);
   } else {
     c.appendChild(alert_('yellow','No active period','Week not configured — tap Refresh or contact admin'));
