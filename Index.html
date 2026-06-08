@@ -310,7 +310,7 @@ function loadTab(id){
   } else if(id==='entry'||id==='review'){
     if(D.entry){renderTab(id);return;}
     showLoading();
-    google.script.run.withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];(d.articles||[]).forEach(function(a){console.log('[DIAG] '+a.sheet+' "'+a.article+'" → '+(a.activities?a.activities.length:0)+' activities');});renderTab(id);}).withFailureHandler(showErr).getEntryData();
+    google.script.run.withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];(d.articles||[]).forEach(function(a){console.log('[DIAG] '+a.sheet+' "'+a.article+'" → '+(a.activities?a.activities.length:0)+' activities');});renderTab(id);}).withFailureHandler(showErr).getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
   } else if(id==='neworder'){
     renderTab(id);
   } else if(id==='payment'){
@@ -704,7 +704,13 @@ function renderEntry(c,reviewOnly){
     (function(sel,rv,periods){
       sel.onchange=function(){
         for(var i=0;i<periods.length;i++){if(periods[i].periodId===sel.value){ENTRY_PERIOD=periods[i];break;}}
-        renderEntry(document.getElementById('mainContent'),rv);
+        D.entry=null;
+        var mc=document.getElementById('mainContent');
+        mc.innerHTML='<div style="display:flex;justify-content:center;padding:50px"><div class="loader"></div></div>';
+        google.script.run
+          .withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];renderEntry(mc,rv);})
+          .withFailureHandler(showErr)
+          .getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
       };
     })(pSel,reviewOnly,openPeriods);
     pWrap.appendChild(pSel);
@@ -905,7 +911,7 @@ function saveRow(sn,rowNum,sel,qInp,saveBtn,stWrap,subWrap,convInp,remInp){
       qInp.style.borderColor='#ef4444';
       toast('Save failed',true);
     })
-    .saveEntry(sn,rowNum,contractor||null,qty,conveyance,remarks,null,null);
+    .saveEntry(sn,rowNum,contractor||null,qty,conveyance,remarks,null,null,ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
 }
 
 // ── NEW ORDER ─────────────────────────────────────────────────────────────────

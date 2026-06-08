@@ -240,9 +240,21 @@ function ensureCurrentPeriod() {
   } catch(e) { Logger.log('ensureCurrentPeriod error: ' + e.message); }
 }
 
-function getEntryData() {
+function getEntryData(periodId) {
   ensureCurrentPeriod();
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var firstOpenId = '';
+  try {
+    var ppE = ss.getSheetByName('PAYMENT_PERIODS');
+    if (ppE && ppE.getLastRow() > 1) {
+      var ppEV = ppE.getRange(2, 1, ppE.getLastRow()-1, 7).getValues();
+      var openIds = [];
+      ppEV.forEach(function(r){ if(safeStr(r[6]).trim().toUpperCase()==='OPEN') openIds.push(safeStr(r[0])); });
+      openIds.sort();
+      if(openIds.length) firstOpenId = openIds[0];
+    }
+  } catch(ep) {}
+  var effectivePeriodId = periodId || firstOpenId;
   var artSheets = ss.getSheets().filter(isArtSheet);
   var articles = [];
 
@@ -257,17 +269,23 @@ function getEntryData() {
       var thisWeek = safeNum(ws.getRange('M4').getValue());
       var remaining= safeNum(ws.getRange('M6').getValue());
 
-      var actData = ws.getRange(5, 1, 45, 11).getValues();
+      var actData = ws.getRange(5, 1, 45, 12).getValues();
       var activities = [];
       actData.forEach(function(r, i) {
         var act = safeStr(r[1]);
         if (act && act.trim() && !act.match(/^[-=]/) && safeNum(r[0]) > 0) {
+          var rowPeriodId = safeStr(r[10]);
+          var inPeriod = rowPeriodId === effectivePeriodId ||
+                         (!rowPeriodId && effectivePeriodId === firstOpenId);
           activities.push({
             row:i+5, activity:act.trim(),
-            contractor:safeStr(r[2]), qty:safeNum(r[3]),
-            rate:safeNum(r[4]), comm:safeNum(r[5]), total:safeNum(r[8]),
-            entryStatus:safeStr(r[10]),
-            conveyance:safeNum(r[7]), remarks:safeStr(r[9])
+            contractor: inPeriod ? safeStr(r[2]) : '',
+            qty:        inPeriod ? safeNum(r[3]) : 0,
+            rate:safeNum(r[4]), comm:safeNum(r[5]),
+            total:      inPeriod ? safeNum(r[8]) : 0,
+            entryStatus: inPeriod ? safeStr(r[11]) : '',
+            conveyance: inPeriod ? safeNum(r[7]) : 0,
+            remarks:    inPeriod ? safeStr(r[9]) : ''
           });
         }
       });
@@ -423,7 +441,7 @@ function saveContractor(payload) {
   } catch(e) { return { success: false, error: e.message }; }
 }
 
-function saveEntry(sheetName, row, contractor, qty, conveyance, remarks, rate, comm) {
+function saveEntry(sheetName, row, contractor, qty, conveyance, remarks, rate, comm, periodId) {
   var user = getUserInfo();
   if (user.role !== 'accounts' && user.role !== 'admin')
     return { success:false, error:'Not authorised' };
@@ -445,7 +463,8 @@ function saveEntry(sheetName, row, contractor, qty, conveyance, remarks, rate, c
     if (comm !== null && comm !== undefined) ws.getRange('F'+row).setValue(comm);
     if (conveyance) ws.getRange('H'+row).setValue(conveyance);
     if (remarks)    ws.getRange('J'+row).setValue(remarks);
-    ws.getRange('K'+row).setValue('DRAFT');
+    if (periodId)   ws.getRange('K'+row).setValue(periodId);
+    ws.getRange('L'+row).setValue('DRAFT');
     SpreadsheetApp.flush();
     return { success:true,
       lotStatus: safeStr(ws.getRange('M7').getValue()),
@@ -462,13 +481,13 @@ function submitArticleEntries(sheetName, periodId) {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var ws = ss.getSheetByName(sheetName);
     if (!ws) return { success:false, error:'Sheet not found' };
-    var data = ws.getRange(5, 1, 45, 11).getValues();
+    var data = ws.getRange(5, 1, 45, 12).getValues();
     var submittedActs = [];
     data.forEach(function(r, i) {
       if (!safeStr(r[1]).trim() || safeNum(r[0]) <= 0) return;
-      var st = safeStr(r[10]).toUpperCase();
+      var st = safeStr(r[11]).toUpperCase();
       if (st === 'DRAFT' || (safeNum(r[3]) > 0 && st !== 'SUBMITTED')) {
-        ws.getRange('K'+(i+5)).setValue('SUBMITTED');
+        ws.getRange('L'+(i+5)).setValue('SUBMITTED');
         submittedActs.push(safeStr(r[1]));
       }
     });
