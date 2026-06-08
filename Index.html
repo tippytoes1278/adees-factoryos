@@ -1174,17 +1174,14 @@ function renderActivities(c){
 }
 
 function renderActivitySetup(body,article){
-  var DEPTS=['Cutting','Preparation','Fitter','Lasting','Finishing'];
+  var DEPTS=['Cutting','Preparation','Fitter','Lasting','Finishing','Dispatch'];
   var deptData={};
   DEPTS.forEach(function(d){deptData[d]=[];});
   var actRateMap={};
   MASTER_ACTS.forEach(function(ma){actRateMap[ma.name]=ma.stdRate;});
-  var SECT_MAP={
-    'Cutting':     ['1 — Cutting'],
-    'Preparation': ['2 — Preparation','2.1 — Mat. Cut'],
-    'Fitter':      ['3 — Fitter'],
-    'Lasting':     ['4 — Lasting'],
-    'Finishing':   ['5 — Finish']
+  var DEPT_VAL={
+    'Cutting':'cutting','Preparation':'prep','Fitter':'fitter',
+    'Lasting':'lasting','Finishing':'finish','Dispatch':'dispatch'
   };
 
   var wrap=el('div',{style:'padding:14px 16px'});
@@ -1196,8 +1193,8 @@ function renderActivitySetup(body,article){
 
     var actSel=el('select',{style:'width:100%;background:#0f1117;border:1px solid #1e2540;border-radius:8px;padding:8px 10px;color:#e8eaf0;font-size:13px;margin-bottom:6px'});
     actSel.appendChild(el('option',{text:'Select activity...',value:''}));
-    var deptActs=MASTER_ACTS.filter(function(ma){return SECT_MAP[dept]&&SECT_MAP[dept].indexOf(ma.section)>-1;});
-    (deptActs.length?deptActs:MASTER_ACTS).forEach(function(ma){actSel.appendChild(el('option',{text:ma.name,value:ma.name}));});
+    var deptActs=MASTER_ACTS.filter(function(ma){return ma.section===DEPT_VAL[dept];});
+    deptActs.forEach(function(ma){actSel.appendChild(el('option',{text:ma.name,value:ma.name}));});
     section.appendChild(actSel);
 
     var rateInp=el('input',{type:'number',placeholder:'Rate ₹',style:'flex:1;background:#0f1117;border:1px solid #1e2540;border-radius:8px;padding:8px;color:#e8eaf0;font-size:13px;text-align:center;min-width:0'});
