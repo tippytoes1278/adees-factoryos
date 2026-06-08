@@ -301,13 +301,13 @@ function getEntryData() {
 
   var masterActivities = [];
   try {
-    var mr = ss.getSheetByName('MASTER_RATES');
-    if (mr && mr.getLastRow() > 3) {
-      mr.getRange(4, 2, mr.getLastRow()-3, 5).getValues().forEach(function(r, i){
-        if (r[0] && r[4] && safeStr(r[4]).toLowerCase() !== 'tbd')
-          masterActivities.push({ name:safeStr(r[0]), section:safeStr(r[1]),
-            minRate:safeNum(r[2]), maxRate:safeNum(r[3]), stdRate:safeNum(r[4]),
-            rowIndex: 4 + i });
+    var maSheet = ss.getSheetByName('MASTER_ACTIVITIES');
+    if (maSheet && maSheet.getLastRow() > 1) {
+      maSheet.getRange(2, 1, maSheet.getLastRow()-1, 7).getValues().forEach(function(r, i){
+        if (safeStr(r[1]) && safeStr(r[4]).toUpperCase() === 'APPROVED')
+          masterActivities.push({ name:safeStr(r[1]), section:safeStr(r[0]),
+            stdRate:safeNum(r[2]), comm:safeNum(r[3]),
+            rowIndex: 2 + i });
       });
       try {
         var rq2 = ss.getSheetByName('REQUESTS');
