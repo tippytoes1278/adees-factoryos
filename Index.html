@@ -43,6 +43,7 @@ input,select,textarea{font-family:inherit;outline:none;border:none}
 .badge.green{background:#052e16;color:#10b981}.badge.red{background:#450a0a;color:#ef4444}
 .badge.yellow{background:#422006;color:#f59e0b}.badge.blue{background:#0c1a3a;color:#4f8ef7}
 .badge.grey{background:#1e2540;color:#7986a3}
+.nav-badge{position:absolute;top:2px;right:10px;width:8px;height:8px;background:#ef4444;border-radius:50%;border:2px solid #161b2e}
 .alert{border-radius:12px;padding:12px 14px;margin-bottom:10px;display:flex;align-items:flex-start;gap:10px}
 .alert.red{background:#450a0a;border:1px solid #7f1d1d}
 .alert.green{background:#052e16;border:1px solid #14532d}
@@ -227,6 +228,7 @@ window.onload=function(){
               CONTRACTORS  = allData.entry.contractors  || [];
               MASTER_ACTS  = allData.entry.masterActivities || [];
               (allData.entry.articles||[]).forEach(function(a){console.log('[DIAG] boot '+a.sheet+' "'+a.article+'" → '+(a.activities?a.activities.length:0)+' activities');});
+              updateNavBadge('activities',(allData.entry.pendingActsCount||0)>0);
             }
           }
           document.getElementById('loading').style.display='none';
@@ -272,6 +274,7 @@ function buildNav(){
     var btn=document.createElement('button');
     btn.className='nav-btn'+(it.id==='home'?' active':'');
     btn.id='nav-'+it.id;
+    btn.style.position='relative';
     btn.innerHTML='<span class="nav-icon">'+it.icon+'</span><span class="nav-label">'+it.label+'</span>';
     (function(id){btn.onclick=function(){loadTab(id);};})(it.id);
     nav.appendChild(btn);
@@ -283,6 +286,14 @@ function setNav(id){
   for(var i=0;i<btns.length;i++)btns[i].classList.remove('active');
   var el=document.getElementById('nav-'+id);
   if(el)el.classList.add('active');
+}
+
+function updateNavBadge(tabId,show){
+  var btn=document.getElementById('nav-'+tabId);
+  if(!btn)return;
+  var ex=btn.querySelector('.nav-badge');
+  if(show&&!ex){var b=document.createElement('span');b.className='nav-badge';btn.appendChild(b);}
+  else if(!show&&ex)ex.remove();
 }
 
 // ── TAB LOADER ────────────────────────────────────────────────────────────────
@@ -1226,6 +1237,22 @@ function renderActivities(c){
       c.appendChild(card);
     });
   });
+  var pendingActs=D.entry&&D.entry.pendingActivities?D.entry.pendingActivities:[];
+  if(pendingActs.length){
+    c.appendChild(el('div',{style:'font-size:10px;font-weight:700;color:#f59e0b;letter-spacing:1px;text-transform:uppercase;margin:14px 2px 6px',text:'● PENDING APPROVAL ('+pendingActs.length+')'}));
+    pendingActs.forEach(function(pa){
+      var card=el('div',{cls:'card',style:'margin-bottom:10px;padding:12px 14px;opacity:0.7'});
+      var top=el('div',{style:'display:flex;align-items:center;justify-content:space-between;gap:8px'});
+      var nameDiv=el('div',{style:'flex:1;min-width:0'});
+      nameDiv.appendChild(el('div',{style:'font-size:13px;font-weight:700;color:#c5cae9',text:pa.activityName}));
+      nameDiv.appendChild(el('div',{style:'font-size:11px;color:#4a5578;margin-top:2px',text:(pa.dept?pa.dept.toUpperCase()+' · ':'')+' ₹'+pa.rate+'/pr'+(pa.comm?' + ₹'+pa.comm+' comm':'')}));
+      top.appendChild(nameDiv);
+      top.appendChild(el('span',{cls:'badge yellow',text:'PENDING APPROVAL'}));
+      card.appendChild(top);
+      c.appendChild(card);
+    });
+  }
+  updateNavBadge('activities',(D.entry&&D.entry.pendingActsCount||0)>0);
 }
 
 function renderActivitySetup(body,article){

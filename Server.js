@@ -357,8 +357,29 @@ function getEntryData() {
       }
     }
   } catch(e3) {}
+  var pendingActivities = [];
+  var pendingActsCount = 0;
+  try {
+    var rqp = ss.getSheetByName('REQUESTS');
+    if (rqp && rqp.getLastRow() > 3) {
+      rqp.getRange(4, 1, rqp.getLastRow()-3, 6).getValues().forEach(function(rr) {
+        var type = safeStr(rr[3]);
+        var status = safeStr(rr[5]).toUpperCase();
+        if (status !== 'PENDING') return;
+        if (type === 'ACTIVITY_SETUP' || type === 'RATE_EDIT') pendingActsCount++;
+        if (type === 'ACTIVITY_SETUP') {
+          try {
+            var pl = JSON.parse(safeStr(rr[4]));
+            if (pl && pl.activityName) {
+              pendingActivities.push({ activityName:safeStr(pl.activityName), dept:safeStr(pl.dept), rate:safeNum(pl.rate), comm:safeNum(pl.comm) });
+            }
+          } catch(pe) {}
+        }
+      });
+    }
+  } catch(e5) {}
   if (!week) week = getCurrentWeek();
-  return { articles:articles, contractors:contractors, masterActivities:masterActivities, week:week, periods:periods };
+  return { articles:articles, contractors:contractors, masterActivities:masterActivities, pendingActivities:pendingActivities, pendingActsCount:pendingActsCount, week:week, periods:periods };
 }
 
 function getContractorsData() {
