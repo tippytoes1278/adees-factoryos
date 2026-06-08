@@ -1363,6 +1363,29 @@ function createOrder(payload) {
       ws.getRange('G'+r).setFormula('=IF(D'+r+'="",0,D'+r+'*F'+r+')');
       ws.getRange('I'+r).setFormula('=IF(D'+r+'="",0,(D'+r+'*E'+r+')+G'+r+'+IF(H'+r+'="",0,H'+r+'))');
     }
+    if (payload.tsNumber) {
+      try {
+        var tm = ss.getSheetByName('TS_MASTER');
+        if (tm && tm.getLastRow() > 1) {
+          var tmData = tm.getRange(2, 1, tm.getLastRow()-1, 7).getValues();
+          for (var ti = 0; ti < tmData.length; ti++) {
+            if (safeStr(tmData[ti][0]) === safeStr(payload.tsNumber)) {
+              var tsActJSON = safeStr(tmData[ti][6]);
+              if (tsActJSON) {
+                var tsActs = JSON.parse(tsActJSON);
+                if (tsActs && tsActs.length) {
+                  var tsRows = tsActs.map(function(act, idx) {
+                    return [idx+1, safeStr(act.activityName), '', '', safeNum(act.rate), safeNum(act.comm)];
+                  });
+                  ws.getRange(5, 1, tsRows.length, 6).setValues(tsRows);
+                }
+              }
+              break;
+            }
+          }
+        }
+      } catch(tse) { Logger.log('TS activity inheritance: ' + tse.message); }
+    }
     if (oi) {
       var oiRow = Math.max(oi.getLastRow(), 3) + 1;
       oi.getRange(oiRow, 1, 1, 12).setValues([[
