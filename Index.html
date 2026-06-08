@@ -300,10 +300,16 @@ function updateNavBadge(tabId,show){
 function loadTab(id){
   TAB=id; setNav(id);
   // Use cached data if available — instant tab switch
-  if(id==='home'||id==='orders'||id==='approve'){
+  if(id==='home'||id==='orders'){
     if(D.dash){renderTab(id);return;}
     showLoading();
     google.script.run.withSuccessHandler(function(d){D.dash=d;renderTab(id);}).withFailureHandler(showErr).getDashboardData();
+  } else if(id==='approve'){
+    if(D.dash&&D.subs){renderTab(id);return;}
+    showLoading();
+    var _loadSubs=function(){google.script.run.withSuccessHandler(function(s){D.subs=s;renderTab(id);}).withFailureHandler(showErr).getPaymentSubmissions();};
+    if(D.dash){_loadSubs();}
+    else{google.script.run.withSuccessHandler(function(d){D.dash=d;_loadSubs();}).withFailureHandler(showErr).getDashboardData();}
   } else if(id==='requests'){
     showLoading();
     google.script.run.withSuccessHandler(function(d){D.reqs=d;renderTab(id);}).withFailureHandler(showErr).getPendingRequests();
@@ -338,7 +344,7 @@ function showLoading(){
 
 // Refresh: force reload from server (pull to refresh equivalent)
 function refreshTab(){
-  D.dash=null; D.entry=null; D.wip=null; D.reqs=null; PS_DATA=null; ENTRY_PERIOD=null; D.ctrs=null;
+  D.dash=null; D.entry=null; D.wip=null; D.reqs=null; D.subs=null; PS_DATA=null; ENTRY_PERIOD=null; D.ctrs=null;
   loadTab(TAB);
 }
 
@@ -459,7 +465,7 @@ function renderAdminHome(c){
       var crow=el('div',{style:'display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1a1f35'});
       var cl=el('div');
       cl.appendChild(el('div',{style:'font-size:13px;font-weight:600;color:#c5cae9',text:cs.name}));
-      cl.appendChild(el('div',{style:'font-size:11px;color:#4a5578;margin-top:2px',text:cs.qty+' pairs'}));
+      cl.appendChild(el('div',{style:'font-size:11px;color:#4a5578;margin-top:2px',text:cs.qty+' pairs · '+(cs.method||'Cash')}));
       crow.appendChild(cl);
       crow.appendChild(el('div',{style:'font-size:15px;font-weight:700;color:#10b981',text:fmt(cs.amount)}));
       csCard.appendChild(crow);
@@ -501,26 +507,71 @@ function renderOrders(c){
 // ── APPROVE ───────────────────────────────────────────────────────────────────
 function renderApprove(c){
   c.innerHTML='';
-  if(!D.dash){
-    c.appendChild(alert_('yellow','Loading...','Tap Refresh to reload data'));
-    return;
-  }
+  if(!D.dash){c.appendChild(alert_('yellow','Loading...','Tap Refresh'));return;}
   var d=D.dash;
+  var subs=D.subs&&D.subs.submissions?D.subs.submissions:[];
+  var pmMap=D.subs&&D.subs.pmMap?D.subs.pmMap:{};
+  c.appendChild(sectionTitle('Payment Submissions ('+subs.length+')'));
+  if(!subs.length){
+    c.appendChild(alert_('green','Nothing to approve','No pending payment submissions'));
+  } else {
+    subs.forEach(function(sub){
+      var card=el('div',{cls:'card',style:'margin-bottom:12px'});
+      var top=el('div',{style:'display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px'});
+      var tl=el('div');
+      tl.appendChild(el('div',{style:'font-size:14px;font-weight:700;color:#e8eaf0',text:sub.article}));
+      tl.appendChild(el('div',{style:'font-size:11px;color:#4a5578;margin-top:2px',text:(sub.customer?sub.customer+' · ':'')+sub.periodId+' · by '+sub.submittedBy}));
+      top.appendChild(tl);top.appendChild(el('span',{cls:'badge yellow',text:'PENDING'}));
+      card.appendChild(top);
+      if(sub.activities&&sub.activities.length){
+        var tbl=el('div',{style:'margin-bottom:10px'});
+        var hdr=el('div',{style:'display:grid;grid-template-columns:1fr 80px 40px 50px 70px;gap:4px;padding:4px 0;border-bottom:1px solid #1e2540;font-size:10px;font-weight:700;color:#4a5578;text-transform:uppercase'});
+        ['Activity/Ctr','Rate','Qty','Conv','Total'].forEach(function(h){hdr.appendChild(el('div',{text:h}));});
+        tbl.appendChild(hdr);
+        sub.activities.forEach(function(act){
+          var aRow=el('div',{style:'display:grid;grid-template-columns:1fr 80px 40px 50px 70px;gap:4px;padding:5px 0;border-bottom:1px solid #1a1f35;font-size:12px'});
+          var ai=el('div');
+          ai.appendChild(el('div',{style:'font-weight:600;color:#c5cae9',text:act.activity}));
+          ai.appendChild(el('div',{style:'font-size:10px;color:#4a5578',text:act.contractor+(pmMap[act.contractor]?' · '+pmMap[act.contractor]:'')}));
+          aRow.appendChild(ai);
+          aRow.appendChild(el('div',{style:'color:#7986a3;font-size:11px',text:'₹'+act.rate+(act.comm?'+'+act.comm:'')}));
+          aRow.appendChild(el('div',{style:'color:#e8eaf0',text:String(act.qty)}));
+          aRow.appendChild(el('div',{style:'color:#7986a3;font-size:11px',text:act.conv?'₹'+act.conv:'—'}));
+          aRow.appendChild(el('div',{style:'color:#10b981;font-weight:700',text:fmt(act.total)}));
+          tbl.appendChild(aRow);
+        });
+        card.appendChild(tbl);
+      }
+      var footer=el('div',{style:'display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:1px solid #1e2540'});
+      footer.appendChild(el('div',{style:'font-size:14px;font-weight:700;color:#10b981',text:'Total: '+fmt(sub.grandTotal)}));
+      var apBtn=el('button',{cls:'ap-btn',text:'Approve & Lock'});
+      (function(reqId,btn){btn.onclick=function(){
+        btn.disabled=true;btn.textContent='Approving…';
+        google.script.run
+          .withSuccessHandler(function(r){
+            if(r&&r.success){toast('Approved — '+r.count+' rows locked');D.subs=null;D.dash=null;setTimeout(function(){loadTab('approve');},700);}
+            else{toast((r&&r.error)||'Error',true);btn.disabled=false;btn.textContent='Approve & Lock';}
+          })
+          .withFailureHandler(function(){toast('Error',true);btn.disabled=false;btn.textContent='Approve & Lock';})
+          .approvePaymentSubmission(reqId);
+      };})(sub.reqId,apBtn);
+      footer.appendChild(apBtn);
+      card.appendChild(footer);
+      c.appendChild(card);
+    });
+  }
+  c.appendChild(sectionTitle('Weekly Sign-off'));
   var approved=d.approvalStatus&&d.approvalStatus!=='';
-  c.appendChild(sectionTitle('Weekly Payment Approval'));
   var box=el('div',{cls:'approve-section'});
   box.appendChild(el('div',{cls:'approve-title',text:approved?'Approved':'Awaiting Your Approval'}));
   box.appendChild(el('div',{cls:'approve-sub',text:approved?d.approvalStatus:('Total: '+fmt(d.weeklyPayout))}));
   if(!approved){
     var inp=el('input',{cls:'approve-input',id:'initials',placeholder:'Your initials',maxLength:10,type:'text'});
     box.appendChild(inp);
-    var btn=el('button',{cls:'approve-btn',text:'Approve & Sign'});
-    btn.onclick=doApprove;
-    box.appendChild(btn);
+    var btn=el('button',{cls:'approve-btn',text:'Approve & Sign'});btn.onclick=doApprove;box.appendChild(btn);
   } else {
     var doneBtn=el('button',{cls:'approve-btn',text:'Signed',style:'opacity:0.5;margin-top:8px'});
-    doneBtn.disabled=true;
-    box.appendChild(doneBtn);
+    doneBtn.disabled=true;box.appendChild(doneBtn);
   }
   c.appendChild(box);
   if(d.redCount>0)c.appendChild(alert_('red','Warning: '+d.redCount+' order over lot cap','Review before approving'));

@@ -183,16 +183,39 @@ function getDashboardData() {
 
   var contractorSummary = [];
   try {
+    var pmMapD = {};
+    try {
+      var mcD = ss.getSheetByName('MASTER_CONTRACTORS');
+      if (mcD && mcD.getLastRow() > 3)
+        mcD.getRange(4, 2, mcD.getLastRow()-3, 2).getValues().forEach(function(r){
+          if (r[0]) pmMapD[safeStr(r[0])] = safeStr(r[1]) || 'Cash';
+        });
+    } catch(e) {}
+    var curPeriodId = '';
+    try {
+      var ppD = ss.getSheetByName('PAYMENT_PERIODS');
+      if (ppD && ppD.getLastRow() > 1) {
+        var ppDV = ppD.getRange(2, 1, ppD.getLastRow()-1, 7).getValues();
+        var openIds = [];
+        ppDV.forEach(function(r){ if(safeStr(r[6]).trim().toUpperCase()==='OPEN') openIds.push(safeStr(r[0])); });
+        openIds.sort();
+        if (openIds.length) curPeriodId = openIds[0];
+      }
+    } catch(e) {}
     var csMap = {};
     ss.getSheets().filter(isArtSheet).forEach(function(ws) {
       try {
-        ws.getRange(5, 2, 45, 8).getValues().forEach(function(r) {
-          var ctr = safeStr(r[1]);
-          var qty = safeNum(r[2]);
+        ws.getRange(5, 1, 45, 12).getValues().forEach(function(r) {
+          var ctr = safeStr(r[2]);
+          var qty = safeNum(r[3]);
           if (!ctr || !qty) return;
-          if (!csMap[ctr]) csMap[ctr] = {name:ctr, qty:0, amount:0};
+          var st = safeStr(r[11]).toUpperCase();
+          if (st !== 'SUBMITTED' && st !== 'APPROVED') return;
+          if (curPeriodId && safeStr(r[10]) !== curPeriodId) return;
+          var total = safeNum(r[8]);
+          if (!csMap[ctr]) csMap[ctr] = {name:ctr, qty:0, amount:0, method:pmMapD[ctr]||'Cash'};
           csMap[ctr].qty += qty;
-          csMap[ctr].amount += qty * safeNum(r[3]) + qty * safeNum(r[4]);
+          csMap[ctr].amount += total;
         });
       } catch(e) {}
     });
@@ -633,6 +656,101 @@ function getPendingRequests() {
     }
   });
   return { requests:requests };
+}
+
+function getPaymentSubmissions() {
+  var user = getUserInfo();
+  if (user.role !== 'admin') return { submissions:[], pmMap:{} };
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var rq = ss.getSheetByName('REQUESTS');
+    var pmMap = {};
+    try {
+      var mc = ss.getSheetByName('MASTER_CONTRACTORS');
+      if (mc && mc.getLastRow() > 3)
+        mc.getRange(4, 2, mc.getLastRow()-3, 2).getValues().forEach(function(r){
+          if (r[0]) pmMap[safeStr(r[0])] = safeStr(r[1]) || 'Cash';
+        });
+    } catch(e) {}
+    var submissions = [];
+    if (!rq || rq.getLastRow() < 4) return { submissions:submissions, pmMap:pmMap };
+    var reqData = rq.getRange(4, 1, rq.getLastRow()-3, 10).getValues();
+    reqData.forEach(function(r, i) {
+      if (safeStr(r[3]) !== 'PAYMENT_SUBMISSION' || safeStr(r[5]).toUpperCase() !== 'PENDING') return;
+      try {
+        var pl = JSON.parse(safeStr(r[4]));
+        if (!pl || !pl.sheet) return;
+        var ws = ss.getSheetByName(pl.sheet);
+        if (!ws) return;
+        var customer = safeStr(ws.getRange('E2').getValue());
+        var actData = ws.getRange(5, 1, 45, 12).getValues();
+        var activities = [], grandTotal = 0;
+        actData.forEach(function(row) {
+          var act = safeStr(row[1]);
+          if (!act.trim() || safeNum(row[0]) <= 0) return;
+          var st = safeStr(row[11]).toUpperCase();
+          if (st !== 'SUBMITTED' && st !== 'APPROVED') return;
+          if (pl.periodId && safeStr(row[10]) !== pl.periodId) return;
+          var qty = safeNum(row[3]);
+          if (!qty) return;
+          var total = safeNum(row[8]);
+          grandTotal += total;
+          activities.push({ activity:act.trim(), contractor:safeStr(row[2]),
+            qty:qty, rate:safeNum(row[4]), comm:safeNum(row[5]),
+            conv:safeNum(row[7]), total:total });
+        });
+        submissions.push({ reqId:safeStr(r[0]), rowNum:i+4, date:safeStr(r[1]),
+          submittedBy:safeStr(r[2]), sheet:pl.sheet, article:pl.article||pl.sheet,
+          customer:customer, periodId:pl.periodId||'', activities:activities, grandTotal:grandTotal });
+      } catch(e2) { Logger.log('getPaymentSubmissions: '+e2.message); }
+    });
+    return { submissions:submissions, pmMap:pmMap };
+  } catch(e) { return { submissions:[], pmMap:{} }; }
+}
+
+function approvePaymentSubmission(reqId) {
+  var user = getUserInfo();
+  if (user.role !== 'admin') return { success:false, error:'Only Ayush can approve' };
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var tz = Session.getScriptTimeZone();
+    var now = Utilities.formatDate(new Date(), tz, 'dd-MMM-yyyy HH:mm');
+    var rq = ss.getSheetByName('REQUESTS');
+    if (!rq || rq.getLastRow() < 4) return { success:false, error:'No requests found' };
+    var data = rq.getRange(4, 1, rq.getLastRow()-3, 10).getValues();
+    var targetRow = -1, payload = null;
+    for (var i = 0; i < data.length; i++) {
+      if (safeStr(data[i][0]) === reqId && safeStr(data[i][3]) === 'PAYMENT_SUBMISSION') {
+        targetRow = i + 4; try { payload = JSON.parse(safeStr(data[i][4])); } catch(pe) {} break;
+      }
+    }
+    if (targetRow === -1) return { success:false, error:'Request not found' };
+    if (!payload || !payload.sheet) return { success:false, error:'Invalid payload' };
+    var ws = ss.getSheetByName(payload.sheet);
+    if (!ws) return { success:false, error:'Sheet not found: '+payload.sheet };
+    var article = safeStr(ws.getRange('B2').getValue());
+    var customer = safeStr(ws.getRange('E2').getValue());
+    var ph = ss.getSheetByName('PAYMENT_HISTORY');
+    if (!ph) { ph = ss.insertSheet('PAYMENT_HISTORY'); ph.getRange(1,1,1,8).setValues([['WeekEnding','Article','Customer','Contractor','Qty','Amount','ApprovedBy','Date']]); }
+    var actData = ws.getRange(5, 1, 45, 12).getValues();
+    var approvedCount = 0;
+    actData.forEach(function(r, i) {
+      if (!safeStr(r[1]).trim() || safeNum(r[0]) <= 0) return;
+      if (payload.periodId && safeStr(r[10]) !== payload.periodId) return;
+      if (safeStr(r[11]).toUpperCase() !== 'SUBMITTED') return;
+      ws.getRange('L'+(i+5)).setValue('APPROVED');
+      var qty = safeNum(r[3]), total = safeNum(r[8]);
+      if (qty > 0 && total > 0)
+        ph.appendRow([payload.periodId||now, article, customer, safeStr(r[2]), qty, total, user.name+' — '+now, new Date()]);
+      approvedCount++;
+    });
+    rq.getRange(targetRow, 6).setValue('APPROVED');
+    rq.getRange(targetRow, 7).setValue('Payment approved');
+    rq.getRange(targetRow, 8).setValue(now);
+    rq.getRange(targetRow, 9).setValue('Yes');
+    SpreadsheetApp.flush();
+    return { success:true, count:approvedCount };
+  } catch(e) { return { success:false, error:e.message }; }
 }
 
 function submitRequest(type, details) {
