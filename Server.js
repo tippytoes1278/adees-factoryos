@@ -344,17 +344,17 @@ function getEntryData() {
     var ppData = pp.getRange(2, 1, pp.getLastRow()-1, 7).getValues();
       for (var pi = 0; pi < ppData.length; pi++) {
         if (safeStr(ppData[pi][6]).trim().toUpperCase() === 'OPEN') {
-          var pEntry = {
+          periods.push({
             periodId:  safeStr(ppData[pi][0]),
             weekLabel: safeStr(ppData[pi][2]),
             weekStart: fmtPpD(ppData[pi][3]),
             weekEnd:   fmtPpD(ppData[pi][4]),
             status:    'OPEN'
-          };
-          periods.push(pEntry);
-          if (!week) week = pEntry;
+          });
         }
       }
+      periods.sort(function(a,b){return a.periodId<b.periodId?-1:a.periodId>b.periodId?1:0;});
+      if(periods.length) week=periods[0];
     }
   } catch(e3) {}
   var pendingActivities = [];
