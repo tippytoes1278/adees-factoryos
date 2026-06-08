@@ -266,7 +266,8 @@ function getEntryData() {
             row:i+5, activity:act.trim(),
             contractor:safeStr(r[2]), qty:safeNum(r[3]),
             rate:safeNum(r[4]), comm:safeNum(r[5]), total:safeNum(r[8]),
-            entryStatus:safeStr(r[10])
+            entryStatus:safeStr(r[10]),
+            conveyance:safeNum(r[7]), remarks:safeStr(r[9])
           });
         }
       });

@@ -824,31 +824,37 @@ function renderEntry(c,reviewOnly){
           var entSt=(ac.entryStatus||'').toUpperCase();
           var isSubmitted=entSt==='SUBMITTED';
           var isSaved=entSt==='DRAFT'||(ac.qty>0&&!isSubmitted);
+          row.style.flexWrap='wrap';
           var sel=el('select',{cls:'act-contractor'});
           sel.appendChild(el('option',{text:'Select contractor',value:''}));
           CONTRACTORS.forEach(function(cn){var opt=el('option',{text:cn,value:cn});if(cn===ac.contractor)opt.selected=true;sel.appendChild(opt);});
           var qInp=el('input',{cls:'act-qty '+(ac.qty>0?'saved':''),type:'number',value:ac.qty||'',placeholder:'QTY'});
           qInp.min=0;
+          var convInp=el('input',{type:'number',placeholder:'Conv ₹',value:ac.conveyance||'',style:'width:72px;background:#0f1117;border:1px solid #1e2540;border-radius:6px;padding:6px 8px;color:#e8eaf0;font-size:12px;text-align:center'});
+          var remInp=el('input',{type:'text',placeholder:'Remarks',value:ac.remarks||'',style:'flex:1;background:#0f1117;border:1px solid #1e2540;border-radius:6px;padding:6px 8px;color:#e8eaf0;font-size:12px'});
           var sn=a.sheet,rowNum=ac.row;
           sel.onchange=function(){qInp.classList.remove('saved');};
           var stWrap=el('div',{style:'display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0'});
           if(isSubmitted){
-            sel.disabled=true;qInp.disabled=true;
+            sel.disabled=true;qInp.disabled=true;convInp.disabled=true;remInp.disabled=true;
             stWrap.appendChild(el('span',{cls:'badge blue',text:'SUBMITTED'}));
           } else if(isSaved){
-            sel.disabled=true;qInp.disabled=true;
+            sel.disabled=true;qInp.disabled=true;convInp.disabled=true;remInp.disabled=true;
             var sc=el('span',{cls:'badge green',text:'SAVED'});
             var eB=el('button',{text:'Edit',style:'background:#1e2540;color:#4f8ef7;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});
-            (function(s,q,chip,eb,sw,subw,sname,rn){
-              eb.onclick=function(){s.disabled=false;q.disabled=false;chip.style.display='none';eb.style.display='none';var sb=el('button',{text:'Save',style:'background:#10b981;color:#fff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});sb.onclick=function(){saveRow(sname,rn,s,q,sb,sw,subw);};sw.appendChild(sb);};
-            })(sel,qInp,sc,eB,stWrap,submitBtnWrap,sn,rowNum);
+            (function(s,q,cinp,rinp,chip,eb,sw,subw,sname,rn){
+              eb.onclick=function(){s.disabled=false;q.disabled=false;cinp.disabled=false;rinp.disabled=false;chip.style.display='none';eb.style.display='none';var sb=el('button',{text:'Save',style:'background:#10b981;color:#fff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});sb.onclick=function(){saveRow(sname,rn,s,q,sb,sw,subw,cinp,rinp);};sw.appendChild(sb);};
+            })(sel,qInp,convInp,remInp,sc,eB,stWrap,submitBtnWrap,sn,rowNum);
             stWrap.appendChild(sc);stWrap.appendChild(eB);
           } else {
             var saveB=el('button',{text:'Save',style:'background:#10b981;color:#fff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});
-            (function(s,q,sb,sw,subw,sname,rn){sb.onclick=function(){saveRow(sname,rn,s,q,sb,sw,subw);};})(sel,qInp,saveB,stWrap,submitBtnWrap,sn,rowNum);
+            (function(s,q,sb,sw,subw,sname,rn,cinp,rinp){sb.onclick=function(){saveRow(sname,rn,s,q,sb,sw,subw,cinp,rinp);};})(sel,qInp,saveB,stWrap,submitBtnWrap,sn,rowNum,convInp,remInp);
             stWrap.appendChild(saveB);
           }
           row.appendChild(sel);row.appendChild(qInp);row.appendChild(stWrap);
+          var subRow=el('div',{style:'flex-basis:100%;display:flex;gap:6px;margin-top:4px'});
+          subRow.appendChild(convInp);subRow.appendChild(remInp);
+          row.appendChild(subRow);
         }
         body.appendChild(row);
       });
@@ -859,11 +865,13 @@ function renderEntry(c,reviewOnly){
   });
 }
 
-function saveRow(sn,rowNum,sel,qInp,saveBtn,stWrap,subWrap){
+function saveRow(sn,rowNum,sel,qInp,saveBtn,stWrap,subWrap,convInp,remInp){
   var qty=parseInt(qInp.value)||0;
   var contractor=sel?sel.value:'';
   if(!contractor){toast('Select a contractor',true);return;}
   if(!qty){toast('Enter quantity',true);return;}
+  var conveyance=convInp?parseFloat(convInp.value)||null:null;
+  var remarks=remInp?remInp.value.trim()||null:null;
   if(saveBtn){saveBtn.disabled=true;saveBtn.textContent='Saving…';}
   qInp.style.borderColor='#f59e0b';
   google.script.run
@@ -872,13 +880,15 @@ function saveRow(sn,rowNum,sel,qInp,saveBtn,stWrap,subWrap){
         qInp.classList.add('saved');
         qInp.style.borderColor='#10b981';
         sel.disabled=true;qInp.disabled=true;
+        if(convInp)convInp.disabled=true;
+        if(remInp)remInp.disabled=true;
         if(stWrap){
           stWrap.innerHTML='';
           var sc=el('span',{cls:'badge green',text:'SAVED'});
           var eB=el('button',{text:'Edit',style:'background:#1e2540;color:#4f8ef7;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});
-          (function(s,q,chip,eb,sw,subw){
-            eb.onclick=function(){s.disabled=false;q.disabled=false;chip.style.display='none';eb.style.display='none';var sb=el('button',{text:'Save',style:'background:#10b981;color:#fff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});sb.onclick=function(){saveRow(sn,rowNum,s,q,sb,sw,subw);};sw.appendChild(sb);};
-          })(sel,qInp,sc,eB,stWrap,subWrap);
+          (function(s,q,cinp,rinp,chip,eb,sw,subw){
+            eb.onclick=function(){s.disabled=false;q.disabled=false;if(cinp)cinp.disabled=false;if(rinp)rinp.disabled=false;chip.style.display='none';eb.style.display='none';var sb=el('button',{text:'Save',style:'background:#10b981;color:#fff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});sb.onclick=function(){saveRow(sn,rowNum,s,q,sb,sw,subw,cinp,rinp);};sw.appendChild(sb);};
+          })(sel,qInp,convInp,remInp,sc,eB,stWrap,subWrap);
           stWrap.appendChild(sc);stWrap.appendChild(eB);
         }
         if(subWrap)subWrap.style.display='';
@@ -895,7 +905,7 @@ function saveRow(sn,rowNum,sel,qInp,saveBtn,stWrap,subWrap){
       qInp.style.borderColor='#ef4444';
       toast('Save failed',true);
     })
-    .saveEntry(sn,rowNum,contractor||null,qty,null,null,null,null);
+    .saveEntry(sn,rowNum,contractor||null,qty,conveyance,remarks,null,null);
 }
 
 // ── NEW ORDER ─────────────────────────────────────────────────────────────────
