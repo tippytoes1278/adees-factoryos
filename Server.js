@@ -206,7 +206,40 @@ function getDashboardData() {
   };
 }
 
+function ensureCurrentPeriod() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var tz = Session.getScriptTimeZone();
+    var today = new Date();
+    var dow = today.getDay();
+    var daysToSat = (dow === 6) ? 0 : (dow + 1);
+    var sat = new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysToSat);
+    var fri = new Date(sat.getFullYear(), sat.getMonth(), sat.getDate() + 6);
+    var periodId = 'W-' + Utilities.formatDate(sat, tz, 'yyyyMMdd');
+    var weekStart = Utilities.formatDate(sat, tz, 'dd-MMM-yyyy');
+    var weekEnd   = Utilities.formatDate(fri, tz, 'dd-MMM-yyyy');
+    var weekLabel = 'Week ending ' + weekEnd;
+    var now = Utilities.formatDate(new Date(), tz, 'dd-MMM-yyyy HH:mm');
+    var pp = ss.getSheetByName('PAYMENT_PERIODS');
+    if (!pp) {
+      pp = ss.insertSheet('PAYMENT_PERIODS');
+      pp.getRange(1, 1, 1, 10).setValues([['PeriodID','Type','Label','StartDate','EndDate','Reason','Status','SubmissionRow','ApprovedBy','CreatedAt']]);
+    }
+    if (pp.getLastRow() > 1) {
+      var existing = pp.getRange(2, 1, pp.getLastRow()-1, 1).getValues();
+      for (var i = 0; i < existing.length; i++) {
+        if (safeStr(existing[i][0]) === periodId) return;
+      }
+    }
+    pp.getRange(pp.getLastRow() + 1, 1, 1, 10).setValues([[
+      periodId, 'Auto', weekLabel, weekStart, weekEnd, '', 'OPEN', '', '', now
+    ]]);
+    SpreadsheetApp.flush();
+  } catch(e) { Logger.log('ensureCurrentPeriod error: ' + e.message); }
+}
+
 function getEntryData() {
+  ensureCurrentPeriod();
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var artSheets = ss.getSheets().filter(isArtSheet);
   var articles = [];
