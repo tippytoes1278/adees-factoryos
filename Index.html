@@ -866,7 +866,14 @@ function renderEntry(c,reviewOnly){
           body.appendChild(el('div',{style:'margin:12px 16px;background:#422006;border:1px solid #78350f;border-radius:8px;padding:12px 14px',
             html:'<div style="font-size:12px;font-weight:700;color:#f59e0b;margin-bottom:4px">Awaiting Activity Approval</div>' +
                  '<div style="font-size:11px;color:#9ca3af">Setup submitted — waiting for Ayush to approve before entering qty</div>'}));
-        } else { renderActivitySetup(body,a); }
+        } else {
+          var goActsWrap=el('div',{style:'padding:12px 16px'});
+          goActsWrap.appendChild(el('div',{style:'font-size:12px;color:#4a5578;margin-bottom:8px',text:'No activities set up. Go to Activities tab to add activities first.'}));
+          var goActsBtn=el('button',{cls:'primary-btn',text:'Go to Activities',style:'max-width:none'});
+          goActsBtn.onclick=function(){loadTab('activities');};
+          goActsWrap.appendChild(goActsBtn);
+          body.appendChild(goActsWrap);
+        }
       } else {
         body.appendChild(el('div',{style:'color:#4a5578;padding:14px 16px;font-size:12px',text:'No entries this week'}));
       }
@@ -904,10 +911,18 @@ function renderEntry(c,reviewOnly){
         })(a.sheet,subBtn,submitBtnWrap,draftRowRefs);
         submitBtnWrap.appendChild(subBtn);
       }
+      var DEPT_ORDER_E=['cutting','prep','fitter','lasting','finish','dispatch'];
+      var deptMapE={};
+      acts.forEach(function(ac){var s=(ac.section||'other').toLowerCase();if(!deptMapE[s])deptMapE[s]=[];deptMapE[s].push(ac);});
+      var deptKeysE=DEPT_ORDER_E.filter(function(k){return deptMapE[k];});
+      Object.keys(deptMapE).forEach(function(k){if(DEPT_ORDER_E.indexOf(k)<0&&deptMapE[k])deptKeysE.push(k);});
       var actCounts={},actSeen={};acts.forEach(function(ac){actCounts[ac.activity]=(actCounts[ac.activity]||0)+1;});
-      acts.forEach(function(ac){
+      deptKeysE.forEach(function(dept){
+        if(deptKeysE.length>1)body.appendChild(el('div',{style:'padding:5px 16px 3px;background:#111827;font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:1px',text:dept.toUpperCase()}));
+        deptMapE[dept].forEach(function(ac){
         actSeen[ac.activity]=(actSeen[ac.activity]||0)+1;
         var isCont=actSeen[ac.activity]>1,isLast=actSeen[ac.activity]===actCounts[ac.activity];
+        var isDeptLocked=!reviewOnly&&!periodClosed&&(ac.deptLocked===true);
         var row=el('div',{cls:'act-row'});
         var ai=el('div',{cls:'act-info'});
         ai.appendChild(el('div',{cls:'act-name',text:(isCont?'↳ ':'')+ac.activity}));
@@ -939,7 +954,10 @@ function renderEntry(c,reviewOnly){
           var sn=a.sheet,rowNum=ac.row;
           sel.onchange=function(){qInp.classList.remove('saved');};
           var stWrap=el('div',{style:'display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0'});
-          if(isApproved){
+          if(isDeptLocked){
+            sel.disabled=true;qInp.disabled=true;convInp.disabled=true;remInp.disabled=true;
+            stWrap.appendChild(el('span',{cls:'badge yellow',text:'DEPT FULL'}));
+          } else if(isApproved){
             sel.disabled=true;qInp.disabled=true;convInp.disabled=true;remInp.disabled=true;
             stWrap.appendChild(el('span',{cls:'badge green',text:'APPROVED'}));
           } else if(isSubmitted){
@@ -998,7 +1016,7 @@ function renderEntry(c,reviewOnly){
           row.appendChild(subRow);
         }
         body.appendChild(row);
-        if(!reviewOnly&&!periodClosed&&isLast&&!isApproved){
+        if(!reviewOnly&&!periodClosed&&isLast&&!isApproved&&!isDeptLocked){
           var contWrap=el('div',{style:'padding:2px 16px 6px 24px'});
           var newRowsCont=el('div');
           var addLink=el('a',{text:'+ Add Contractor',style:'font-size:11px;color:#4f8ef7;cursor:pointer'});
@@ -1007,6 +1025,7 @@ function renderEntry(c,reviewOnly){
           contWrap.appendChild(newRowsCont);contWrap.appendChild(addLink);
           body.appendChild(contWrap);
         }
+        });
       });
       if(!reviewOnly&&submitBtnWrap)body.appendChild(submitBtnWrap);
     }
@@ -1282,41 +1301,38 @@ function renderPayment(c){
   c.innerHTML='';
   var d=D.payment;
   if(!d||!d.success){c.appendChild(alert_('yellow','Loading...','Tap Refresh'));return;}
-  c.appendChild(sectionTitle('Payment Periods'));
+  c.appendChild(sectionTitle('Payment History'));
   var pBtn=el('button',{cls:'primary-btn',text:'Print Summary',style:'margin-bottom:12px;background:linear-gradient(135deg,#374151,#6b7280)'});
   pBtn.onclick=openPrintSummary;
   c.appendChild(pBtn);
-  var periods=d.periods||[];
-  if(!periods.length){c.appendChild(alert_('blue','No payment history','Archive a week to see periods here'));return;}
-  periods.slice().reverse().forEach(function(p){
+  var records=d.records||[];
+  if(!records.length){c.appendChild(alert_('blue','No payment history','No approved payments yet'));return;}
+  var periodMap={},periodOrder=[];
+  records.forEach(function(r){
+    if(!periodMap[r.periodId]){periodMap[r.periodId]={periodId:r.periodId,records:[]};periodOrder.push(r.periodId);}
+    periodMap[r.periodId].records.push(r);
+  });
+  periodOrder.slice().reverse().forEach(function(pid){
+    var pg=periodMap[pid];
     var card=el('div',{cls:'card',style:'margin-bottom:10px'});
-    var top=el('div',{style:'display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px'});
-    var lv=el('div');
-    lv.appendChild(el('div',{style:'font-size:13px;font-weight:700;color:#e8eaf0',text:p.weekLabel}));
-    lv.appendChild(el('div',{style:'font-size:20px;font-weight:800;color:#10b981;margin-top:4px',text:fmt(p.totalAmount)}));
-    top.appendChild(lv);
-    var st=p.status||'PENDING';
-    top.appendChild(el('span',{cls:'badge '+(st==='APPROVED'?'green':'yellow'),text:st}));
-    card.appendChild(top);
-    if(st!=='APPROVED'){
-      var acts=el('div',{cls:'req-actions',style:'margin-top:8px'});
-      var apB=el('button',{cls:'ap-btn',text:'Approve'});
-      (function(lbl){apB.onclick=function(){doApprovePeriod(lbl);};})(p.weekLabel);
-      acts.appendChild(apB);
-      card.appendChild(acts);
-    }
+    card.appendChild(el('div',{style:'font-size:13px;font-weight:700;color:#4a5578;margin-bottom:8px',text:pid}));
+    var total=0;
+    pg.records.forEach(function(r){
+      var row=el('div',{style:'display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #1a1f35'});
+      var left=el('div');
+      left.appendChild(el('div',{style:'font-size:12px;font-weight:600;color:#c5cae9',text:r.contractor}));
+      left.appendChild(el('div',{style:'font-size:10px;color:#4a5578;margin-top:1px',text:r.article+(r.customer?' · '+r.customer:'')+' · '+r.qty+' pairs'}));
+      row.appendChild(left);
+      row.appendChild(el('div',{style:'font-size:13px;font-weight:700;color:#10b981',text:fmt(r.amount)}));
+      card.appendChild(row);
+      total+=r.amount;
+    });
+    var footer=el('div',{style:'display:flex;justify-content:space-between;align-items:center;padding-top:8px'});
+    footer.appendChild(el('div',{style:'font-size:10px;color:#4a5578',text:pg.records[0]&&pg.records[0].approvedBy?'Approved by: '+pg.records[0].approvedBy:''}));
+    footer.appendChild(el('div',{style:'font-size:15px;font-weight:800;color:#10b981',text:fmt(total)}));
+    card.appendChild(footer);
     c.appendChild(card);
   });
-}
-
-function doApprovePeriod(weekLabel){
-  google.script.run
-    .withSuccessHandler(function(r){
-      if(r&&r.success){toast('Period approved');D.payment=null;loadTab('payment');}
-      else toast((r&&r.error)||'Error',true);
-    })
-    .withFailureHandler(function(){toast('Error',true);})
-    .approvePeriodPayment(weekLabel);
 }
 
 // ── WIP ───────────────────────────────────────────────────────────────────────

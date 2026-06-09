@@ -294,9 +294,12 @@ function getEntryData(periodId) {
 
       var actData = ws.getRange(5, 1, 45, 12).getValues();
       var activities = [];
+      var approvedByAct = {};
       actData.forEach(function(r, i) {
         var act = safeStr(r[1]);
         if (act && act.trim() && !act.match(/^[-=]/) && safeNum(r[0]) > 0) {
+          if (safeStr(r[11]).toUpperCase() === 'APPROVED' && safeNum(r[3]) > 0)
+            approvedByAct[act.trim()] = (approvedByAct[act.trim()] || 0) + safeNum(r[3]);
           var rowPeriodId = safeStr(r[10]);
           var inPeriod = rowPeriodId === effectivePeriodId;
           activities.push({
@@ -313,7 +316,7 @@ function getEntryData(periodId) {
       });
       articles.push({ sheet:name, article:article, customer:customer,
         orderQty:orderQty, status:status, thisWeek:thisWeek,
-        remaining:remaining, activities:activities });
+        remaining:remaining, activities:activities, _aqa:approvedByAct });
     } catch(e) { Logger.log('ART error ' + ws.getName() + ': ' + e.message); }
   });
 
@@ -376,21 +379,22 @@ function getEntryData(periodId) {
     }
   } catch(e) {}
 
-  // Augment each article with any MASTER_ACTIVITIES not yet in its ART sheet
+  var actDeptMap = {};
+  masterActivities.forEach(function(ma) { actDeptMap[ma.name] = ma.section || ''; });
   articles.forEach(function(art) {
-    var seen = {};
-    art.activities.forEach(function(ac) { seen[ac.activity] = true; });
-    masterActivities.forEach(function(ma) {
-      if (!seen[ma.name]) {
-        art.activities.push({
-          row: 0, activity: ma.name,
-          contractor: '', qty: 0,
-          rate: ma.stdRate, comm: ma.comm,
-          total: 0, entryStatus: '',
-          conveyance: 0, remarks: ''
-        });
+    var deptApproved = {};
+    Object.keys(art._aqa || {}).forEach(function(an) {
+      var d = actDeptMap[an] || 'other';
+      deptApproved[d] = (deptApproved[d] || 0) + (art._aqa[an] || 0);
+    });
+    art.activities.forEach(function(ac) {
+      ac.section = actDeptMap[ac.activity] || '';
+      if (art.orderQty > 0) {
+        var d = actDeptMap[ac.activity] || 'other';
+        if (deptApproved[d] && deptApproved[d] >= art.orderQty) ac.deptLocked = true;
       }
     });
+    delete art._aqa;
   });
 
   var week = null;
@@ -497,6 +501,20 @@ function saveEntry(sheetName, row, contractor, qty, conveyance, remarks, rate, c
         if (!plog) { plog = ss.insertSheet('PAYMENT_LOG'); plog.getRange(1,1,1,7).setValues([['Timestamp','User','Sheet','Row','Activity','Qty','Status']]); }
         plog.appendRow([Utilities.formatDate(new Date(),Session.getScriptTimeZone(),'dd-MMM-yyyy HH:mm'), user.name, sheetName, row, safeStr(ws.getRange('B'+row).getValue()), prevQty, 'VOIDED']);
       } catch(le) {}
+    }
+    if (periodId) {
+      try {
+        var vActName = safeStr(ws.getRange('B'+row).getValue());
+        if (vActName) {
+          ws.getRange(5, 1, 45, 12).getValues().forEach(function(r, vi) {
+            var vrn = vi + 5;
+            if (vrn === row) return;
+            var vst = safeStr(r[11]).toUpperCase();
+            if (safeStr(r[1]) === vActName && safeStr(r[10]) === periodId && (vst === 'DRAFT' || vst === ''))
+              ws.getRange('L'+vrn).setValue('VOIDED');
+          });
+        }
+      } catch(ve) {}
     }
     if (contractor) ws.getRange('C'+row).setValue(contractor);
     ws.getRange('D'+row).setValue(qty||0);
@@ -1158,24 +1176,58 @@ function getPrintSummary() {
   return records;
 }
 
-function approvePeriodPayment(weekLabel) {
+function approvePeriodPayment(periodId) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only admin can approve' };
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var ph = ss.getSheetByName('PAYMENT_HISTORY');
-    if (!ph || ph.getLastRow() < 4) return { success:false, error:'No payment history found' };
-    var data = ph.getRange(4, 1, ph.getLastRow()-3, 8).getValues();
-    var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
-    var count = 0;
-    for (var i = 0; i < data.length; i++) {
-      if (safeStr(data[i][0]) === weekLabel && !safeStr(data[i][6])) {
-        ph.getRange(i + 4, 7).setValue(user.name + ' — ' + now);
-        count++;
-      }
+    var tz = Session.getScriptTimeZone();
+    var now = Utilities.formatDate(new Date(), tz, 'dd-MMM-yyyy HH:mm');
+    var rq = ss.getSheetByName('REQUESTS');
+    var approvedRows = 0, histRows = 0;
+    if (rq && rq.getLastRow() > 3) {
+      var reqData = rq.getRange(4, 1, rq.getLastRow()-3, 10).getValues();
+      reqData.forEach(function(r, i) {
+        if (safeStr(r[3]) !== 'PAYMENT_SUBMISSION' || safeStr(r[5]).toUpperCase() !== 'PENDING') return;
+        try {
+          var pl = JSON.parse(safeStr(r[4]));
+          if (!pl || !pl.sheet || safeStr(pl.periodId) !== safeStr(periodId)) return;
+          var ws = ss.getSheetByName(pl.sheet);
+          if (!ws) return;
+          var article = safeStr(ws.getRange('B2').getValue());
+          var customer = safeStr(ws.getRange('E2').getValue());
+          var ph = ss.getSheetByName('PAYMENT_HISTORY');
+          if (!ph) { ph = ss.insertSheet('PAYMENT_HISTORY'); ph.getRange(1,1,1,8).setValues([['PeriodID','Article','Customer','Contractor','Qty','Amount','ApprovedBy','Date']]); }
+          ws.getRange(5, 1, 45, 12).getValues().forEach(function(ar, ai) {
+            if (!safeStr(ar[1]).trim() || safeNum(ar[0]) <= 0) return;
+            if (safeStr(ar[10]) !== safeStr(periodId)) return;
+            if (safeStr(ar[11]).toUpperCase() !== 'SUBMITTED') return;
+            ws.getRange('L'+(ai+5)).setValue('APPROVED');
+            var qty = safeNum(ar[3]), total = safeNum(ar[8]);
+            if (qty > 0 && total > 0) {
+              ph.appendRow([periodId, article, customer, safeStr(ar[2]), qty, total, user.name+' — '+now, new Date()]);
+              histRows++;
+            }
+            approvedRows++;
+          });
+          rq.getRange(i+4, 6).setValue('APPROVED');
+          rq.getRange(i+4, 7).setValue('Payment approved');
+          rq.getRange(i+4, 8).setValue(now);
+          rq.getRange(i+4, 9).setValue('Yes');
+        } catch(e2) { Logger.log('approvePeriodPayment: '+e2.message); }
+      });
     }
+    try {
+      var ph2 = ss.getSheetByName('PAYMENT_HISTORY');
+      if (ph2 && ph2.getLastRow() > 1) {
+        ph2.getRange(2, 1, ph2.getLastRow()-1, 8).getValues().forEach(function(r, i) {
+          if (safeStr(r[0]) === safeStr(periodId) && !safeStr(r[6]))
+            ph2.getRange(i+2, 7).setValue(user.name+' — '+now);
+        });
+      }
+    } catch(e3) {}
     SpreadsheetApp.flush();
-    return { success:true, count:count };
+    return { success:true, approvedRows:approvedRows, histRows:histRows };
   } catch(e) { return { success:false, error:e.message }; }
 }
 
@@ -1371,22 +1423,22 @@ function getPaymentPeriods() {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var ph = ss.getSheetByName('PAYMENT_HISTORY');
-    if (!ph || ph.getLastRow() < 4) return { success:true, periods:[] };
-    var data = ph.getRange(4, 1, ph.getLastRow()-3, 8).getValues();
-    var periodMap = {};
+    if (!ph || ph.getLastRow() < 2) return { success:true, records:[] };
+    var tz = Session.getScriptTimeZone();
+    var data = ph.getRange(2, 1, ph.getLastRow()-1, 8).getValues();
+    var records = [];
     data.forEach(function(r) {
-      var weekEnding = safeStr(r[0]);
-      if (!weekEnding) return;
-      var periodId = 'P-' + weekEnding.replace(/[^a-zA-Z0-9]/g, '');
-      if (!periodMap[periodId]) {
-        periodMap[periodId] = { periodId:periodId, weekLabel:weekEnding,
-          totalAmount:0, status:safeStr(r[6]) ? 'APPROVED' : 'PENDING' };
-      }
-      periodMap[periodId].totalAmount += safeNum(r[5]);
+      var periodId = safeStr(r[0]);
+      var amount = safeNum(r[5]);
+      if (!periodId || !amount) return;
+      var dv = r[7];
+      records.push({ periodId:periodId, article:safeStr(r[1]), customer:safeStr(r[2]),
+        contractor:safeStr(r[3]), qty:safeNum(r[4]), amount:amount,
+        approvedBy:safeStr(r[6]),
+        date:dv instanceof Date ? Utilities.formatDate(dv,tz,'dd-MMM-yyyy') : safeStr(dv) });
     });
-    var periods = Object.keys(periodMap).map(function(k){ return periodMap[k]; });
-    return { success:true, periods:periods };
-  } catch(e) { return { success:false, error:e.message, periods:[] }; }
+    return { success:true, records:records };
+  } catch(e) { return { success:false, error:e.message, records:[] }; }
 }
 
 function createArtTemplate() {
