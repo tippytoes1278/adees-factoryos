@@ -430,19 +430,29 @@ function sectionTitle(text){return el('div',{cls:'section-title',text:text});}
 // ── ADMIN HOME ────────────────────────────────────────────────────────────────
 function buildAdminOrderRow(o){
   var wrap=el('div',{style:'border-bottom:1px solid #1a1f35'});
-  var hdr=orderRowEl(o);
-  hdr.style.borderBottom='none';hdr.style.cursor='pointer';
+  var hdr=el('div',{style:'display:flex;justify-content:space-between;align-items:center;padding:10px 4px;cursor:pointer'});
+  var hLeft=el('div');
+  hLeft.appendChild(el('div',{style:'font-size:13px;font-weight:700;color:#c5cae9',text:o.article||o.sheet}));
+  hLeft.appendChild(el('div',{style:'font-size:10px;color:#4a5578;margin-top:2px',text:(o.totalPaid||0)+' paid / '+(o.orderQty||0)+' lot / '+(o.thisWeekQty||0)+' this week'}));
+  hdr.appendChild(hLeft);
+  var over=o.orderQty>0&&o.cumul>o.orderQty;
+  var done=!over&&o.orderQty>0&&o.cumul>=o.orderQty;
+  var rem=o.remaining||0;
+  var bClass=over?'red':done?'green':rem>0?'blue':'grey';
+  var bText=over?'OVER':done?'DONE':rem>0?(rem+' left'):'NO LOT';
+  hdr.appendChild(el('span',{cls:'badge '+bClass,text:bText}));
   var det=el('div',{style:'display:none;padding:0 4px 10px;font-size:12px'});
-  det.appendChild(el('div',{style:'color:#4a5578;margin-bottom:6px',
-    text:(o.totalPaid||0)+' paid / '+(o.orderQty||0)+' lot / '+(o.thisWeekQty||0)+' this period'}));
   if(o.deptBreakdown&&o.deptBreakdown.length){
     o.deptBreakdown.forEach(function(d){
-      if(!d.thisWeek&&!d.paid)return;
-      var dr=el('div',{style:'display:flex;justify-content:space-between;padding:2px 0;border-top:1px solid #1a1f35'});
-      dr.appendChild(el('span',{style:'color:#7986a3;text-transform:uppercase;font-size:10px',text:d.dept}));
-      var right=el('div',{style:'display:flex;gap:10px'});
-      if(d.thisWeek)right.appendChild(el('span',{style:'color:#f59e0b',text:d.thisWeek+' pending'}));
-      if(d.paid)right.appendChild(el('span',{style:'color:#10b981',text:d.paid+' paid'}));
+      if(!d.paid&&!d.thisWeek)return;
+      var dr=el('div',{style:'display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-top:1px solid #1a1f35'});
+      dr.appendChild(el('span',{style:'color:#7986a3;text-transform:uppercase;font-size:10px;font-weight:700',text:d.dept}));
+      var right=el('div',{style:'display:flex;gap:8px;font-size:11px'});
+      right.appendChild(el('span',{style:'color:#10b981',text:(d.paid||0)+' appr'}));
+      if(o.orderQty)right.appendChild(el('span',{style:'color:#4a5578',text:o.orderQty+' lot'}));
+      var remD=o.orderQty?Math.max(0,o.orderQty-(d.paid||0)):0;
+      if(remD>0)right.appendChild(el('span',{style:'color:#f59e0b',text:remD+' left'}));
+      if(d.thisWeek)right.appendChild(el('span',{style:'color:#60a5fa',text:d.thisWeek+' pend'}));
       dr.appendChild(right);det.appendChild(dr);
     });
   }
@@ -1669,37 +1679,23 @@ function renderActivitySetup(body,article){
     deptActs.forEach(function(ma){actSel.appendChild(el('option',{text:ma.name,value:ma.name}));});
     section.appendChild(actSel);
 
-    var rateInp=el('input',{type:'number',placeholder:'Rate ₹',style:'flex:1;background:#0f1117;border:1px solid #1e2540;border-radius:8px;padding:8px;color:#e8eaf0;font-size:13px;text-align:center;min-width:0'});
-    var commInp=el('input',{type:'number',placeholder:'Comm ₹/pr',style:'flex:1;background:#0f1117;border:1px solid #1e2540;border-radius:8px;padding:8px;color:#e8eaf0;font-size:13px;text-align:center;min-width:0'});
-    var addBtn=el('button',{text:'+ Add Activity',style:'background:#1e2540;color:#4f8ef7;font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px;white-space:nowrap;flex-shrink:0'});
-    var ctrlRow=el('div',{style:'display:flex;gap:6px;align-items:center;margin-bottom:6px'});
-    ctrlRow.appendChild(rateInp);ctrlRow.appendChild(commInp);ctrlRow.appendChild(addBtn);
-    section.appendChild(ctrlRow);
-
-    actSel.onchange=function(){
-      var std=actRateMap[actSel.value];
-      if(std&&!rateInp.value)rateInp.value=std;
-    };
-
+    var addBtn=el('button',{text:'+ Add Activity',style:'background:#1e2540;color:#4f8ef7;font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px;white-space:nowrap;margin-bottom:6px'});
+    section.appendChild(addBtn);
     var addedList=el('div');
     section.appendChild(addedList);
-
-    (function(d,aSel,rInp,cInp,aList,entries){
+    (function(d,aSel,aList,entries){
       addBtn.onclick=function(){
         var name=aSel.value;
         if(!name){toast('Select an activity',true);return;}
-        var rate=parseFloat(rInp.value)||0;
-        var comm=parseFloat(cInp.value)||0;
         var chk=el('input',{type:'checkbox',checked:true,style:'width:15px;height:15px;flex-shrink:0;accent-color:#4f8ef7'});
         var rowEl=el('div',{style:'display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid #1a1f35'});
         rowEl.appendChild(chk);
         rowEl.appendChild(el('div',{style:'flex:1;font-size:12px;color:#c5cae9',text:name}));
-        rowEl.appendChild(el('div',{style:'font-size:11px;color:#4a5578;white-space:nowrap',text:'₹'+rate+(comm?' +₹'+comm+'/pr':'')}));
-        entries.push({chk:chk,department:d,activityName:name,rate:rate,comm:comm});
+        entries.push({chk:chk,department:d,activityName:name,rate:0,comm:0});
         aList.appendChild(rowEl);
-        aSel.value='';rInp.value='';cInp.value='';
+        aSel.value='';
       };
-    })(dept,actSel,rateInp,commInp,addedList,deptData[dept]);
+    })(dept,actSel,addedList,deptData[dept]);
 
     wrap.appendChild(section);
   });
