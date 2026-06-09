@@ -376,6 +376,23 @@ function getEntryData(periodId) {
     }
   } catch(e) {}
 
+  // Augment each article with any MASTER_ACTIVITIES not yet in its ART sheet
+  articles.forEach(function(art) {
+    var seen = {};
+    art.activities.forEach(function(ac) { seen[ac.activity] = true; });
+    masterActivities.forEach(function(ma) {
+      if (!seen[ma.name]) {
+        art.activities.push({
+          row: 0, activity: ma.name,
+          contractor: '', qty: 0,
+          rate: ma.stdRate, comm: ma.comm,
+          total: 0, entryStatus: '',
+          conveyance: 0, remarks: ''
+        });
+      }
+    });
+  });
+
   var week = null;
   var periods = [];
   try {
@@ -385,18 +402,20 @@ function getEntryData(periodId) {
     var fmtPpD = function(v) { return v instanceof Date ? Utilities.formatDate(v, ppTz, 'dd-MMM-yyyy') : safeStr(v); };
     var ppData = pp.getRange(2, 1, pp.getLastRow()-1, 7).getValues();
       for (var pi = 0; pi < ppData.length; pi++) {
-        if (safeStr(ppData[pi][6]).trim().toUpperCase() === 'OPEN') {
+        var ppSt=safeStr(ppData[pi][6]).trim().toUpperCase();
+        if (ppSt==='OPEN'||ppSt==='CLOSED') {
           periods.push({
             periodId:  safeStr(ppData[pi][0]),
             weekLabel: safeStr(ppData[pi][2]),
             weekStart: fmtPpD(ppData[pi][3]),
             weekEnd:   fmtPpD(ppData[pi][4]),
-            status:    'OPEN'
+            status:    ppSt
           });
         }
       }
       periods.sort(function(a,b){return a.periodId<b.periodId?-1:a.periodId>b.periodId?1:0;});
-      if(periods.length) week=periods[0];
+      var openOnes=periods.filter(function(p){return p.status==='OPEN';});
+      if(openOnes.length) week=openOnes[0]; else if(periods.length) week=periods[0];
     }
   } catch(e3) {}
   var pendingActivities = [];

@@ -763,15 +763,17 @@ function renderEntry(c,reviewOnly){
     };})(swBtn);
     c.appendChild(swBtn);
   }
-  var openPeriods=D.entry&&D.entry.periods?D.entry.periods.filter(function(p){return (p.status||'').toUpperCase()==='OPEN';}):[];
+  var allPeriods=D.entry&&D.entry.periods?D.entry.periods:[];
+  var openPeriods=allPeriods.filter(function(p){return (p.status||'').toUpperCase()==='OPEN';});
   if(openPeriods.length>0&&!ENTRY_PERIOD)ENTRY_PERIOD=openPeriods[0];
   var activePeriod=ENTRY_PERIOD||(D.entry&&D.entry.week)||null;
-  if(openPeriods.length>1){
+  var periodClosed=!reviewOnly&&ENTRY_PERIOD&&(ENTRY_PERIOD.status||'').toUpperCase()==='CLOSED';
+  if(allPeriods.length>1){
     var pWrap=el('div',{style:'margin-bottom:10px'});
     pWrap.appendChild(el('div',{style:'font-size:11px;font-weight:700;color:#4a5578;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px',text:'Payment Period'}));
     var pSel=el('select',{style:'width:100%;background:#0f1117;border:1px solid #1e2540;border-radius:10px;padding:11px 14px;color:#e8eaf0;font-size:14px;font-weight:600'});
-    openPeriods.forEach(function(p){
-      var opt=el('option',{text:fmtPd(p.weekStart)+' – '+fmtPd(p.weekEnd,true),value:p.periodId});
+    allPeriods.forEach(function(p){
+      var opt=el('option',{text:fmtPd(p.weekStart)+' – '+fmtPd(p.weekEnd,true)+(p.status==='CLOSED'?' (CLOSED)':''),value:p.periodId});
       if(activePeriod&&p.periodId===activePeriod.periodId)opt.selected=true;
       pSel.appendChild(opt);
     });
@@ -786,7 +788,7 @@ function renderEntry(c,reviewOnly){
           .withFailureHandler(showErr)
           .getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
       };
-    })(pSel,reviewOnly,openPeriods);
+    })(pSel,reviewOnly,allPeriods);
     pWrap.appendChild(pSel);
     c.appendChild(pWrap);
   }
@@ -870,10 +872,10 @@ function renderEntry(c,reviewOnly){
       }
     }
     else{
-      var hasDraft=!reviewOnly&&acts.some(function(ac){var s=(ac.entryStatus||'').toUpperCase();return s==='DRAFT'||(ac.qty>0&&s!=='SUBMITTED');});
+      var hasDraft=!reviewOnly&&!periodClosed&&acts.some(function(ac){var s=(ac.entryStatus||'').toUpperCase();return s==='DRAFT'||(ac.qty>0&&s!=='SUBMITTED'&&s!=='APPROVED');});
       var submitBtnWrap=null;
       var draftRowRefs=[];
-      if(!reviewOnly){
+      if(!reviewOnly&&!periodClosed){
         submitBtnWrap=el('div',{style:'padding:12px 16px;border-top:1px solid #1e2540;'+(hasDraft?'':'display:none')});
         var subBtn=el('button',{cls:'primary-btn',text:'Submit for Payment',style:'font-size:13px;font-weight:700;padding:12px;border-radius:10px'});
         (function(sname,btn,wrap,refs){
@@ -915,6 +917,12 @@ function renderEntry(c,reviewOnly){
         row.appendChild(ai);
         if(reviewOnly){
           row.appendChild(el('span',{cls:'badge '+(ac.qty>0?'green':'grey'),text:ac.qty>0?(ac.qty+' pairs'):'--'}));
+        } else if(periodClosed){
+          var pcs=(ac.entryStatus||'').toUpperCase();
+          if(pcs==='APPROVED')row.appendChild(el('span',{cls:'badge green',text:'APPROVED'}));
+          else if(pcs==='SUBMITTED')row.appendChild(el('span',{cls:'badge blue',text:'SUBMITTED'}));
+          else if(ac.qty>0)row.appendChild(el('span',{cls:'badge grey',text:ac.qty+' pairs'}));
+          else row.appendChild(el('span',{cls:'badge grey',text:'—'}));
         } else {
           var entSt=(ac.entryStatus||'').toUpperCase();
           var isApproved=entSt==='APPROVED';
@@ -951,7 +959,37 @@ function renderEntry(c,reviewOnly){
             draftRowRefs.push({stWrap:stWrap,sel:sel,qInp:qInp,convInp:convInp,remInp:remInp,rowNum:rowNum,actName:ac.activity});
           } else {
             var saveB=el('button',{text:'Save',style:'background:#10b981;color:#fff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});
-            (function(s,q,sb,sw,subw,sname,rn,cinp,rinp){sb.onclick=function(){saveRow(sname,rn,s,q,sb,sw,subw,cinp,rinp);};})(sel,qInp,saveB,stWrap,submitBtnWrap,sn,rowNum,convInp,remInp);
+            if(rowNum===0){
+              (function(s,q,sb,sw,subw,sname,aname,dr,dc,cinp,rinp){
+                sb.onclick=function(){
+                  var qty=parseInt(q.value)||0;var contractor=s.value;
+                  if(!contractor){toast('Select a contractor',true);return;}
+                  if(!qty){toast('Enter quantity',true);return;}
+                  var conveyance=parseFloat(cinp.value)||null;
+                  var remarks=rinp.value.trim()||null;
+                  var pid=ENTRY_PERIOD?ENTRY_PERIOD.periodId:null;
+                  sb.disabled=true;sb.textContent='Saving…';q.style.borderColor='#f59e0b';
+                  google.script.run
+                    .withSuccessHandler(function(r){
+                      if(r.success){
+                        var newRn=r.row;q.classList.add('saved');q.style.borderColor='#10b981';
+                        s.disabled=true;q.disabled=true;cinp.disabled=true;rinp.disabled=true;
+                        sw.innerHTML='';
+                        var sc=el('span',{cls:'badge green',text:'SAVED'});
+                        var eB=el('button',{text:'Edit',style:'background:#1e2540;color:#4f8ef7;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});
+                        (function(ss2,qq,ci,ri,chip,eb,sww,subww){eb.onclick=function(){ss2.disabled=false;qq.disabled=false;ci.disabled=false;ri.disabled=false;chip.style.display='none';eb.style.display='none';var sb2=el('button',{text:'Save',style:'background:#10b981;color:#fff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});sb2.onclick=function(){saveRow(sname,newRn,ss2,qq,sb2,sww,subww,ci,ri);};sww.appendChild(sb2);};})(s,q,cinp,rinp,sc,eB,sw,subw);
+                        sw.appendChild(sc);sw.appendChild(eB);
+                        if(subw)subw.style.display='';
+                        if(r.lotStatus&&r.lotStatus.indexOf('OVER')>-1)toast('Over lot cap!',true);else toast('Saved');
+                      } else {sb.disabled=false;sb.textContent='Save';q.style.borderColor='#ef4444';toast(r.error||'Error',true);}
+                    })
+                    .withFailureHandler(function(){sb.disabled=false;sb.textContent='Save';q.style.borderColor='#ef4444';toast('Save failed',true);})
+                    .addContinuationRow(sname,aname,dr,dc,contractor,qty,conveyance,remarks,pid);
+                };
+              })(sel,qInp,saveB,stWrap,submitBtnWrap,sn,ac.activity,ac.rate||0,ac.comm||0,convInp,remInp);
+            } else {
+              (function(s,q,sb,sw,subw,sname,rn,cinp,rinp){sb.onclick=function(){saveRow(sname,rn,s,q,sb,sw,subw,cinp,rinp);};})(sel,qInp,saveB,stWrap,submitBtnWrap,sn,rowNum,convInp,remInp);
+            }
             stWrap.appendChild(saveB);
           }
           row.appendChild(sel);row.appendChild(qInp);row.appendChild(stWrap);
@@ -960,7 +998,7 @@ function renderEntry(c,reviewOnly){
           row.appendChild(subRow);
         }
         body.appendChild(row);
-        if(!reviewOnly&&isLast){
+        if(!reviewOnly&&!periodClosed&&isLast&&!isApproved){
           var contWrap=el('div',{style:'padding:2px 16px 6px 24px'});
           var newRowsCont=el('div');
           var addLink=el('a',{text:'+ Add Contractor',style:'font-size:11px;color:#4f8ef7;cursor:pointer'});
