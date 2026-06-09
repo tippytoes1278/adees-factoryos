@@ -222,12 +222,34 @@ function getDashboardData() {
     contractorSummary = Object.keys(csMap).map(function(k){return csMap[k];}).sort(function(a,b){return b.amount-a.amount;});
   } catch(e) {}
 
+  var periodList = [];
+  try {
+    var pidMap = {};
+    ss.getSheets().filter(isArtSheet).forEach(function(ws) {
+      try {
+        ws.getRange(5, 1, 45, 12).getValues().forEach(function(r) {
+          var st = safeStr(r[11]).toUpperCase();
+          if (st !== 'SUBMITTED' && st !== 'APPROVED') return;
+          var pid = safeStr(r[10]);
+          if (!pid) return;
+          var total = safeNum(r[8]);
+          if (!total) return;
+          if (!pidMap[pid]) pidMap[pid] = { periodId:pid, total:0, submitted:0, approved:0 };
+          pidMap[pid].total += total;
+          if (st === 'SUBMITTED') pidMap[pid].submitted += total;
+          else pidMap[pid].approved += total;
+        });
+      } catch(e) {}
+    });
+    periodList = Object.keys(pidMap).sort().map(function(k){ return pidMap[k]; });
+  } catch(e) {}
+
   return {
     weeklyPayout:weeklyPayout, approvalStatus:approvalStatus,
     weekEnding:weekEnding, orders:orders, redCount:redCount,
     completeCount:completeCount, mismatches:mismatches,
     pendingCount:pendingCount, totalOrders:orders.length,
-    contractorSummary:contractorSummary
+    contractorSummary:contractorSummary, periodList:periodList
   };
 }
 
@@ -690,6 +712,33 @@ function getPendingRequests() {
   requests.forEach(function(req) {
     if (req.type === 'RATE_EDIT') {
       try { var pl = JSON.parse(req.details); if (pl && pl.rowIndex) req.activityName = mrMap[pl.rowIndex] || ''; } catch(e) {}
+    }
+    if (req.type === 'PAYMENT_SUBMISSION') {
+      try {
+        var pl2 = JSON.parse(req.details);
+        if (pl2 && pl2.sheet) {
+          var ws2 = ss.getSheetByName(pl2.sheet);
+          if (ws2) {
+            var psActs = [], psTotal = 0;
+            ws2.getRange(5, 1, 45, 12).getValues().forEach(function(row) {
+              if (!safeStr(row[1]).trim() || safeNum(row[0]) <= 0) return;
+              var st2 = safeStr(row[11]).toUpperCase();
+              if (st2 !== 'SUBMITTED' && st2 !== 'APPROVED') return;
+              if (pl2.periodId && safeStr(row[10]) !== pl2.periodId) return;
+              var qty2 = safeNum(row[3]);
+              if (!qty2) return;
+              var tot2 = safeNum(row[8]);
+              psTotal += tot2;
+              psActs.push({ activity:safeStr(row[1]).trim(), contractor:safeStr(row[2]),
+                qty:qty2, rate:safeNum(row[4]), total:tot2 });
+            });
+            req.psActivities = psActs;
+            req.psGrandTotal = psTotal;
+            req.psArticle = pl2.article || '';
+            req.psPeriodId = pl2.periodId || '';
+          }
+        }
+      } catch(pe2) {}
     }
   });
   return { requests:requests };
@@ -1576,6 +1625,16 @@ function createOrder(payload) {
       } catch(tse) { Logger.log('TS activity inheritance: ' + tse.message); }
     }
     if (oi) {
+      if (oi.getLastRow() > 3) {
+        var oiCheck = oi.getRange(4, 3, oi.getLastRow()-3, 3).getValues();
+        for (var di = 0; di < oiCheck.length; di++) {
+          if (safeStr(oiCheck[di][0]) === safeStr(payload.styleName) &&
+              safeStr(oiCheck[di][1]) === safeStr(payload.color) &&
+              safeStr(oiCheck[di][2]) === safeStr(payload.buyer)) {
+            return { success:false, error:'Order already exists: '+article+' for '+safeStr(payload.buyer) };
+          }
+        }
+      }
       var oiRow = Math.max(oi.getLastRow(), 3) + 1;
       oi.getRange(oiRow, 1, 1, 12).setValues([[
         bomNumber, artSheet, safeStr(payload.styleName), safeStr(payload.color),
