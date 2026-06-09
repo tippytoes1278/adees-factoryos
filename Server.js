@@ -222,6 +222,54 @@ function getDashboardData() {
     contractorSummary = Object.keys(csMap).map(function(k){return csMap[k];}).sort(function(a,b){return b.amount-a.amount;});
   } catch(e) {}
 
+  try {
+    var maActDeptMap = {};
+    try {
+      var maS2 = ss.getSheetByName('MASTER_ACTIVITIES');
+      if (maS2 && maS2.getLastRow() > 1)
+        maS2.getRange(2, 1, maS2.getLastRow()-1, 2).getValues().forEach(function(r){
+          if (r[1]) maActDeptMap[safeStr(r[1])] = safeStr(r[0]);
+        });
+    } catch(e) {}
+    var curPidOrders = '';
+    try {
+      var ppO = ss.getSheetByName('PAYMENT_PERIODS');
+      if (ppO && ppO.getLastRow() > 1) {
+        var openIdsO = [];
+        ppO.getRange(2, 1, ppO.getLastRow()-1, 7).getValues().forEach(function(r){
+          if (safeStr(r[6]).trim().toUpperCase() === 'OPEN') openIdsO.push(safeStr(r[0]));
+        });
+        openIdsO.sort();
+        if (openIdsO.length) curPidOrders = openIdsO[0];
+      }
+    } catch(e) {}
+    var sheetIdx = {};
+    orders.forEach(function(o, i){ sheetIdx[o.sheet] = i; });
+    ss.getSheets().filter(isArtSheet).forEach(function(ws) {
+      var sn = ws.getName();
+      if (!(sn in sheetIdx)) return;
+      var idx = sheetIdx[sn];
+      var totalPaid = 0, thisWeekQty = 0, deptBkMap = {};
+      try {
+        ws.getRange(5, 1, 45, 12).getValues().forEach(function(r) {
+          if (!safeStr(r[1]).trim() || safeNum(r[0]) <= 0) return;
+          var st = safeStr(r[11]).toUpperCase();
+          var qty = safeNum(r[3]);
+          if (!qty) return;
+          var dept = maActDeptMap[safeStr(r[1]).trim()] || 'other';
+          if (!deptBkMap[dept]) deptBkMap[dept] = {dept:dept, thisWeek:0, paid:0};
+          if (st === 'APPROVED') { totalPaid += qty; deptBkMap[dept].paid += qty; }
+          if (curPidOrders && safeStr(r[10]) === curPidOrders && (st === 'SUBMITTED' || st === 'DRAFT')) {
+            thisWeekQty += qty; deptBkMap[dept].thisWeek += qty;
+          }
+        });
+      } catch(e) {}
+      orders[idx].totalPaid = totalPaid;
+      orders[idx].thisWeekQty = thisWeekQty;
+      orders[idx].deptBreakdown = Object.keys(deptBkMap).map(function(k){ return deptBkMap[k]; });
+    });
+  } catch(e) {}
+
   var periodList = [];
   try {
     var pidMap = {};
