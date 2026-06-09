@@ -449,19 +449,51 @@ function getEntryData(periodId) {
     }
   } catch(e) {}
 
+  var oiLotMap = {};
+  try {
+    var oiS = ss.getSheetByName('ORDER_INDEX');
+    if (oiS && oiS.getLastRow() > 3)
+      oiS.getRange(4, 1, oiS.getLastRow()-3, 6).getValues().forEach(function(r) {
+        var sn = safeStr(r[1]), ls = safeNum(r[5]);
+        if (sn && ls) oiLotMap[sn] = ls;
+      });
+  } catch(e) {}
+
+  var articleDeptMaps = {};
+  try {
+    var rqAS = ss.getSheetByName('REQUESTS');
+    if (rqAS && rqAS.getLastRow() > 3) {
+      rqAS.getRange(4, 1, rqAS.getLastRow()-3, 6).getValues().forEach(function(rr) {
+        if (safeStr(rr[3]) !== 'ACTIVITY_SETUP' || safeStr(rr[5]).toUpperCase() !== 'APPROVED') return;
+        try {
+          var asPl = JSON.parse(safeStr(rr[4]));
+          if (!asPl || !asPl.sheet) return;
+          if (!articleDeptMaps[asPl.sheet]) articleDeptMaps[asPl.sheet] = {};
+          var acts = asPl.activities || (asPl.activityName ? [asPl] : []);
+          acts.forEach(function(a) {
+            if (a.activityName)
+              articleDeptMaps[asPl.sheet][safeStr(a.activityName)] = safeStr(a.dept || '');
+          });
+        } catch(pe) {}
+      });
+    }
+  } catch(e) {}
+
   var actDeptMap = {};
   masterActivities.forEach(function(ma) { actDeptMap[ma.name] = ma.section || ''; });
   articles.forEach(function(art) {
+    var perArtMap = articleDeptMaps[art.sheet] || {};
     var deptApproved = {};
     Object.keys(art._aqa || {}).forEach(function(an) {
-      var d = actDeptMap[an] || 'other';
+      var d = perArtMap[an] || actDeptMap[an] || 'other';
       deptApproved[d] = (deptApproved[d] || 0) + (art._aqa[an] || 0);
     });
+    var lotSize = oiLotMap[art.sheet] || art.orderQty;
     art.activities.forEach(function(ac) {
-      ac.section = actDeptMap[ac.activity] || '';
-      if (art.orderQty > 0) {
-        var d = actDeptMap[ac.activity] || 'other';
-        if (deptApproved[d] && deptApproved[d] >= art.orderQty) ac.deptLocked = true;
+      ac.section = perArtMap[ac.activity] || actDeptMap[ac.activity] || '';
+      if (lotSize > 0) {
+        var d = perArtMap[ac.activity] || actDeptMap[ac.activity] || 'other';
+        if (deptApproved[d] && deptApproved[d] >= lotSize) ac.deptLocked = true;
       }
     });
     delete art._aqa;
@@ -580,7 +612,7 @@ function saveEntry(sheetName, row, contractor, qty, conveyance, remarks, rate, c
             var vrn = vi + 5;
             if (vrn === row) return;
             var vst = safeStr(r[11]).toUpperCase();
-            if (safeStr(r[1]) === vActName && safeStr(r[10]) === periodId && (vst === 'DRAFT' || vst === ''))
+            if (safeStr(r[1]) === vActName && safeStr(r[10]) === periodId && vst !== 'VOIDED')
               ws.getRange('L'+vrn).setValue('VOIDED');
           });
         }
@@ -1533,6 +1565,31 @@ function getPaymentPeriods() {
         contractor:safeStr(r[3]), qty:safeNum(r[4]), amount:amount,
         approvedBy:safeStr(r[6]),
         date:dv instanceof Date ? Utilities.formatDate(dv,tz,'dd-MMM-yyyy') : safeStr(dv) });
+    });
+    return { success:true, records:records };
+  } catch(e) { return { success:false, error:e.message, records:[] }; }
+}
+
+function getPaymentHistory() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ph = ss.getSheetByName('PAYMENT_HISTORY');
+    if (!ph || ph.getLastRow() < 2) return { success:true, records:[] };
+    var tz = Session.getScriptTimeZone();
+    var data = ph.getRange(2, 1, ph.getLastRow()-1, 8).getValues();
+    var records = [];
+    data.forEach(function(r) {
+      var periodId = safeStr(r[0]);
+      if (!periodId) return;
+      var dv = r[7];
+      records.push({
+        periodId: periodId,
+        sheet: safeStr(r[1]),
+        qty: safeNum(r[4]),
+        amount: safeNum(r[5]),
+        approvedBy: safeStr(r[6]),
+        date: dv instanceof Date ? Utilities.formatDate(dv, tz, 'dd-MMM-yyyy') : safeStr(dv)
+      });
     });
     return { success:true, records:records };
   } catch(e) { return { success:false, error:e.message, records:[] }; }

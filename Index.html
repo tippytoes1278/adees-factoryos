@@ -321,7 +321,7 @@ function loadTab(id){
     renderTab(id);
   } else if(id==='payment'){
     showLoading();
-    google.script.run.withSuccessHandler(function(d){D.payment=d;renderTab(id);}).withFailureHandler(showErr).getPaymentPeriods();
+    google.script.run.withSuccessHandler(function(d){D.payment=d;renderTab(id);}).withFailureHandler(showErr).getPaymentHistory();
   } else if(id==='wip'){
     if(D.wip){renderTab(id);return;}
     showLoading();
@@ -1372,8 +1372,8 @@ function renderPayment(c){
     pg.records.forEach(function(r){
       var row=el('div',{style:'display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #1a1f35'});
       var left=el('div');
-      left.appendChild(el('div',{style:'font-size:12px;font-weight:600;color:#c5cae9',text:r.contractor}));
-      left.appendChild(el('div',{style:'font-size:10px;color:#4a5578;margin-top:1px',text:r.article+(r.customer?' · '+r.customer:'')+' · '+r.qty+' pairs'}));
+      left.appendChild(el('div',{style:'font-size:12px;font-weight:600;color:#c5cae9',text:r.sheet||'—'}));
+      left.appendChild(el('div',{style:'font-size:10px;color:#4a5578;margin-top:1px',text:(r.qty||0)+' pairs'+(r.date?' · '+r.date:'')}));
       row.appendChild(left);
       row.appendChild(el('div',{style:'font-size:13px;font-weight:700;color:#10b981',text:fmt(r.amount)}));
       card.appendChild(row);
