@@ -368,7 +368,8 @@ function getEntryData(periodId) {
       actData.forEach(function(r, i) {
         var act = safeStr(r[1]);
         if (act && act.trim() && !act.match(/^[-=]/) && safeNum(r[0]) > 0) {
-          if (safeStr(r[11]).toUpperCase() === 'APPROVED' && safeNum(r[3]) > 0)
+          var _actSt = safeStr(r[11]).toUpperCase();
+          if ((_actSt === 'APPROVED' || _actSt === 'SUBMITTED') && safeNum(r[3]) > 0)
             approvedByAct[act.trim()] = (approvedByAct[act.trim()] || 0) + safeNum(r[3]);
           var rowPeriodId = safeStr(r[10]);
           var inPeriod = rowPeriodId === effectivePeriodId;
@@ -496,6 +497,17 @@ function getEntryData(periodId) {
         if (deptApproved[d] && deptApproved[d] >= lotSize) ac.deptLocked = true;
       }
     });
+    var deptStatus = getDeptStatus(art.sheet);
+    var DS_KEY = {'Cutting':'cutting','Preparation':'prep','Fitter':'fitter','Lasting':'lasting','Finishing':'finish','Dispatch':'dispatch'};
+    if (lotSize > 0) {
+      Object.keys(deptStatus).forEach(function(dn) {
+        if (deptStatus[dn] === 'APPROVED') {
+          var dv = DS_KEY[dn] || dn.toLowerCase();
+          if ((deptApproved[dv] || 0) >= lotSize) deptStatus[dn] = 'CAP_REACHED';
+        }
+      });
+    }
+    art.deptStatus = deptStatus;
     delete art._aqa;
   });
 
@@ -1357,6 +1369,156 @@ function approvePeriodPayment(periodId) {
     } catch(e3) {}
     SpreadsheetApp.flush();
     return { success:true, approvedRows:approvedRows, histRows:histRows };
+  } catch(e) { return { success:false, error:e.message }; }
+}
+
+function getActivitiesFromTS(sheetName) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var tsNumber = '';
+    var oi = ss.getSheetByName('ORDER_INDEX');
+    if (oi && oi.getLastRow() > 3) {
+      var oiData = oi.getRange(4, 1, oi.getLastRow()-3, 6).getValues();
+      for (var i = 0; i < oiData.length; i++) {
+        if (safeStr(oiData[i][1]) === sheetName) { tsNumber = safeStr(oiData[i][5]); break; }
+      }
+    }
+    if (!tsNumber) return { success:false, error:'No TS linked to this article' };
+    var tm = ss.getSheetByName('TS_MASTER');
+    if (!tm || tm.getLastRow() < 2) return { success:false, error:'TS_MASTER not found' };
+    var tmData = tm.getRange(2, 1, tm.getLastRow()-1, 7).getValues();
+    for (var j = 0; j < tmData.length; j++) {
+      if (safeStr(tmData[j][0]) === tsNumber) {
+        var raw = safeStr(tmData[j][6]);
+        if (!raw) return { success:true, activities:[] };
+        try { return { success:true, activities:JSON.parse(raw) }; }
+        catch(pe) { return { success:false, error:'Invalid activities JSON in TS' }; }
+      }
+    }
+    return { success:false, error:'TS not found: ' + tsNumber };
+  } catch(e) { return { success:false, error:e.message }; }
+}
+
+function getApprovedActivitiesForArticle(sheetName) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var rq = ss.getSheetByName('REQUESTS');
+    if (!rq || rq.getLastRow() < 4) return { success:true, activities:[] };
+    var data = rq.getRange(4, 1, rq.getLastRow()-3, 6).getValues();
+    var activities = [];
+    data.forEach(function(r) {
+      if (safeStr(r[3]) !== 'ACTIVITY_SETUP' || safeStr(r[5]).toUpperCase() !== 'APPROVED') return;
+      try {
+        var pl = JSON.parse(safeStr(r[4]));
+        if (!pl || safeStr(pl.sheet) !== sheetName) return;
+        var dept = safeStr(pl.dept || '');
+        var acts = pl.activities || (pl.activityName ? [{activityName:pl.activityName,rate:safeNum(pl.rate),comm:safeNum(pl.comm)}] : []);
+        acts.forEach(function(a) {
+          activities.push({ activityName:safeStr(a.activityName), dept:dept||safeStr(a.department||''), rate:safeNum(a.rate), comm:safeNum(a.comm) });
+        });
+      } catch(pe) {}
+    });
+    return { success:true, activities:activities };
+  } catch(e) { return { success:false, error:e.message }; }
+}
+
+function getDeptStatus(sheetName) {
+  var DEPT_KEYS = ['Cutting','Preparation','Fitter','Lasting','Finishing','Dispatch'];
+  var status = {};
+  DEPT_KEYS.forEach(function(d) { status[d] = 'NOT_SET'; });
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var DMAP = {'cutting':'Cutting','prep':'Preparation','fitter':'Fitter','lasting':'Lasting','finish':'Finishing','dispatch':'Dispatch'};
+  try {
+    var ds = ss.getSheetByName('DEPT_STATUS');
+    if (ds && ds.getLastRow() > 1) {
+      ds.getRange(2, 1, ds.getLastRow()-1, 3).getValues().forEach(function(r) {
+        var sn = safeStr(r[0]), dn = safeStr(r[1]), st = safeStr(r[2]).toUpperCase();
+        if (sn === sheetName && st === 'SKIPPED' && DEPT_KEYS.indexOf(dn) >= 0) status[dn] = 'SKIPPED';
+      });
+    }
+  } catch(e) {}
+  try {
+    var rq = ss.getSheetByName('REQUESTS');
+    if (rq && rq.getLastRow() > 3) {
+      rq.getRange(4, 1, rq.getLastRow()-3, 6).getValues().forEach(function(r) {
+        if (safeStr(r[3]) !== 'ACTIVITY_SETUP') return;
+        var reqSt = safeStr(r[5]).toUpperCase();
+        if (reqSt !== 'APPROVED' && reqSt !== 'PENDING') return;
+        try {
+          var pl = JSON.parse(safeStr(r[4]));
+          if (!pl || safeStr(pl.sheet) !== sheetName) return;
+          var depts = [];
+          if (pl.dept) {
+            var dn = DMAP[safeStr(pl.dept).toLowerCase()] || safeStr(pl.dept);
+            if (DEPT_KEYS.indexOf(dn) >= 0) depts = [dn];
+          }
+          if (!depts.length && pl.activities && pl.activities.length) {
+            pl.activities.forEach(function(a) {
+              var dv = safeStr(a.department || '').toLowerCase();
+              var dn2 = DMAP[dv] || '';
+              if (dn2 && DEPT_KEYS.indexOf(dn2) >= 0 && depts.indexOf(dn2) < 0) depts.push(dn2);
+            });
+          }
+          depts.forEach(function(dept) {
+            if (status[dept] === 'SKIPPED') return;
+            if (reqSt === 'APPROVED') status[dept] = 'APPROVED';
+            else if (reqSt === 'PENDING' && status[dept] === 'NOT_SET') status[dept] = 'PENDING';
+          });
+        } catch(pe) {}
+      });
+    }
+  } catch(e) {}
+  return status;
+}
+
+function markDeptSkipped(sheetName, dept) {
+  var user = getUserInfo();
+  if (user.role !== 'accounts' && user.role !== 'admin') return { success:false, error:'Not authorised' };
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ds = ss.getSheetByName('DEPT_STATUS');
+    if (!ds) {
+      ds = ss.insertSheet('DEPT_STATUS');
+      ds.getRange(1, 1, 1, 4).setValues([['SheetName','Dept','Status','MarkedBy']]);
+    }
+    var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
+    if (ds.getLastRow() > 1) {
+      var existing = ds.getRange(2, 1, ds.getLastRow()-1, 3).getValues();
+      for (var i = 0; i < existing.length; i++) {
+        if (safeStr(existing[i][0]) === sheetName && safeStr(existing[i][1]) === dept) {
+          ds.getRange(i+2, 3).setValue('SKIPPED');
+          ds.getRange(i+2, 4).setValue(user.name + ' — ' + now);
+          SpreadsheetApp.flush();
+          return { success:true };
+        }
+      }
+    }
+    ds.appendRow([sheetName, dept, 'SKIPPED', user.name + ' — ' + now]);
+    SpreadsheetApp.flush();
+    return { success:true };
+  } catch(e) { return { success:false, error:e.message }; }
+}
+
+function submitDeptActivities(sheetName, depts) {
+  var user = getUserInfo();
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var rq = ss.getSheetByName('REQUESTS');
+    if (!rq) return { success:false, error:'REQUESTS sheet not found' };
+    var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
+    var lastReqId = '';
+    depts.forEach(function(d) {
+      var lastRow = Math.max(rq.getLastRow(), 3) + 1;
+      var reqId = 'REQ-' + ('00' + (lastRow - 3)).slice(-3);
+      rq.getRange(lastRow, 1, 1, 10).setValues([[
+        reqId, now, user.name, 'ACTIVITY_SETUP',
+        JSON.stringify({sheet:sheetName, dept:d.dept, activities:d.activities}),
+        'PENDING', '', '', 'No', ''
+      ]]);
+      lastReqId = reqId;
+    });
+    SpreadsheetApp.flush();
+    return { success:true, count:depts.length, reqId:lastReqId };
   } catch(e) { return { success:false, error:e.message }; }
 }
 
