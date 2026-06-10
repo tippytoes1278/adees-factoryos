@@ -3,6 +3,13 @@
  * Final Server.gs — Clean, no DASHBOARD dependency
  */
 
+var CONFIG = {
+  LIVE_SHEET_ID: '1FLPeuQFPx0nQXRy-16P2-1-e5SjDu7nLE-1ycNZ-IH0',
+  DEV_SHEET_ID: '1eHnrG7IWn5PhreW1ywkdhgpzjOzYs6Y53vC4EIxwTvg',
+  ENV: 'LIVE'
+};
+var SHEET_ID = CONFIG.ENV === 'DEV' ? CONFIG.DEV_SHEET_ID : CONFIG.LIVE_SHEET_ID;
+
 const ROLES = {
   "ayush@adeesexports.com":   "admin",
   "aneesh@adeesexports.com":  "accounts",
@@ -62,7 +69,7 @@ function getAllData() {
 }
 
 function getCurrentWeek() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
   var tz = Session.getScriptTimeZone();
 
   // Try CONFIG sheet for a manual override first
@@ -94,7 +101,7 @@ function getCurrentWeek() {
 function setCustomWeek(startDate, endDate) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only Ayush can set the week' };
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
   var tz = Session.getScriptTimeZone();
   var now = Utilities.formatDate(new Date(), tz, 'dd-MMM-yyyy HH:mm');
   try {
@@ -121,7 +128,7 @@ function setCustomWeek(startDate, endDate) {
 }
 
 function getDashboardData() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
   var weeklyPayout = 0, approvalStatus = '', weekEnding = '';
 
   try {
@@ -303,7 +310,7 @@ function getDashboardData() {
 
 function ensureCurrentPeriod() {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var tz = Session.getScriptTimeZone();
     var today = new Date();
     var dow = today.getDay();
@@ -335,7 +342,7 @@ function ensureCurrentPeriod() {
 
 function getEntryData(periodId) {
   ensureCurrentPeriod();
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
   var firstOpenId = '';
   try {
     var ppE = ss.getSheetByName('PAYMENT_PERIODS');
@@ -563,7 +570,7 @@ function getEntryData(periodId) {
 
 function getContractorsData() {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var mc = ss.getSheetByName('MASTER_CONTRACTORS');
     var contractors = [];
     if (mc && mc.getLastRow() > 3) {
@@ -587,7 +594,7 @@ function saveContractor(payload) {
   if (user.role !== 'accounts' && user.role !== 'admin')
     return { success: false, error: 'Not authorised' };
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var mc = ss.getSheetByName('MASTER_CONTRACTORS');
     if (!mc) return { success: false, error: 'MASTER_CONTRACTORS sheet not found' };
     var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
@@ -605,7 +612,7 @@ function saveEntry(sheetName, row, contractor, qty, conveyance, remarks, rate, c
   if (user.role !== 'accounts' && user.role !== 'admin')
     return { success:false, error:'Not authorised' };
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var ws = ss.getSheetByName(sheetName);
     if (!ws) return { success:false, error:'Sheet not found' };
     var prevQty = safeNum(ws.getRange('D'+row).getValue());
@@ -651,7 +658,7 @@ function submitArticleEntries(sheetName, periodId) {
   if (user.role !== 'accounts' && user.role !== 'admin')
     return { success:false, error:'Not authorised' };
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var ws = ss.getSheetByName(sheetName);
     if (!ws) return { success:false, error:'Sheet not found' };
     var data = ws.getRange(5, 1, 45, 12).getValues();
@@ -687,7 +694,7 @@ function addContinuationRow(sheetName, activityName, rate, comm, contractor, qty
   if (user.role !== 'accounts' && user.role !== 'admin')
     return { success:false, error:'Not authorised' };
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var ws = ss.getSheetByName(sheetName);
     if (!ws) return { success:false, error:'Sheet not found' };
     var data = ws.getRange(5, 1, 45, 2).getValues();
@@ -722,7 +729,7 @@ function deleteOrder(sheetName) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only Ayush can delete orders' };
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var ws = ss.getSheetByName(sheetName);
     if (!ws) return { success:false, error:'Sheet not found: '+sheetName };
     var hasPaid = false;
@@ -750,7 +757,7 @@ function deleteOrder(sheetName) {
 }
 
 function getWIPData() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
   var wr = ss.getSheetByName('WIP_RECONCILIATION');
   var rows = [];
   try {
@@ -768,7 +775,7 @@ function getWIPData() {
 
 function saveWIP(rowNum, produced) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var wr = ss.getSheetByName('WIP_RECONCILIATION');
     wr.getRange('D'+rowNum).setValue(produced);
     SpreadsheetApp.flush();
@@ -779,7 +786,7 @@ function saveWIP(rowNum, produced) {
 }
 
 function getPendingRequests() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
   var rq = ss.getSheetByName('REQUESTS');
   var requests = [];
   try {
@@ -840,7 +847,7 @@ function getPaymentSubmissions() {
   var user = getUserInfo();
   if (user.role !== 'admin') return { submissions:[], pmMap:{} };
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var rq = ss.getSheetByName('REQUESTS');
     var pmMap = {};
     try {
@@ -890,7 +897,7 @@ function approvePaymentSubmission(reqId) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only Ayush can approve' };
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var tz = Session.getScriptTimeZone();
     var now = Utilities.formatDate(new Date(), tz, 'dd-MMM-yyyy HH:mm');
     var rq = ss.getSheetByName('REQUESTS');
@@ -934,7 +941,7 @@ function approvePaymentSubmission(reqId) {
 function submitRequest(type, details) {
   var user = getUserInfo();
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var rq = ss.getSheetByName('REQUESTS');
     var lastRow = Math.max(rq.getLastRow(), 3) + 1;
     var reqId = 'REQ-' + String(lastRow-3).padStart ? String(lastRow-3).padStart(3,'0') : ('00'+(lastRow-3)).slice(-3);
@@ -951,7 +958,7 @@ function processRequest(rowNum, action, notes) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only Ayush can approve' };
   try {
-    var ss  = SpreadsheetApp.getActiveSpreadsheet();
+    var ss  = SpreadsheetApp.openById(SHEET_ID);
     var rq  = ss.getSheetByName('REQUESTS');
     var row = rq.getRange(rowNum, 1, 1, 10).getValues()[0];
     var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
@@ -1031,7 +1038,7 @@ function approveWeek(initials) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only Ayush can approve' };
   try {
-    var ss  = SpreadsheetApp.getActiveSpreadsheet();
+    var ss  = SpreadsheetApp.openById(SHEET_ID);
     var wm  = ss.getSheetByName('WEEKLY PAYMENT MASTER');
     var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
     wm.getRange('B57').setValue(initials + ' — ' + now);
@@ -1041,7 +1048,7 @@ function approveWeek(initials) {
 }
 
 function getPaymentList() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
   var paymentMethods = {};
   try {
     var mc = ss.getSheetByName('MASTER_CONTRACTORS');
@@ -1100,7 +1107,7 @@ function getPaymentList() {
 }
 
 function createNewArtSheet(detailsStr) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
   var parse = function(key) {
     var m = detailsStr.match(new RegExp(key + ':\\s*([^|]+)'));
     return m ? m[1].trim() : '';
@@ -1198,7 +1205,7 @@ function updateTrackers(ss, newName, orderId, article, color, customer, brand, s
 }
 
 function archiveWeek() {
-  var ss  = SpreadsheetApp.getActiveSpreadsheet();
+  var ss  = SpreadsheetApp.openById(SHEET_ID);
   var wm  = ss.getSheetByName('WEEKLY PAYMENT MASTER');
   var approval = safeStr(wm.getRange('B57').getValue());
   if (!approval || approval.trim() === '')
@@ -1237,7 +1244,7 @@ function archiveWeek() {
 }
 
 function clearWeekForNext() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
   ss.getSheets().filter(isArtSheet).forEach(function(ws){
     ws.getRange('D5:D49').clearContent();
     ws.getRange('H5:H49').clearContent();
@@ -1249,7 +1256,7 @@ function clearWeekForNext() {
 }
 
 function fixFormulas() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
   ss.getSheets().filter(function(s){return s.getName().indexOf('ART-')===0;}).forEach(function(ws){
     for (var r=5; r<=49; r++) {
       ws.getRange('G'+r).setFormula('=IF(D'+r+'="",0,D'+r+'*F'+r+')');
@@ -1261,7 +1268,7 @@ function fixFormulas() {
 }
 
 function getPrintSummary() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
 
   // Build ORDER_INDEX lookup: artName → {sheetName, customer}
   var articleToSheet = {};
@@ -1321,7 +1328,7 @@ function approvePeriodPayment(periodId) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only admin can approve' };
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var tz = Session.getScriptTimeZone();
     var now = Utilities.formatDate(new Date(), tz, 'dd-MMM-yyyy HH:mm');
     var rq = ss.getSheetByName('REQUESTS');
@@ -1374,7 +1381,7 @@ function approvePeriodPayment(periodId) {
 
 function getActivitiesFromTS(sheetName) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var tsNumber = '';
     var oi = ss.getSheetByName('ORDER_INDEX');
     if (oi && oi.getLastRow() > 3) {
@@ -1401,7 +1408,7 @@ function getActivitiesFromTS(sheetName) {
 
 function getApprovedActivitiesForArticle(sheetName) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var rq = ss.getSheetByName('REQUESTS');
     if (!rq || rq.getLastRow() < 4) return { success:true, activities:[] };
     var data = rq.getRange(4, 1, rq.getLastRow()-3, 6).getValues();
@@ -1426,7 +1433,7 @@ function getDeptStatus(sheetName) {
   var DEPT_KEYS = ['Cutting','Preparation','Fitter','Lasting','Finishing','Dispatch'];
   var status = {};
   DEPT_KEYS.forEach(function(d) { status[d] = 'NOT_SET'; });
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
   var DMAP = {'cutting':'Cutting','prep':'Preparation','fitter':'Fitter','lasting':'Lasting','finish':'Finishing','dispatch':'Dispatch'};
   try {
     var ds = ss.getSheetByName('DEPT_STATUS');
@@ -1475,7 +1482,7 @@ function markDeptSkipped(sheetName, dept) {
   var user = getUserInfo();
   if (user.role !== 'accounts' && user.role !== 'admin') return { success:false, error:'Not authorised' };
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var ds = ss.getSheetByName('DEPT_STATUS');
     if (!ds) {
       ds = ss.insertSheet('DEPT_STATUS');
@@ -1502,7 +1509,7 @@ function markDeptSkipped(sheetName, dept) {
 function submitDeptActivities(sheetName, depts) {
   var user = getUserInfo();
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var rq = ss.getSheetByName('REQUESTS');
     if (!rq) return { success:false, error:'REQUESTS sheet not found' };
     var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
@@ -1526,7 +1533,7 @@ function rejectRequest(reqId) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only Ayush can reject' };
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var rq = ss.getSheetByName('REQUESTS');
     if (!rq || rq.getLastRow() < 4) return { success:false, error:'No requests found' };
     var data = rq.getRange(4, 1, rq.getLastRow()-3, 1).getValues();
@@ -1546,7 +1553,7 @@ function rejectRequest(reqId) {
 }
 
 function WIPE_AND_RESET() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
   ss.getSheets().filter(isArtSheet).forEach(function(s){ ss.deleteSheet(s); });
   ['ORDER_TRACKER','ORDER_INDEX','PAYMENT_HISTORY','REQUESTS'].forEach(function(name){
     var sh = ss.getSheetByName(name);
@@ -1563,7 +1570,7 @@ function WIPE_AND_RESET() {
 
 function saveActivitySetup(sheet, activities) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var ws = ss.getSheetByName(sheet);
     if (!ws) return { success:false, error:'Sheet not found: ' + sheet };
     ws.getRange(5, 1, 45, 6).clearContent();
@@ -1578,7 +1585,7 @@ function saveActivitySetup(sheet, activities) {
 
 function getActivitySetup(sheet) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var ws = ss.getSheetByName(sheet);
     if (!ws) return [];
     var data = ws.getRange(5, 1, 45, 4).getValues();
@@ -1596,7 +1603,7 @@ function getActivitySetup(sheet) {
 function requestActivityRateEdit(rowIndex, newRate, newComm) {
   var user = getUserInfo();
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var rq = ss.getSheetByName('REQUESTS');
     var lastRow = Math.max(rq.getLastRow(), 3) + 1;
     var reqId = 'REQ-' + ('00' + (lastRow - 3)).slice(-3);
@@ -1613,7 +1620,7 @@ function requestActivityRateEdit(rowIndex, newRate, newComm) {
 function requestActivitySetup(payload) {
   var user = getUserInfo();
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var rq = ss.getSheetByName('REQUESTS');
     var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
     var items = Array.isArray(payload) ? payload : [payload];
@@ -1635,7 +1642,7 @@ function approveEditRequest(reqId) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only Ayush can approve' };
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var rq = ss.getSheetByName('REQUESTS');
     if (!rq || rq.getLastRow() < 4) return { success:false, error:'No requests found' };
     var data = rq.getRange(4, 1, rq.getLastRow()-3, 10).getValues();
@@ -1666,7 +1673,7 @@ function approveRateEdit(requestId) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only Ayush can approve' };
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var rq = ss.getSheetByName('REQUESTS');
     if (!rq || rq.getLastRow() < 4) return { success:false, error:'No requests found' };
     var data = rq.getRange(4, 1, rq.getLastRow()-3, 10).getValues();
@@ -1695,7 +1702,7 @@ function approveRateEdit(requestId) {
 
 function dismissRateEdit(reqId) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var rq = ss.getSheetByName('REQUESTS');
     if (!rq || rq.getLastRow() < 4) return { success:false, error:'No requests found' };
     var data = rq.getRange(4, 1, rq.getLastRow()-3, 1).getValues();
@@ -1712,7 +1719,7 @@ function dismissRateEdit(reqId) {
 
 function getPaymentPeriods() {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var ph = ss.getSheetByName('PAYMENT_HISTORY');
     if (!ph || ph.getLastRow() < 2) return { success:true, records:[] };
     var tz = Session.getScriptTimeZone();
@@ -1734,7 +1741,7 @@ function getPaymentPeriods() {
 
 function getPaymentHistory() {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var ph = ss.getSheetByName('PAYMENT_HISTORY');
     if (!ph || ph.getLastRow() < 2) return { success:true, records:[] };
     var tz = Session.getScriptTimeZone();
@@ -1758,7 +1765,7 @@ function getPaymentHistory() {
 }
 
 function createArtTemplate() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
   var existing = ss.getSheetByName('ART-TEMPLATE');
   if (existing) ss.deleteSheet(existing);
   var ws = ss.insertSheet('ART-TEMPLATE');
@@ -1797,7 +1804,7 @@ function createArtTemplate() {
 
 function searchTS(query) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var tm = ss.getSheetByName('TS_MASTER');
     if (!tm || tm.getLastRow() < 2) return [];
     var data = tm.getRange(2, 1, tm.getLastRow()-1, 7).getValues();
@@ -1820,7 +1827,7 @@ function searchTS(query) {
 
 function createTS(styleName, category, season, activities) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var user = getUserInfo();
     var tm = ss.getSheetByName('TS_MASTER');
     if (!tm) return { success:false, error:'TS_MASTER sheet not found' };
@@ -1836,7 +1843,7 @@ function createTS(styleName, category, season, activities) {
 
 function createOrder(payload) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
     var tz = Session.getScriptTimeZone();
     var now = Utilities.formatDate(new Date(), tz, 'dd-MMM-yyyy');
     var oi = ss.getSheetByName('ORDER_INDEX');
