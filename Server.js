@@ -1002,7 +1002,7 @@ function processRequest(rowNum, action, notes) {
       try {
         var setupPayload = JSON.parse(safeStr(row[4]));
         if (setupPayload && setupPayload.sheet && setupPayload.activities) {
-          saveActivitySetup(setupPayload.sheet, setupPayload.activities);
+          saveActivitySetup(setupPayload.sheet, setupPayload.activities, setupPayload.dept);
         } else if (setupPayload && setupPayload.activityName) {
           var ma2 = ss.getSheetByName('MASTER_ACTIVITIES');
           if (!ma2) {
@@ -1595,16 +1595,75 @@ function WIPE_AND_RESET() {
   return { success:true };
 }
 
-function saveActivitySetup(sheet, activities) {
+function saveActivitySetup(sheet, newActivities, dept) {
   try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var ws = ss.getSheetByName(sheet);
     if (!ws) return { success:false, error:'Sheet not found: ' + sheet };
-    ws.getRange(5, 1, 45, 6).clearContent();
-    var rows = activities.map(function(a, i) {
-      return [i + 1, safeStr(a.activityName), '', '', safeNum(a.rate), safeNum(a.comm)];
+    var DEPT_ORDER = ['Cutting','Preparation','Fitter','Lasting','Finishing','Dispatch'];
+    var NCOLS = 12;
+
+    // Rebuild full activity list from all approved ACTIVITY_SETUP requests for this sheet
+    var deptActs = {};
+    var rq = ss.getSheetByName('REQUESTS');
+    if (rq && rq.getLastRow() > 3) {
+      rq.getRange(4, 1, rq.getLastRow()-3, 6).getValues().forEach(function(r) {
+        if (safeStr(r[3]) !== 'ACTIVITY_SETUP' || safeStr(r[5]).toUpperCase() !== 'APPROVED') return;
+        try {
+          var pl = JSON.parse(safeStr(r[4]));
+          if (!pl || safeStr(pl.sheet) !== sheet || !pl.dept || !pl.activities) return;
+          if (DEPT_ORDER.indexOf(pl.dept) < 0) return;
+          deptActs[pl.dept] = pl.activities.map(function(a) {
+            return { activityName:safeStr(a.activityName), rate:safeNum(a.rate), comm:safeNum(a.comm) };
+          });
+        } catch(pe) {}
+      });
+    }
+    // Override with the dept currently being approved
+    deptActs[dept] = newActivities.map(function(a) {
+      return { activityName:safeStr(a.activityName), rate:safeNum(a.rate), comm:safeNum(a.comm) };
     });
-    if (rows.length > 0) ws.getRange(5, 1, rows.length, 6).setValues(rows);
+
+    // Preserve existing entry data (C,D,H,J,K,L) keyed by activity name
+    var entryByAct = {};
+    ws.getRange(5, 1, 45, NCOLS).getValues().forEach(function(r) {
+      var nm = safeStr(r[1]).trim().toLowerCase();
+      if (nm) entryByAct[nm] = { c:r[2], d:r[3], h:r[7], j:r[9], k:r[10], l:r[11] };
+    });
+
+    // Build rows in standard dept order
+    var allRows = [];
+    DEPT_ORDER.forEach(function(d) {
+      if (!deptActs[d]) return;
+      deptActs[d].forEach(function(a) {
+        var nm = safeStr(a.activityName);
+        var ent = entryByAct[nm.trim().toLowerCase()] || {};
+        var row = new Array(NCOLS).fill('');
+        row[0]  = allRows.length + 1;
+        row[1]  = nm;
+        row[2]  = ent.c || '';  // Contractor
+        row[3]  = ent.d || '';  // Qty
+        row[4]  = a.rate;       // Rate
+        row[5]  = a.comm;       // Comm
+        row[7]  = ent.h || '';  // Conveyance
+        row[9]  = ent.j || '';  // Remarks
+        row[10] = ent.k || '';  // PeriodId
+        row[11] = ent.l || '';  // Status
+        allRows.push(row);
+      });
+    });
+
+    ws.getRange(5, 1, 45, NCOLS).clearContent();
+    if (allRows.length > 0) ws.getRange(5, 1, allRows.length, NCOLS).setValues(allRows);
+
+    // Restore G (comm total) and I (total) formulas
+    var gFormulas = [], iFormulas = [];
+    for (var r = 5; r <= 49; r++) {
+      gFormulas.push(['=IF(D'+r+'="",0,D'+r+'*F'+r+')']);
+      iFormulas.push(['=IF(D'+r+'="",0,(D'+r+'*E'+r+')+G'+r+'+IF(H'+r+'="",0,H'+r+'))']);
+    }
+    ws.getRange(5, 7, 45, 1).setFormulas(gFormulas);
+    ws.getRange(5, 9, 45, 1).setFormulas(iFormulas);
     SpreadsheetApp.flush();
     return { success:true };
   } catch(e) { return { success:false, error:e.message }; }
