@@ -653,6 +653,33 @@ function saveEntry(sheetName, row, contractor, qty, conveyance, remarks, rate, c
   } catch(e) { return { success:false, error:e.message }; }
 }
 
+function clearEntry(sheetName, rowNum, activityName) {
+  var user = getUserInfo();
+  if (user.role !== 'accounts' && user.role !== 'admin')
+    return { success:false, error:'Not authorised' };
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var ws = ss.getSheetByName(sheetName);
+    if (!ws) return { success:false, error:'Sheet not found' };
+    var prevQty = safeNum(ws.getRange('D'+rowNum).getValue());
+    if (prevQty > 0) {
+      try {
+        var plog = ss.getSheetByName('PAYMENT_LOG');
+        if (!plog) { plog = ss.insertSheet('PAYMENT_LOG'); plog.getRange(1,1,1,7).setValues([['Timestamp','User','Sheet','Row','Activity','Qty','Status']]); }
+        plog.appendRow([Utilities.formatDate(new Date(),Session.getScriptTimeZone(),'dd-MMM-yyyy HH:mm'), user.name, sheetName, rowNum, activityName, prevQty, 'VOIDED']);
+      } catch(le) {}
+    }
+    ws.getRange('C'+rowNum).clearContent();
+    ws.getRange('D'+rowNum).clearContent();
+    ws.getRange('H'+rowNum).clearContent();
+    ws.getRange('J'+rowNum).clearContent();
+    ws.getRange('K'+rowNum).clearContent();
+    ws.getRange('L'+rowNum).clearContent();
+    SpreadsheetApp.flush();
+    return { success:true };
+  } catch(e) { return { success:false, error:e.message }; }
+}
+
 function submitArticleEntries(sheetName, periodId) {
   var user = getUserInfo();
   if (user.role !== 'accounts' && user.role !== 'admin')

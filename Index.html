@@ -1087,10 +1087,24 @@ function renderEntry(c,reviewOnly){
               sel.disabled=true;qInp.disabled=true;convInp.disabled=true;remInp.disabled=true;
               var sc=el('span',{cls:'badge green',text:'SAVED'});
               var eB=el('button',{text:'Edit',style:'background:#1e2540;color:#4f8ef7;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});
+              var clrB=el('button',{text:'Clear',style:'background:#7f1d1d;color:#fca5a5;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px;margin-top:2px'});
               (function(s,q,cinp,rinp,chip,eb,sw,subw,sname,rn){
                 eb.onclick=function(){s.disabled=false;q.disabled=false;cinp.disabled=false;rinp.disabled=false;chip.style.display='none';eb.style.display='none';var sb=el('button',{text:'Save',style:'background:#10b981;color:#fff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});sb.onclick=function(){saveRow(sname,rn,s,q,sb,sw,subw,cinp,rinp);};sw.appendChild(sb);};
               })(sel,qInp,convInp,remInp,sc,eB,stWrap,submitBtnWrap,sn,rowNum);
-              stWrap.appendChild(sc);stWrap.appendChild(eB);
+              (function(sname,rn,aname,btn){
+                btn.onclick=function(){
+                  if(!confirm('Clear this entry? This cannot be undone.'))return;
+                  btn.disabled=true;btn.textContent='Clearing…';
+                  google.script.run
+                    .withSuccessHandler(function(r){
+                      if(r&&r.success){toast('Entry cleared');D.entry=null;setTimeout(function(){loadTab('entry');},600);}
+                      else{btn.disabled=false;btn.textContent='Clear';toast((r&&r.error)||'Error',true);}
+                    })
+                    .withFailureHandler(function(){btn.disabled=false;btn.textContent='Clear';toast('Error',true);})
+                    .clearEntry(sname,rn,aname);
+                };
+              })(sn,rowNum,ac.activity,clrB);
+              stWrap.appendChild(sc);stWrap.appendChild(eB);stWrap.appendChild(clrB);
               draftRowRefs.push({stWrap:stWrap,sel:sel,qInp:qInp,convInp:convInp,remInp:remInp,rowNum:rowNum,actName:ac.activity,deptKey:dk});
             } else {
               var saveB=el('button',{text:'Save',style:'background:#10b981;color:#fff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});
