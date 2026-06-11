@@ -1879,8 +1879,10 @@ function renderDeptSetupCopy(container,artSheet,dept,deptKey){
         loadBtn.disabled=false;loadBtn.textContent='Load Activities';copyArea.innerHTML='';
         if(!r||!r.success){toast((r&&r.error)||'Error',true);return;}
         var acts=(r.activities||[]).filter(function(a){
-          var ma=MASTER_ACTS.filter(function(m){return m.name===a.activityName;})[0];
-          return ma&&ma.section===deptKey;
+          var ma=MASTER_ACTS.filter(function(m){return m.name.trim().toLowerCase()===(a.activityName||'').trim().toLowerCase();})[0];
+          var sec=ma?ma.section:(a.dept||'').trim().toLowerCase();
+          if(sec==='preparation')sec='prep';if(sec==='finishing')sec='finish';
+          return sec===deptKey;
         });
         if(!acts.length){copyArea.appendChild(el('div',{style:'color:#4a5578;font-size:12px',text:'No '+dept+' activities in that article'}));return;}
         renderDeptSetupConfirm(copyArea,artSheet,dept,acts);
@@ -2015,10 +2017,12 @@ function renderArticleLevelSetupCard(container,artSheet){
           if(!r||!r.success){toast((r&&r.error)||'Error',true);return;}
           var byDept={};
           (r.activities||[]).forEach(function(a){
-            var ma=MASTER_ACTS.filter(function(m){return m.name===a.activityName;})[0];
-            if(!ma)return;
-            if(!byDept[ma.section])byDept[ma.section]=[];
-            byDept[ma.section].push({activityName:a.activityName,rate:a.rate||0,comm:a.comm||0});
+            var ma=MASTER_ACTS.filter(function(m){return m.name.trim().toLowerCase()===(a.activityName||'').trim().toLowerCase();})[0];
+            var sec=ma?ma.section:(a.dept||'').trim().toLowerCase();
+            if(sec==='preparation')sec='prep';if(sec==='finishing')sec='finish';
+            if(!sec)return;
+            if(!byDept[sec])byDept[sec]=[];
+            byDept[sec].push({activityName:a.activityName,rate:a.rate||0,comm:a.comm||0});
           });
           showForm(byDept,false);
         })
