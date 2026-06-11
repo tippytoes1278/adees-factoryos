@@ -12,7 +12,7 @@ var SHEET_ID = CONFIG.ENV === 'DEV' ? CONFIG.DEV_SHEET_ID : CONFIG.LIVE_SHEET_ID
 
 const ROLES = {
   "ayush@adeesexports.com":   "admin",
-  "aneesh@adeesexports.com":  "accounts",
+  "upperstoreadees@gmail.com": "accounts",
   "admin@adeesexports.com":   "store",
 };
 

@@ -17,7 +17,9 @@
       "Bash(sed -i '' '1047s/.*/      var acts=a.activities?a.activities.filter\\(function\\(ac\\){var n=\\(ac.activity||'\"'\"''\"'\"'\\).trim\\(\\);return n\\\\&\\\\&n!=='\"'\"'—'\"'\"'\\\\&\\\\&\\(!reviewOnly||ac.qty>0\\);}\\):[];/' /Users/Ayush/adees-factoryos/Index.html)",
       "Bash(sed -n '1047p' /Users/Ayush/adees-factoryos/Index.html)",
       "Bash(wait)",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
   }
 }
