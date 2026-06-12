@@ -209,6 +209,10 @@ window.onload=function(){
     .withSuccessHandler(function(u){
       USER=u;
       document.getElementById('userName').textContent=u.name;
+      if(u.env==='DEV'){
+        document.querySelector('.topbar-title').insertAdjacentHTML('beforeend',
+          ' <span style="background:#f59e0b;color:#1a1a2e;font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;vertical-align:middle;letter-spacing:.5px">DEV</span>');
+      }
       document.getElementById('topSub').textContent=
         u.role==='admin'?'Admin':u.role==='accounts'?'Accounts':'Store';
       var dot=document.getElementById('roleDot');

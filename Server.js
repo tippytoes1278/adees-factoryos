@@ -19,7 +19,7 @@ const ROLES = {
 function doGet() {
   return HtmlService
     .createHtmlOutputFromFile('Index')
-    .setTitle('FactoryOS — Adees Exports')
+    .setTitle('FactoryOS — Adees Exports' + (CONFIG.ENV === 'DEV' ? ' (DEV)' : ''))
     .addMetaTag('viewport','width=device-width, initial-scale=1')
     .setSandboxMode(HtmlService.SandboxMode.IFRAME)
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
@@ -30,7 +30,7 @@ function getUserInfo() {
   var role  = ROLES[email] || 'viewer';
   var first = email.split('@')[0];
   var name  = first.charAt(0).toUpperCase() + first.slice(1);
-  return { email:email, role:role, name:name };
+  return { email:email, role:role, name:name, env:CONFIG.ENV };
 }
 
 function safeNum(val) {
