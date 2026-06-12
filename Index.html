@@ -647,6 +647,7 @@ function renderRequests(c){
     var card=el('div',{cls:'req-card'});
     var rtEl=el('div',{cls:'req-type',text:r.type});
     if(r.type==='EDIT_REQUEST')rtEl.style.color='#ef4444';
+    if(r.type==='SETUP_EDIT_REQUEST')rtEl.style.color='#f59e0b';
     card.appendChild(rtEl);
     var det=el('div',{cls:'req-details'});
     if(r.type==='RATE_EDIT'){
@@ -697,6 +698,10 @@ function renderRequests(c){
         det.appendChild(el('div',{style:'font-weight:700;color:#ef4444',text:'Edit Request: '+(pler.activityName||'?')+' on '+(pler.sheet||'?')}));
         if(pler.rowNum)det.appendChild(el('div',{style:'font-size:11px;color:#9ca3af',text:'Row '+pler.rowNum}));
       }catch(ere){det.appendChild(el('div',{text:r.details}));}
+    } else if(r.type==='SETUP_EDIT_REQUEST'){
+      try{var plser=JSON.parse(r.details);
+        det.appendChild(el('div',{style:'font-weight:700;color:#f59e0b',text:'Setup Edit: '+(plser.dept||'?')+' dept on '+(plser.sheet||'?')}));
+      }catch(sere){det.appendChild(el('div',{text:r.details}));}
     } else {
       var parts=r.details.split('|');
       parts.forEach(function(p){det.appendChild(el('div',{text:p.trim()}));});
@@ -716,6 +721,12 @@ function renderRequests(c){
       var rb3=el('button',{cls:'rj-btn',text:'Reject'});
       (function(reqId){rb3.onclick=function(){doRejectRequest(reqId);};})(r.reqId);
       acts.appendChild(ab3);acts.appendChild(rb3);
+    } else if(r.type==='SETUP_EDIT_REQUEST'){
+      var ab4=el('button',{cls:'ap-btn',text:'Approve'});
+      (function(reqId){ab4.onclick=function(){doApproveSetupEditRequest(reqId);};})(r.reqId);
+      var rb4=el('button',{cls:'rj-btn',text:'Reject'});
+      (function(reqId){rb4.onclick=function(){doRejectRequest(reqId);};})(r.reqId);
+      acts.appendChild(ab4);acts.appendChild(rb4);
     } else if(r.type==='PAYMENT_SUBMISSION'){
       var abPs=el('button',{cls:'ap-btn',text:'Approve & Lock'});
       (function(reqId){abPs.onclick=function(){approvePaymentSubmission(reqId);};})(r.reqId);
@@ -772,6 +783,16 @@ function doApproveEditRequest(reqId){
     })
     .withFailureHandler(function(){toast('Error',true);})
     .approveEditRequest(reqId);
+}
+
+function doApproveSetupEditRequest(reqId){
+  google.script.run
+    .withSuccessHandler(function(r){
+      if(r.success){toast('Setup edit approved');setTimeout(function(){loadTab('requests');},600);}
+      else toast(r.error||'Error',true);
+    })
+    .withFailureHandler(function(){toast('Error',true);})
+    .approveSetupEditRequest(reqId);
 }
 
 // ── ARVIND HOME ───────────────────────────────────────────────────────────────
@@ -1033,6 +1054,30 @@ function renderEntry(c,reviewOnly){
         }
 
         // APPROVED — show activity rows
+        if((USER.role==='accounts'||USER.role==='admin')&&ds==='APPROVED'){
+          var deptIdx=DEPT_SEQ.indexOf(dept);
+          var hasPaymentFromHere=DEPT_SEQ.slice(deptIdx).some(function(d2){
+            return a.deptHasPayment&&a.deptHasPayment[DEPT_KEY[d2]];
+          });
+          if(!hasPaymentFromHere){
+            if(a.pendingSetupEdits&&a.pendingSetupEdits[dept]){
+              dHdr.appendChild(el('span',{style:'font-size:10px;color:#9ca3af;font-weight:600',text:'Edit Requested'}));
+            } else {
+              var seBtn=el('button',{text:'Edit',style:'background:#1e2540;color:#f59e0b;font-size:10px;font-weight:700;padding:4px 8px;border-radius:6px'});
+              (function(sn,deptName,btn){btn.onclick=function(){
+                btn.disabled=true;btn.textContent='Requesting…';
+                google.script.run
+                  .withSuccessHandler(function(r){
+                    if(r&&r.success){btn.textContent='Edit Requested';D.entry=null;}
+                    else{toast((r&&r.error)||'Error',true);btn.disabled=false;btn.textContent='Edit';}
+                  })
+                  .withFailureHandler(function(){toast('Error',true);btn.disabled=false;btn.textContent='Edit';})
+                  .submitRequest('SETUP_EDIT_REQUEST',JSON.stringify({sheet:sn,dept:deptName}));
+              };})(a.sheet,dept,seBtn);
+              dHdr.appendChild(seBtn);
+            }
+          }
+        }
         body.appendChild(dHdr);
         if(!dActs.length){
           body.appendChild(el('div',{style:'padding:8px 16px;font-size:11px;color:#4a5578',text:'No activities for '+dept}));

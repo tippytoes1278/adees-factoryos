@@ -514,9 +514,30 @@ function getEntryData(periodId) {
         }
       });
     }
+    art.deptHasPayment = {};
+    Object.keys(deptApproved).forEach(function(dk) {
+      if (deptApproved[dk] > 0) art.deptHasPayment[dk] = true;
+    });
     art.deptStatus = deptStatus;
     delete art._aqa;
   });
+
+  try {
+    var rqSer = ss.getSheetByName('REQUESTS');
+    if (rqSer && rqSer.getLastRow() > 3) {
+      var pendingEditMap = {};
+      rqSer.getRange(4, 1, rqSer.getLastRow()-3, 6).getValues().forEach(function(r) {
+        if (safeStr(r[3]) !== 'SETUP_EDIT_REQUEST' || safeStr(r[5]).toUpperCase() !== 'PENDING') return;
+        try {
+          var pl = JSON.parse(safeStr(r[4]));
+          if (!pl || !pl.sheet || !pl.dept) return;
+          if (!pendingEditMap[pl.sheet]) pendingEditMap[pl.sheet] = {};
+          pendingEditMap[pl.sheet][pl.dept] = true;
+        } catch(pe) {}
+      });
+      articles.forEach(function(art) { art.pendingSetupEdits = pendingEditMap[art.sheet] || {}; });
+    }
+  } catch(e) {}
 
   var week = null;
   var periods = [];
@@ -1476,12 +1497,18 @@ function getDeptStatus(sheetName) {
     var rq = ss.getSheetByName('REQUESTS');
     if (rq && rq.getLastRow() > 3) {
       rq.getRange(4, 1, rq.getLastRow()-3, 6).getValues().forEach(function(r) {
-        if (safeStr(r[3]) !== 'ACTIVITY_SETUP') return;
+        var rType = safeStr(r[3]);
+        if (rType !== 'ACTIVITY_SETUP' && rType !== 'ACTIVITY_SETUP_RESET') return;
         var reqSt = safeStr(r[5]).toUpperCase();
-        if (reqSt !== 'APPROVED' && reqSt !== 'PENDING') return;
         try {
           var pl = JSON.parse(safeStr(r[4]));
           if (!pl || safeStr(pl.sheet) !== sheetName) return;
+          if (rType === 'ACTIVITY_SETUP_RESET') {
+            var resetDn = DMAP[safeStr(pl.dept || '').toLowerCase()] || safeStr(pl.dept || '');
+            if (DEPT_KEYS.indexOf(resetDn) >= 0 && status[resetDn] !== 'SKIPPED') status[resetDn] = 'NOT_SET';
+            return;
+          }
+          if (reqSt !== 'APPROVED' && reqSt !== 'PENDING') return;
           var depts = [];
           if (pl.dept) {
             var dn = DMAP[safeStr(pl.dept).toLowerCase()] || safeStr(pl.dept);
@@ -1754,6 +1781,39 @@ function approveEditRequest(reqId) {
     SpreadsheetApp.flush();
     return { success:true };
   } catch(e) { return { success:false, error:e.message }; }
+}
+
+function approveSetupEditRequest(reqId) {
+  var user = getUserInfo();
+  if (user.role !== 'admin') return { success: false, error: 'Only Ayush can approve' };
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var rq = ss.getSheetByName('REQUESTS');
+    if (!rq || rq.getLastRow() < 4) return { success: false, error: 'No requests found' };
+    var data = rq.getRange(4, 1, rq.getLastRow()-3, 6).getValues();
+    var targetRow = -1, payload = null;
+    for (var i = 0; i < data.length; i++) {
+      if (safeStr(data[i][0]) === reqId && safeStr(data[i][3]) === 'SETUP_EDIT_REQUEST') {
+        targetRow = i + 4; try { payload = JSON.parse(safeStr(data[i][4])); } catch(pe) {} break;
+      }
+    }
+    if (targetRow === -1) return { success: false, error: 'Request not found: ' + reqId };
+    if (!payload || !payload.sheet || !payload.dept) return { success: false, error: 'Invalid payload' };
+    var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
+    rq.getRange(targetRow, 6).setValue('APPROVED');
+    rq.getRange(targetRow, 7).setValue('Setup edit approved');
+    rq.getRange(targetRow, 8).setValue(now);
+    rq.getRange(targetRow, 9).setValue('Yes');
+    var resetRow = rq.getLastRow() + 1;
+    var resetSeq = String(resetRow - 3); while (resetSeq.length < 3) resetSeq = '0' + resetSeq;
+    rq.getRange(resetRow, 1, 1, 10).setValues([[
+      'REQ-' + resetSeq, now, user.name, 'ACTIVITY_SETUP_RESET',
+      JSON.stringify({ sheet: payload.sheet, dept: payload.dept }),
+      'APPROVED', 'Setup edit unlocked', now, 'Yes', ''
+    ]]);
+    SpreadsheetApp.flush();
+    return { success: true };
+  } catch(e) { return { success: false, error: e.message }; }
 }
 
 function approveRateEdit(requestId) {
