@@ -783,23 +783,34 @@ function deleteOrder(sheetName) {
     var hasPaid = false;
     ws.getRange(5, 4, 45, 1).getValues().forEach(function(r){ if(safeNum(r[0])>0) hasPaid=true; });
     if (hasPaid) return { success:false, error:'Cannot delete — order has paid entries' };
-    var oi = ss.getSheetByName('ORDER_INDEX');
-    if (oi && oi.getLastRow()>3) {
-      var oiD=oi.getRange(4,2,oi.getLastRow()-3,1).getValues();
-      for(var i=0;i<oiD.length;i++){if(safeStr(oiD[i][0])===sheetName){oi.deleteRow(i+4);break;}}
-    }
-    var ot = ss.getSheetByName('ORDER_TRACKER');
-    if (ot && ot.getLastRow()>3) {
-      var otD=ot.getRange(4,1,ot.getLastRow()-3,1).getValues();
-      for(var j=0;j<otD.length;j++){if(safeStr(otD[j][0])===sheetName){ot.deleteRow(j+4);break;}}
-    }
-    var wr = ss.getSheetByName('WIP_RECONCILIATION');
-    if (wr && wr.getLastRow()>4) {
-      var wrD=wr.getRange(5,1,wr.getLastRow()-4,1).getValues();
-      for(var k=0;k<wrD.length;k++){if(safeStr(wrD[k][0])===sheetName){wr.deleteRow(k+5);break;}}
-    }
     ss.deleteSheet(ws);
+    var failures = [];
+    try {
+      var oi = ss.getSheetByName('ORDER_INDEX');
+      if (oi && oi.getLastRow()>3) {
+        var oiD=oi.getRange(4,2,oi.getLastRow()-3,1).getValues();
+        for(var i=0;i<oiD.length;i++){if(safeStr(oiD[i][0])===sheetName){oi.deleteRow(i+4);break;}}
+      }
+    } catch(e1) { failures.push('ORDER_INDEX: '+e1.message); }
+    try {
+      var ot = ss.getSheetByName('ORDER_TRACKER');
+      if (ot && ot.getLastRow()>3) {
+        var otD=ot.getRange(4,1,ot.getLastRow()-3,1).getValues();
+        for(var j=0;j<otD.length;j++){if(safeStr(otD[j][0])===sheetName){ot.deleteRow(j+4);break;}}
+      }
+    } catch(e2) { failures.push('ORDER_TRACKER: '+e2.message); }
+    try {
+      var wr = ss.getSheetByName('WIP_RECONCILIATION');
+      if (wr && wr.getLastRow()>4) {
+        var wrD=wr.getRange(5,1,wr.getLastRow()-4,1).getValues();
+        for(var k=0;k<wrD.length;k++){if(safeStr(wrD[k][0])===sheetName){wr.deleteRow(k+5);break;}}
+      }
+    } catch(e3) { failures.push('WIP_RECONCILIATION: '+e3.message); }
     SpreadsheetApp.flush();
+    if (failures.length) {
+      Logger.log('deleteOrder('+sheetName+'): sheet deleted but row cleanup failed — '+failures.join('; '));
+      return { success:true, warning:'Sheet deleted, but stale rows remain in: '+failures.join('; ') };
+    }
     return { success:true };
   } catch(e) { return { success:false, error:e.message }; }
 }
