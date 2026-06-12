@@ -988,6 +988,7 @@ function processRequest(rowNum, action, notes) {
     var ss  = SpreadsheetApp.openById(SHEET_ID);
     var rq  = ss.getSheetByName('REQUESTS');
     var row = rq.getRange(rowNum, 1, 1, 10).getValues()[0];
+    if (safeStr(row[5]) === 'APPROVED' || safeStr(row[5]) === 'REJECTED') return { success: false, error: 'Already processed' };
     var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
     rq.getRange(rowNum, 6).setValue(action === 'REJECT' ? 'REJECTED' : 'APPROVED');
     rq.getRange(rowNum, 7).setValue(notes || (action==='APPROVE'?'Approved':'Rejected'));
