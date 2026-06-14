@@ -867,9 +867,25 @@ function getPendingRequests() {
     if (mr && mr.getLastRow() > 3)
       mr.getRange(4, 2, mr.getLastRow()-3, 1).getValues().forEach(function(r,i){ mrMap[4+i] = safeStr(r[0]); });
   } catch(e) {}
+  var oiMap = {};
+  try {
+    var oiS = ss.getSheetByName('ORDER_INDEX');
+    if (oiS && oiS.getLastRow() > 3)
+      oiS.getRange(4, 1, oiS.getLastRow()-3, 5).getValues().forEach(function(r) {
+        var sn = safeStr(r[1]);
+        if (sn) oiMap[sn] = { bom:safeStr(r[0]), article:safeStr(r[2]), color:safeStr(r[3]), customer:safeStr(r[4]) };
+      });
+  } catch(e) {}
   requests.forEach(function(req) {
     if (req.type === 'RATE_EDIT') {
       try { var pl = JSON.parse(req.details); if (pl && pl.rowIndex) req.activityName = mrMap[pl.rowIndex] || ''; } catch(e) {}
+    }
+    if (req.type === 'ACTIVITY_SETUP' || req.type === 'SETUP_EDIT_REQUEST' || req.type === 'EDIT_REQUEST') {
+      try {
+        var plOi = JSON.parse(req.details);
+        var snOi = safeStr(plOi.sheet || '');
+        if (snOi && oiMap[snOi]) req.orderInfo = oiMap[snOi];
+      } catch(e) {}
     }
     if (req.type === 'PAYMENT_SUBMISSION') {
       try {

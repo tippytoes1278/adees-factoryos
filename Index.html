@@ -654,6 +654,11 @@ function renderRequests(c){
     if(r.type==='SETUP_EDIT_REQUEST')rtEl.style.color='#f59e0b';
     card.appendChild(rtEl);
     var det=el('div',{cls:'req-details'});
+    if(r.orderInfo&&(r.type==='ACTIVITY_SETUP'||r.type==='SETUP_EDIT_REQUEST'||r.type==='EDIT_REQUEST')){
+      var oi=r.orderInfo;
+      var oiLine=(oi.bom||'')+(oi.article?' | '+oi.article+(oi.color?' - '+oi.color:''):'')+(oi.customer?' | '+oi.customer:'');
+      if(oiLine)det.appendChild(el('div',{style:'font-size:11px;font-weight:700;color:#4f8ef7;margin-bottom:6px;padding:3px 6px;background:#0c1a3a;border-radius:4px',text:oiLine}));
+    }
     if(r.type==='RATE_EDIT'){
       try{var pl=JSON.parse(r.details);det.appendChild(el('div',{text:'Rate Change: '+(r.activityName||('Row '+pl.rowIndex))+' → ₹'+pl.newRate+' rate, ₹'+pl.newComm+' comm'}));}
       catch(e){det.appendChild(el('div',{text:r.details}));}
