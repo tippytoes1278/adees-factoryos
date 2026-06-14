@@ -1540,7 +1540,12 @@ function getDeptStatus(sheetName) {
           depts.forEach(function(dept) {
             if (status[dept] === 'SKIPPED') return;
             if (reqSt === 'APPROVED') status[dept] = 'APPROVED';
-            else if (reqSt === 'PENDING' && status[dept] === 'NOT_SET') status[dept] = 'PENDING';
+            else if (reqSt === 'PENDING') {
+              if (status[dept] === 'NOT_SET') status[dept] = 'PENDING';
+              else if (status[dept] === 'EDIT_UNLOCKED') status[dept] = 'EDIT_PENDING';
+            } else if (reqSt === 'REJECTED' && status[dept] === 'EDIT_PENDING') {
+              status[dept] = 'EDIT_UNLOCKED';
+            }
           });
         } catch(pe) {}
       });

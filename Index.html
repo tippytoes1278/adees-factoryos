@@ -1064,6 +1064,11 @@ function renderEntry(c,reviewOnly){
           body.appendChild(editWrap);
           return;
         }
+        if(ds==='EDIT_PENDING'){
+          dHdr.appendChild(el('span',{cls:'badge yellow',text:'APPROVAL PENDING'}));
+          body.appendChild(dHdr);
+          return;
+        }
 
         // APPROVED — show activity rows
         if((USER.role==='accounts'||USER.role==='admin')&&ds==='APPROVED'){
