@@ -1509,7 +1509,7 @@ function getDeptStatus(sheetName) {
     if (rq && rq.getLastRow() > 3) {
       rq.getRange(4, 1, rq.getLastRow()-3, 6).getValues().forEach(function(r) {
         var rType = safeStr(r[3]);
-        if (rType !== 'ACTIVITY_SETUP' && rType !== 'ACTIVITY_SETUP_RESET') return;
+        if (rType !== 'ACTIVITY_SETUP' && rType !== 'ACTIVITY_SETUP_RESET' && rType !== 'ACTIVITY_SETUP_UNLOCKED') return;
         var reqSt = safeStr(r[5]).toUpperCase();
         try {
           var pl = JSON.parse(safeStr(r[4]));
@@ -1517,6 +1517,11 @@ function getDeptStatus(sheetName) {
           if (rType === 'ACTIVITY_SETUP_RESET') {
             var resetDn = DMAP[safeStr(pl.dept || '').toLowerCase()] || safeStr(pl.dept || '');
             if (DEPT_KEYS.indexOf(resetDn) >= 0 && status[resetDn] !== 'SKIPPED') status[resetDn] = 'NOT_SET';
+            return;
+          }
+          if (rType === 'ACTIVITY_SETUP_UNLOCKED') {
+            var unlockDn = DMAP[safeStr(pl.dept || '').toLowerCase()] || safeStr(pl.dept || '');
+            if (DEPT_KEYS.indexOf(unlockDn) >= 0 && status[unlockDn] !== 'SKIPPED') status[unlockDn] = 'EDIT_UNLOCKED';
             return;
           }
           if (reqSt !== 'APPROVED' && reqSt !== 'PENDING') return;
@@ -1818,7 +1823,7 @@ function approveSetupEditRequest(reqId) {
     var resetRow = rq.getLastRow() + 1;
     var resetSeq = String(resetRow - 3); while (resetSeq.length < 3) resetSeq = '0' + resetSeq;
     rq.getRange(resetRow, 1, 1, 10).setValues([[
-      'REQ-' + resetSeq, now, user.name, 'ACTIVITY_SETUP_RESET',
+      'REQ-' + resetSeq, now, user.name, 'ACTIVITY_SETUP_UNLOCKED',
       JSON.stringify({ sheet: payload.sheet, dept: payload.dept }),
       'APPROVED', 'Setup edit unlocked', now, 'Yes', ''
     ]]);

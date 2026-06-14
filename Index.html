@@ -1056,6 +1056,14 @@ function renderEntry(c,reviewOnly){
           body.appendChild(setupWrap);
           return;
         }
+        if(ds==='EDIT_UNLOCKED'){
+          dHdr.appendChild(el('span',{style:'font-size:10px;color:#f59e0b;font-weight:600',text:'EDIT UNLOCKED'}));
+          body.appendChild(dHdr);
+          var editWrap=el('div',{style:'padding:8px 16px 10px;background:#0d1117'});
+          (function(sn,d,dkk,existing,ew){renderDeptSetupEdit(ew,sn,d,dkk,existing);})(a.sheet,dept,dk,dActs,editWrap);
+          body.appendChild(editWrap);
+          return;
+        }
 
         // APPROVED — show activity rows
         if((USER.role==='accounts'||USER.role==='admin')&&ds==='APPROVED'){
@@ -1954,6 +1962,53 @@ function renderDeptSetupCopy(container,artSheet,dept,deptKey){
       .getApprovedActivitiesForArticle(sn);
   };
   container.appendChild(sel);container.appendChild(loadBtn);container.appendChild(copyArea);
+}
+
+function renderDeptSetupEdit(container,artSheet,dept,deptKey,existingActs){
+  container.innerHTML='';
+  var deptActs=MASTER_ACTS.filter(function(ma){return ma.section===deptKey;});
+  var selected=existingActs.map(function(ac){return {activityName:ac.activity,rate:ac.rate,comm:ac.comm};});
+  var listDiv=el('div',{style:'margin-bottom:8px'});
+  function rebuildList(){
+    listDiv.innerHTML='';
+    selected.forEach(function(item,idx){
+      var rowEl=el('div',{style:'display:flex;align-items:center;gap:8px;padding:4px 0;border-top:1px solid #1a1f35'});
+      rowEl.appendChild(el('div',{style:'flex:1;font-size:12px;color:#c5cae9',text:item.activityName}));
+      rowEl.appendChild(el('div',{style:'font-size:11px;color:#4a5578',text:'₹'+item.rate+'/pr'}));
+      var rmBtn=el('button',{text:'×',style:'background:none;border:none;color:#ef4444;font-size:16px;line-height:1;padding:0 4px;cursor:pointer'});
+      (function(i){rmBtn.onclick=function(){selected.splice(i,1);rebuildList();};})(idx);
+      rowEl.appendChild(rmBtn);
+      listDiv.appendChild(rowEl);
+    });
+  }
+  rebuildList();
+  var actSel=el('select',{style:'width:100%;background:#0f1117;border:1px solid #1e2540;border-radius:8px;padding:8px 10px;color:#e8eaf0;font-size:13px;margin-bottom:6px'});
+  actSel.appendChild(el('option',{text:'Add activity…',value:''}));
+  deptActs.forEach(function(ma){actSel.appendChild(el('option',{text:ma.name,value:ma.name}));});
+  var addBtn=el('button',{text:'+ Add',style:'background:#1e2540;color:#4f8ef7;font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px;margin-bottom:6px'});
+  addBtn.onclick=function(){
+    var nm=actSel.value;if(!nm){toast('Select an activity',true);return;}
+    if(selected.some(function(s){return s.activityName===nm;})){toast('Already in list',true);return;}
+    var ma=deptActs.filter(function(m){return m.name===nm;})[0]||{};
+    selected.push({activityName:nm,rate:ma.stdRate||0,comm:ma.comm||0});
+    rebuildList();actSel.value='';
+  };
+  var subBtn=el('button',{cls:'primary-btn',text:'Submit for Approval',style:'margin-top:8px'});
+  subBtn.onclick=function(){
+    if(!selected.length){toast('Add at least one activity',true);return;}
+    subBtn.disabled=true;subBtn.textContent='Submitting…';
+    google.script.run
+      .withSuccessHandler(function(r){
+        subBtn.disabled=false;subBtn.textContent='Submit for Approval';
+        if(r&&r.success){toast('Submitted for approval');D.entry=null;setTimeout(function(){loadTab('entry');},600);}
+        else toast((r&&r.error)||'Error',true);
+      })
+      .withFailureHandler(function(){subBtn.disabled=false;subBtn.textContent='Submit for Approval';toast('Error',true);})
+      .requestActivitySetup({sheet:artSheet,dept:dept,activities:selected});
+  };
+  container.appendChild(listDiv);
+  if(deptActs.length){container.appendChild(actSel);container.appendChild(addBtn);}
+  container.appendChild(subBtn);
 }
 
 function renderDeptSetupManual(container,artSheet,dept,deptKey){
