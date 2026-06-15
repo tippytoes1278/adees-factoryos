@@ -1043,10 +1043,6 @@ function processRequest(rowNum, action, notes) {
     rq.getRange(rowNum, 8).setValue(now);
     rq.getRange(rowNum, 9).setValue('Yes');
     var sheetCreated = '';
-    if (action === 'APPROVE' && safeStr(row[3]) === 'NEW ORDER') {
-      sheetCreated = createNewArtSheet(safeStr(row[4]));
-      rq.getRange(rowNum, 10).setValue(sheetCreated);
-    }
     if (action === 'APPROVE' && safeStr(row[3]) === 'ACTIVITY_SETUP') {
       try {
         var setupPayload = JSON.parse(safeStr(row[4]));
@@ -2026,6 +2022,7 @@ function createTS(styleName, category, season, activities) {
 }
 
 function createOrder(payload) {
+  if (safeNum(payload.lotSize) <= 0) return { success:false, error:'Lot size must be greater than 0' };
   try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var tz = Session.getScriptTimeZone();
@@ -2083,16 +2080,6 @@ function createOrder(payload) {
       } catch(tse) { Logger.log('TS activity inheritance: ' + tse.message); }
     }
     if (oi) {
-      if (oi.getLastRow() > 3) {
-        var oiCheck = oi.getRange(4, 3, oi.getLastRow()-3, 3).getValues();
-        for (var di = 0; di < oiCheck.length; di++) {
-          if (safeStr(oiCheck[di][0]) === safeStr(payload.styleName) &&
-              safeStr(oiCheck[di][1]) === safeStr(payload.color) &&
-              safeStr(oiCheck[di][2]) === safeStr(payload.buyer)) {
-            return { success:false, error:'Order already exists: '+article+' for '+safeStr(payload.buyer) };
-          }
-        }
-      }
       var oiRow = Math.max(oi.getLastRow(), 3) + 1;
       oi.getRange(oiRow, 1, 1, 12).setValues([[
         bomNumber, artSheet, safeStr(payload.styleName), safeStr(payload.color),
@@ -2122,4 +2109,39 @@ function createOrder(payload) {
     SpreadsheetApp.flush();
     return { success:true, bomNumber:bomNumber, artSheet:artSheet };
   } catch(e) { Logger.log('createOrder error: ' + e.message); return { success:false, error:e.message }; }
+}
+
+// ONE-TIME CLEANUP — run once from Apps Script editor, then delete this function.
+function deleteOrphanedArt005() {
+  var ss = SpreadsheetApp.openById(CONFIG.LIVE_SHEET_ID);
+  var ws = ss.getSheetByName('ART-005');
+  if (!ws) return 'ABORT: ART-005 sheet not found in LIVE';
+
+  var article = String(ws.getRange('B2').getValue());
+  var log = ['ART-005 B2 (article) = ' + article];
+
+  // Safety: confirm no registry entries exist before deleting
+  var registryRefs = [];
+  ['ORDER_INDEX', 'ORDER_TRACKER', 'WIP_RECONCILIATION'].forEach(function(name) {
+    var s = ss.getSheetByName(name);
+    if (!s || s.getLastRow() < 2) return;
+    var vals = s.getRange(1, 1, s.getLastRow(), s.getLastColumn()).getValues();
+    vals.forEach(function(row, ri) {
+      if (row.some(function(cell) { return String(cell).trim() === 'ART-005'; }))
+        registryRefs.push(name + ' row ' + (ri + 1));
+    });
+  });
+
+  if (registryRefs.length > 0) {
+    return 'ABORT: ART-005 found in registry — ' + registryRefs.join(', ');
+  }
+  log.push('Registry check: clean (no ORDER_INDEX / ORDER_TRACKER / WIP_RECONCILIATION rows)');
+
+  ss.deleteSheet(ws);
+  SpreadsheetApp.flush();
+  log.push('ART-005 sheet deleted from LIVE');
+
+  var result = log.join('\n');
+  Logger.log(result);
+  return result;
 }
