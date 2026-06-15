@@ -1092,8 +1092,24 @@ function processRequest(rowNum, action, notes) {
       try {
         var noPayload = JSON.parse(safeStr(row[4]));
         var noResult = createOrder(noPayload);
-        if (noResult.success) sheetCreated = noResult.bomNumber + ' → ' + noResult.artSheet;
-      } catch(pe) { Logger.log('NEW_ORDER error: ' + pe.message); }
+        if (noResult.success) {
+          sheetCreated = noResult.bomNumber + ' → ' + noResult.artSheet;
+        } else {
+          rq.getRange(rowNum, 6).setValue('PENDING');
+          rq.getRange(rowNum, 7).setValue('⚠ Order failed: ' + noResult.error);
+          rq.getRange(rowNum, 8).setValue('');
+          rq.getRange(rowNum, 9).setValue('No');
+          SpreadsheetApp.flush();
+          return { success:false, error: noResult.error };
+        }
+      } catch(pe) {
+        rq.getRange(rowNum, 6).setValue('PENDING');
+        rq.getRange(rowNum, 7).setValue('⚠ Order failed: ' + pe.message);
+        rq.getRange(rowNum, 8).setValue('');
+        rq.getRange(rowNum, 9).setValue('No');
+        SpreadsheetApp.flush();
+        return { success:false, error: pe.message };
+      }
     }
     if (action === 'APPROVE' && safeStr(row[3]) === 'PAYMENT') {
       try {

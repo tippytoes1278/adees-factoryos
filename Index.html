@@ -683,6 +683,7 @@ function renderRequests(c){
     } else if(r.type==='NEW_ORDER'){
       try{var plno=JSON.parse(r.details);det.appendChild(el('div',{text:(plno.styleName||'?')+(plno.color?' — '+plno.color:'')+' for '+(plno.buyer||'?')}));det.appendChild(el('div',{style:'font-size:11px;color:#4a5578',text:'TS: '+(plno.tsNumber||'?')+' | Lot: '+(plno.lotSize||0)+' pairs | Del: '+(plno.deliveryDate||'?')}));}
       catch(e4){det.appendChild(el('div',{text:r.details}));}
+      if(r.ayushNotes)det.appendChild(el('div',{style:'margin-top:6px;padding:4px 8px;background:#2d1515;border-left:3px solid #ef4444;color:#f87171;font-size:11px;border-radius:0 4px 4px 0',text:r.ayushNotes}));
     } else if(r.type==='PAYMENT'){
       try{var plpay=JSON.parse(r.details);det.appendChild(el('div',{text:'Week entries submitted for approval: '+(plpay.weekLabel||'?')}));}
       catch(epay){det.appendChild(el('div',{text:r.details}));}
