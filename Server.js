@@ -6,7 +6,7 @@
 var CONFIG = {
   LIVE_SHEET_ID: '1FLPeuQFPx0nQXRy-16P2-1-e5SjDu7nLE-1ycNZ-IH0',
   DEV_SHEET_ID: '1eHnrG7IWn5PhreW1ywkdhgpzjOzYs6Y53vC4EIxwTvg',
-  ENV: 'LIVE'
+  ENV: 'DEV'
 };
 var SHEET_ID = CONFIG.ENV === 'DEV' ? CONFIG.DEV_SHEET_ID : CONFIG.LIVE_SHEET_ID;
 
@@ -727,12 +727,12 @@ function submitArticleEntries(sheetName, periodId) {
     var reqId = 'REQ-' + ('00' + (lastRow - 3)).slice(-3);
     var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
     var article = safeStr(ws.getRange('B2').getValue());
+    var psDetails = JSON.stringify({sheet:sheetName, article:article, periodId:periodId||'', count:submittedActs.length});
     rq.getRange(lastRow, 1, 1, 10).setValues([[
-      reqId, now, user.name, 'PAYMENT_SUBMISSION',
-      JSON.stringify({sheet:sheetName, article:article, periodId:periodId||'', count:submittedActs.length}),
-      'PENDING', '', '', 'No', ''
+      reqId, now, user.name, 'PAYMENT_SUBMISSION', psDetails, 'PENDING', '', '', 'No', ''
     ]]);
     SpreadsheetApp.flush();
+    notifyNewRequest_(reqId, 'PAYMENT_SUBMISSION', psDetails, user.name, now);
     return { success:true, count:submittedActs.length, reqId:reqId };
   } catch(e) { return { success:false, error:e.message }; }
 }
@@ -1013,6 +1013,63 @@ function approvePaymentSubmission(reqId) {
   } catch(e) { return { success:false, error:e.message }; }
 }
 
+function notifyNewRequest_(reqId, type, rawDetails, submittedBy, now) {
+  try {
+    var pl = {};
+    try { pl = JSON.parse(rawDetails); } catch(e) {}
+    var subject = 'Factory OS — New ' + type + ' request';
+    var lines = [];
+    switch (type) {
+      case 'NEW_ORDER':
+        lines.push((pl.styleName||'?') + (pl.color ? ' — ' + pl.color : '') + ' for ' + (pl.buyer||'?'));
+        lines.push('TS: ' + (pl.tsNumber||'?') + ' | Lot: ' + (pl.lotSize||0) + ' pairs | Del: ' + (pl.deliveryDate||'?'));
+        break;
+      case 'PAYMENT':
+        lines.push('Week entries submitted for approval: ' + (pl.weekLabel||'?'));
+        break;
+      case 'CUSTOM_PERIOD_REQUEST':
+        lines.push('Custom Period: ' + (pl.fromDate||'?') + ' → ' + (pl.toDate||'?'));
+        if (pl.reason) lines.push('Reason: ' + pl.reason);
+        break;
+      case 'EDIT_REQUEST':
+        lines.push('Edit Request: ' + (pl.activityName||'?') + ' on ' + (pl.sheet||'?'));
+        if (pl.rowNum) lines.push('Row: ' + pl.rowNum);
+        break;
+      case 'SETUP_EDIT_REQUEST':
+        lines.push('Setup Edit: ' + (pl.dept||'?') + ' dept on ' + (pl.sheet||'?'));
+        break;
+      case 'ACTIVITY_SETUP':
+        if (pl.activityName) {
+          lines.push('New Activity: ' + pl.activityName);
+          lines.push('Article: ' + (pl.sheet||'?') + ' | Dept: ' + (pl.dept||'?') + ' | Rate: ₹' + (pl.rate||0) + '/pr' + (pl.comm ? ' | Comm: ₹' + pl.comm + '/pr' : ''));
+        } else {
+          lines.push('Activity Setup: ' + (pl.sheet||'?') + (pl.dept ? ' — ' + pl.dept + ' dept' : ''));
+          var acts = pl.activities || [];
+          acts.slice(0, 5).forEach(function(a) { lines.push('  • ' + (a.activityName||'?') + ' | ₹' + (a.rate||0) + '/pr'); });
+          if (acts.length > 5) lines.push('  … and ' + (acts.length - 5) + ' more');
+        }
+        break;
+      case 'RATE_EDIT':
+        lines.push('Rate Edit: Row ' + (pl.rowIndex||'?') + ' → ₹' + (pl.newRate||0) + ' rate, ₹' + (pl.newComm||0) + ' comm');
+        break;
+      case 'PAYMENT_SUBMISSION':
+        lines.push('Article: ' + (pl.article||pl.sheet||'?'));
+        lines.push('Period: ' + (pl.periodId||'?') + ' | Activities: ' + (pl.count||'?'));
+        break;
+      default:
+        lines.push(rawDetails);
+    }
+    lines.push('');
+    lines.push('Submitted by: ' + submittedBy + ' on ' + now);
+    lines.push('Request ID: ' + reqId);
+    lines.push('');
+    lines.push('Open Factory OS to review.');
+    MailApp.sendEmail('ayush@adeesexports.com', subject, lines.join('\n'));
+  } catch(mailErr) {
+    Logger.log('notifyNewRequest_ mail error: ' + mailErr.message);
+  }
+}
+
 function submitRequest(type, details) {
   var user = getUserInfo();
   try {
@@ -1025,6 +1082,7 @@ function submitRequest(type, details) {
       reqId, now, user.name, type, details, 'PENDING', '', '', 'No', ''
     ]]);
     SpreadsheetApp.flush();
+    notifyNewRequest_(reqId, type, details, user.name, now);
     return { success:true, reqId:reqId };
   } catch(e) { return { success:false, error:e.message }; }
 }
@@ -1776,6 +1834,7 @@ function requestActivityRateEdit(rowIndex, newRate, newComm) {
       reqId, now, user.name, 'RATE_EDIT', payload, 'PENDING', '', '', 'No', ''
     ]]);
     SpreadsheetApp.flush();
+    notifyNewRequest_(reqId, 'RATE_EDIT', payload, user.name, now);
     return { success:true, reqId:reqId };
   } catch(e) { return { success:false, error:e.message }; }
 }
@@ -1788,6 +1847,7 @@ function requestActivitySetup(payload) {
     var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
     var items = Array.isArray(payload) ? payload : [payload];
     var lastReqId = '';
+    var createdReqs = [];
     items.forEach(function(item) {
       var lastRow = Math.max(rq.getLastRow(), 3) + 1;
       var reqId = 'REQ-' + ('00' + (lastRow - 3)).slice(-3);
@@ -1795,8 +1855,23 @@ function requestActivitySetup(payload) {
         reqId, now, user.name, 'ACTIVITY_SETUP', JSON.stringify(item), 'PENDING', '', '', 'No', ''
       ]]);
       lastReqId = reqId;
+      createdReqs.push({reqId:reqId, details:JSON.stringify(item)});
     });
     SpreadsheetApp.flush();
+    if (createdReqs.length === 1) {
+      notifyNewRequest_(createdReqs[0].reqId, 'ACTIVITY_SETUP', createdReqs[0].details, user.name, now);
+    } else if (createdReqs.length > 1) {
+      try {
+        var batchLines = ['Activity Setup batch: ' + createdReqs.length + ' dept(s)'];
+        createdReqs.forEach(function(r) {
+          try { var p=JSON.parse(r.details); batchLines.push('  • '+(p.dept||'?')+' on '+(p.sheet||'?')+' ('+(p.activities?p.activities.length:0)+' activities)'); } catch(e) {}
+        });
+        batchLines.push(''); batchLines.push('Submitted by: ' + user.name + ' on ' + now);
+        batchLines.push('Last Request ID: ' + lastReqId);
+        batchLines.push(''); batchLines.push('Open Factory OS to review.');
+        MailApp.sendEmail('ayush@adeesexports.com', 'Factory OS — New ACTIVITY_SETUP request', batchLines.join('\n'));
+      } catch(mailErr) { Logger.log('notifyNewRequest_ batch mail error: ' + mailErr.message); }
+    }
     return { success:true, reqId:lastReqId, count:items.length };
   } catch(e) { return { success:false, error:e.message }; }
 }
