@@ -102,6 +102,7 @@ input,select,textarea{font-family:inherit;outline:none;border:none}
 .req-actions{display:flex;gap:8px}
 .ap-btn{background:#10b981;color:#fff;font-size:13px;font-weight:700;padding:10px 18px;border-radius:10px}
 .rj-btn{background:#450a0a;color:#ef4444;font-size:13px;font-weight:600;padding:10px 18px;border-radius:10px}
+.rv-btn{background:linear-gradient(135deg,#78350f,#d97706);color:#fef3c7;font-size:13px;font-weight:700;padding:10px 18px;border-radius:10px}
 #toast{position:fixed;bottom:94px;left:50%;transform:translateX(-50%) translateY(16px);background:#10b981;color:#fff;font-size:13px;font-weight:600;padding:9px 18px;border-radius:20px;opacity:0;transition:all 0.2s;z-index:999;white-space:nowrap;pointer-events:none}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 #toast.err{background:#ef4444}
@@ -183,7 +184,7 @@ input,select,textarea{font-family:inherit;outline:none;border:none}
 </div>
 
 <script>
-var USER=null, TAB='home', D={}, CONTRACTORS=[], MASTER_ACTS=[];
+var USER=null, TAB='home', D={}, CONTRACTORS=[], MASTER_ACTS=[], NO_RESUBMIT=null;
 var NO_STEP=1, NO_TS=null;
 var ENTRY_PERIOD=null;
 
@@ -716,6 +717,10 @@ function renderRequests(c){
       var parts=r.details.split('|');
       parts.forEach(function(p){det.appendChild(el('div',{text:p.trim()}));});
     }
+    if(r.sheetCreated&&r.sheetCreated.indexOf('REVISION_HISTORY:')===0){
+      var rhText=r.sheetCreated.replace('REVISION_HISTORY:','').trim();
+      det.appendChild(el('div',{style:'margin-top:6px;padding:4px 8px;background:#1c1000;border-left:3px solid #92400e;color:#9ca3af;font-size:11px;border-radius:0 4px 4px 0',text:'↩ Previously returned for revision: '+rhText}));
+    }
     card.appendChild(det);
     card.appendChild(el('div',{cls:'req-meta',text:'From: '+r.submittedBy+' on '+r.date}));
     var acts=el('div',{cls:'req-actions'});
@@ -751,6 +756,34 @@ function renderRequests(c){
       acts.appendChild(ab2);acts.appendChild(rb2);
     }
     card.appendChild(acts);
+    (function(rn,actsEl){
+      var rvBtn=el('button',{cls:'rv-btn',style:'width:100%;margin-top:8px',text:'↩ Send for Revision'});
+      var rvForm=el('div',{style:'display:none;background:#1c1000;border:1px solid #92400e;border-radius:10px;padding:10px;margin-top:6px'});
+      var rvTa=el('textarea',{placeholder:'What needs to be changed? (required)',style:'width:100%;min-height:60px;background:#0f0800;border:1px solid #92400e;border-radius:6px;padding:8px;color:#fde68a;font-size:13px;box-sizing:border-box;resize:vertical;margin-bottom:8px;display:block'});
+      var rvBtns=el('div',{style:'display:flex;gap:8px'});
+      var rvSend=el('button',{style:'flex:1;padding:9px;background:linear-gradient(135deg,#78350f,#d97706);color:#fef3c7;font-weight:700;font-size:13px;border-radius:8px;border:none;cursor:pointer',text:'Confirm Send'});
+      var rvCxl=el('button',{style:'padding:9px 14px;background:#1e2540;color:#7986a3;font-size:13px;border-radius:8px;border:none;cursor:pointer',text:'Cancel'});
+      rvBtns.appendChild(rvSend);rvBtns.appendChild(rvCxl);
+      rvForm.appendChild(rvTa);rvForm.appendChild(rvBtns);
+      rvBtn.onclick=function(){rvForm.style.display='block';rvBtn.style.display='none';};
+      rvCxl.onclick=function(){rvForm.style.display='none';rvBtn.style.display='';};
+      rvSend.onclick=function(){
+        var rm=rvTa.value.trim();
+        if(!rm){toast('Revision remark is required',true);return;}
+        rvSend.disabled=true;rvSend.textContent='Sending…';
+        google.script.run
+          .withSuccessHandler(function(res){
+            if(res&&res.success){
+              actsEl.innerHTML='';
+              rvForm.innerHTML='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="badge yellow" style="font-size:11px">↩ REVISION SENT</span><span style="font-size:12px;color:#fde68a">'+rm+'</span></div>';
+            }else{toast((res&&res.error)||'Error',true);rvSend.disabled=false;rvSend.textContent='Confirm Send';}
+          })
+          .withFailureHandler(function(){toast('Error',true);rvSend.disabled=false;rvSend.textContent='Confirm Send';})
+          .processRequest(rn,'REVISION',rm);
+      };
+      card.appendChild(rvBtn);
+      card.appendChild(rvForm);
+    })(r.rowNum,acts);
     c.appendChild(card);
   });
 }
@@ -813,6 +846,86 @@ function renderArvindHome(c){
     return;
   }
   var d=D.dash;
+  // ── Revision Required section ──────────────────────────────────────────────
+  var myRevisions=(D.reqs&&D.reqs.requests?D.reqs.requests:[]).filter(function(r){return r.status==='REVISION'&&r.submittedBy===USER.name;});
+  if(myRevisions.length){
+    c.appendChild(sectionTitle('↩ Revision Required ('+myRevisions.length+')'));
+    myRevisions.forEach(function(r){
+      var rc=el('div',{style:'background:#1c1000;border:1px solid #d97706;border-radius:12px;padding:14px;margin-bottom:10px'});
+      var rhdr=el('div',{style:'display:flex;align-items:center;gap:8px;margin-bottom:8px'});
+      rhdr.appendChild(el('span',{cls:'badge yellow',text:'↩ Revision Required'}));
+      rhdr.appendChild(el('span',{style:'font-size:10px;font-weight:700;color:#d97706;text-transform:uppercase;letter-spacing:1px',text:r.type}));
+      rc.appendChild(rhdr);
+      var rdet=el('div',{style:'font-size:12px;color:#c5cae9;margin-bottom:8px'});
+      try{var rpl=JSON.parse(r.details);
+        if(r.type==='NEW_ORDER')rdet.appendChild(el('div',{text:(rpl.styleName||'?')+(rpl.color?' — '+rpl.color:'')+' for '+(rpl.buyer||'?')}));
+        else if(r.type==='CUSTOM_PERIOD_REQUEST')rdet.appendChild(el('div',{text:'Custom Period: '+(rpl.fromDate||'?')+' → '+(rpl.toDate||'?')}));
+        else if(r.type==='ACTIVITY_SETUP'&&rpl.activityName)rdet.appendChild(el('div',{text:'Activity: '+rpl.activityName+' | Dept: '+(rpl.dept||'?')}));
+        else if(r.type==='ACTIVITY_SETUP')rdet.appendChild(el('div',{text:'Activity Setup: '+(rpl.sheet||'?')+(rpl.dept?' — '+rpl.dept:'')}));
+        else if(r.type==='RATE_EDIT')rdet.appendChild(el('div',{text:'Rate Edit → ₹'+(rpl.newRate||0)+' rate, ₹'+(rpl.newComm||0)+' comm'}));
+        else if(r.type==='EDIT_REQUEST')rdet.appendChild(el('div',{text:'Edit: '+(rpl.activityName||'?')+' on '+(rpl.sheet||'?')}));
+        else if(r.type==='SETUP_EDIT_REQUEST')rdet.appendChild(el('div',{text:'Setup Edit: '+(rpl.dept||'?')+' on '+(rpl.sheet||'?')}));
+        else if(r.type==='PAYMENT')rdet.appendChild(el('div',{text:'Week: '+(rpl.weekLabel||'?')}));
+        else rdet.appendChild(el('div',{text:r.details}));
+      }catch(e){rdet.appendChild(el('div',{text:r.details}));}
+      rc.appendChild(rdet);
+      if(r.ayushNotes)rc.appendChild(el('div',{style:'padding:6px 10px;background:#0f0800;border-left:3px solid #d97706;border-radius:0 6px 6px 0;color:#fde68a;font-size:12px;font-weight:600;margin-bottom:10px',text:'Ayush\'s note: '+r.ayushNotes}));
+      // Edit & Resubmit button
+      (function(req){
+        var pl={};try{pl=JSON.parse(req.details);}catch(e){}
+        if(req.type==='NEW_ORDER'){
+          var rsBtn=el('button',{cls:'rv-btn',style:'width:100%',text:'Edit & Resubmit'});
+          rsBtn.onclick=function(){
+            NO_TS={tsNumber:pl.tsNumber,styleName:pl.styleName};
+            NO_RESUBMIT={type:'NEW_ORDER',payload:pl,revisionRemark:req.ayushNotes||''};
+            NO_STEP=2;loadTab('neworder');
+          };
+          rc.appendChild(rsBtn);
+        } else if(req.type==='CUSTOM_PERIOD_REQUEST'){
+          var cpRsBtn=el('button',{cls:'rv-btn',style:'width:100%',text:'Edit & Resubmit'});
+          var cpRsForm=el('div',{style:'display:none;margin-top:8px;padding:10px;background:#0f0800;border:1px solid #92400e;border-radius:8px'});
+          var cpFr=el('input',{type:'date',value:pl.fromDate||'',style:'width:100%;background:#1c1000;border:1px solid #92400e;border-radius:6px;padding:7px;color:#fde68a;font-size:13px;box-sizing:border-box;margin-bottom:6px;display:block'});
+          var cpTo=el('input',{type:'date',value:pl.toDate||'',style:'width:100%;background:#1c1000;border:1px solid #92400e;border-radius:6px;padding:7px;color:#fde68a;font-size:13px;box-sizing:border-box;margin-bottom:6px;display:block'});
+          var cpRsn=el('input',{type:'text',value:pl.reason||'',placeholder:'Reason (required)',style:'width:100%;background:#1c1000;border:1px solid #92400e;border-radius:6px;padding:7px;color:#fde68a;font-size:13px;box-sizing:border-box;margin-bottom:8px;display:block'});
+          var cpRsRow=el('div',{style:'display:flex;gap:8px'});
+          var cpRsSub=el('button',{style:'flex:1;padding:9px;background:linear-gradient(135deg,#78350f,#d97706);color:#fef3c7;font-weight:700;font-size:13px;border-radius:8px;border:none;cursor:pointer',text:'Resubmit'});
+          var cpRsCxl=el('button',{style:'padding:9px 14px;background:#1e2540;color:#7986a3;font-size:13px;border-radius:8px;border:none;cursor:pointer',text:'Cancel'});
+          cpRsRow.appendChild(cpRsSub);cpRsRow.appendChild(cpRsCxl);
+          cpRsForm.appendChild(el('div',{style:'font-size:11px;font-weight:700;color:#d97706;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px',text:'From'}));cpRsForm.appendChild(cpFr);
+          cpRsForm.appendChild(el('div',{style:'font-size:11px;font-weight:700;color:#d97706;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px',text:'To'}));cpRsForm.appendChild(cpTo);
+          cpRsForm.appendChild(el('div',{style:'font-size:11px;font-weight:700;color:#d97706;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px',text:'Reason'}));cpRsForm.appendChild(cpRsn);
+          cpRsForm.appendChild(cpRsRow);
+          cpRsBtn.onclick=function(){cpRsForm.style.display='block';cpRsBtn.style.display='none';};
+          cpRsCxl.onclick=function(){cpRsForm.style.display='none';cpRsBtn.style.display='';};
+          (function(frm,fromI,toI,rsnI,origRemark,sb){
+            sb.onclick=function(){
+              var rsn=rsnI.value.trim();if(!rsn){toast('Reason is required',true);return;}
+              sb.disabled=true;sb.textContent='Submitting…';
+              google.script.run
+                .withSuccessHandler(function(res){
+                  if(res&&res.success){toast('Resubmitted — Ayush will be notified');D.reqs=null;setTimeout(function(){loadTab('home');},800);}
+                  else{toast((res&&res.error)||'Error',true);sb.disabled=false;sb.textContent='Resubmit';}
+                })
+                .withFailureHandler(function(){toast('Error',true);sb.disabled=false;sb.textContent='Resubmit';})
+                .submitRequest('CUSTOM_PERIOD_REQUEST',JSON.stringify({fromDate:fromI.value,toDate:toI.value,reason:rsn,revisionRemark:origRemark}));
+            };
+          })(cpRsForm,cpFr,cpTo,cpRsn,req.ayushNotes||'',cpRsSub);
+          rc.appendChild(cpRsBtn);rc.appendChild(cpRsForm);
+        } else if(req.type==='PAYMENT'){
+          var pyRsBtn=el('button',{cls:'rv-btn',style:'width:100%',text:'Go to Review to Resubmit'});
+          pyRsBtn.onclick=function(){loadTab('review');};
+          rc.appendChild(pyRsBtn);
+        } else {
+          var tabMap={'ACTIVITY_SETUP':'activities','RATE_EDIT':'activities','SETUP_EDIT_REQUEST':'activities','EDIT_REQUEST':'entry'};
+          var dest=tabMap[req.type]||'home';
+          var navBtn=el('button',{cls:'rv-btn',style:'width:100%',text:'Go to '+(dest.charAt(0).toUpperCase()+dest.slice(1))+' to Resubmit'});
+          navBtn.onclick=function(){loadTab(dest);};
+          rc.appendChild(navBtn);
+        }
+      })(r);
+      c.appendChild(rc);
+    });
+  }
   var approved=d.approvalStatus&&d.approvalStatus!=='';
   c.appendChild(sectionTitle('Your Week'));
   c.appendChild(approved?alert_('green','Week approved by Ayush','Ready for Saturday payment'):alert_('yellow','Bring to Ayush on Friday evening','Payment not yet approved'));
@@ -1471,6 +1584,17 @@ function renderNO_Step2(c){
   ltRow.appendChild(ltV);srCard.appendChild(ltRow);c.appendChild(srCard);
   function recalc(){var t=0;[6,7,8,9,10,11].forEach(function(sz){t+=parseInt(sIs[sz].value)||0;});ltV.textContent=String(t);}
   [6,7,8,9,10,11].forEach(function(sz){sIs[sz].oninput=recalc;});
+  if(NO_RESUBMIT&&NO_RESUBMIT.type==='NEW_ORDER'){
+    var nrp=NO_RESUBMIT.payload;
+    if(nrp.styleName)aI.value=nrp.styleName;
+    if(nrp.color)clI.value=nrp.color;
+    if(nrp.buyer)byS.value=nrp.buyer;
+    if(nrp.poNumber)poI.value=nrp.poNumber;
+    if(nrp.deliveryDate)ddI.value=nrp.deliveryDate;
+    if(nrp.sizeRun)Object.keys(nrp.sizeRun).forEach(function(sz){if(sIs[sz])sIs[sz].value=nrp.sizeRun[sz];});
+    recalc();
+    c.appendChild(el('div',{style:'margin-bottom:8px;padding:6px 10px;background:#1c1000;border-left:3px solid #d97706;border-radius:0 6px 6px 0;color:#fde68a;font-size:12px',text:'Revising: '+NO_RESUBMIT.revisionRemark}));
+  }
   var sbC=el('div',{cls:'card'});
   var sbB=el('button',{cls:'primary-btn',text:'Submit for Approval'});
   sbB.onclick=function(){
@@ -1482,11 +1606,11 @@ function renderNO_Step2(c){
     sbB.disabled=true;sbB.textContent='Submitting…';
     google.script.run
       .withSuccessHandler(function(r){
-        if(r&&r.success){toast('Submitted — waiting for Ayush approval');NO_STEP=1;NO_TS=null;setTimeout(function(){loadTab('home');},800);}
+        if(r&&r.success){toast('Submitted — waiting for Ayush approval');NO_STEP=1;NO_TS=null;NO_RESUBMIT=null;setTimeout(function(){loadTab('home');},800);}
         else{toast((r&&r.error)||'Error',true);sbB.disabled=false;sbB.textContent='Submit for Approval';}
       })
       .withFailureHandler(function(){toast('Error',true);sbB.disabled=false;sbB.textContent='Submit for Approval';})
-      .submitRequest('NEW_ORDER',JSON.stringify({tsNumber:NO_TS.tsNumber,styleName:art,color:col,buyer:buyer,poNumber:poI.value.trim(),deliveryDate:dd,sizeRun:sr,lotSize:lot}));
+      .submitRequest('NEW_ORDER',(function(){var p={tsNumber:NO_TS.tsNumber,styleName:art,color:col,buyer:buyer,poNumber:poI.value.trim(),deliveryDate:dd,sizeRun:sr,lotSize:lot};if(NO_RESUBMIT&&NO_RESUBMIT.revisionRemark)p.revisionRemark=NO_RESUBMIT.revisionRemark;return JSON.stringify(p);})());
   };
   sbC.appendChild(sbB);c.appendChild(sbC);
 }

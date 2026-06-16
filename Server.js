@@ -6,7 +6,7 @@
 var CONFIG = {
   LIVE_SHEET_ID: '1FLPeuQFPx0nQXRy-16P2-1-e5SjDu7nLE-1ycNZ-IH0',
   DEV_SHEET_ID: '1eHnrG7IWn5PhreW1ywkdhgpzjOzYs6Y53vC4EIxwTvg',
-  ENV: 'LIVE'
+  ENV: 'DEV'
 };
 var SHEET_ID = CONFIG.ENV === 'DEV' ? CONFIG.DEV_SHEET_ID : CONFIG.LIVE_SHEET_ID;
 
@@ -56,6 +56,7 @@ function getAllData() {
     result.dash = getDashboardData();
     if (user.role === 'accounts') {
       result.entry = getEntryData();
+      result.reqs = getPendingRequests();
     } else if (user.role === 'store') {
       result.wip = getWIPData();
     } else if (user.role === 'admin') {
@@ -1078,8 +1079,10 @@ function submitRequest(type, details) {
     var lastRow = Math.max(rq.getLastRow(), 3) + 1;
     var reqId = 'REQ-' + String(lastRow-3).padStart ? String(lastRow-3).padStart(3,'0') : ('00'+(lastRow-3)).slice(-3);
     var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
+    var revHistory = '';
+    try { var dp_ = JSON.parse(details); if (dp_ && dp_.revisionRemark) revHistory = 'REVISION_HISTORY: ' + dp_.revisionRemark; } catch(e_) {}
     rq.getRange(lastRow, 1, 1, 10).setValues([[
-      reqId, now, user.name, type, details, 'PENDING', '', '', 'No', ''
+      reqId, now, user.name, type, details, 'PENDING', '', '', 'No', revHistory
     ]]);
     SpreadsheetApp.flush();
     notifyNewRequest_(reqId, type, details, user.name, now);
@@ -1094,7 +1097,17 @@ function processRequest(rowNum, action, notes) {
     var ss  = SpreadsheetApp.openById(SHEET_ID);
     var rq  = ss.getSheetByName('REQUESTS');
     var row = rq.getRange(rowNum, 1, 1, 10).getValues()[0];
-    if (safeStr(row[5]) === 'APPROVED' || safeStr(row[5]) === 'REJECTED') return { success: false, error: 'Already processed' };
+    var rowStatus = safeStr(row[5]);
+    if (rowStatus === 'APPROVED' || rowStatus === 'REJECTED' || rowStatus === 'REVISION') return { success: false, error: 'Already processed' };
+    if (action === 'REVISION') {
+      if (!notes || !notes.trim()) return { success:false, error:'Revision remark is required' };
+      rq.getRange(rowNum, 6).setValue('REVISION');
+      rq.getRange(rowNum, 7).setValue(notes.trim());
+      rq.getRange(rowNum, 8).setValue('');
+      rq.getRange(rowNum, 9).setValue('No');
+      SpreadsheetApp.flush();
+      return { success:true };
+    }
     var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
     rq.getRange(rowNum, 6).setValue(action === 'REJECT' ? 'REJECTED' : 'APPROVED');
     rq.getRange(rowNum, 7).setValue(notes || (action==='APPROVE'?'Approved':'Rejected'));
