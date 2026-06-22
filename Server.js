@@ -53,6 +53,7 @@ function getAllData() {
   var result = { ok:true, dash:null, entry:null, wip:null, reqs:null };
   try {
     var user = getUserInfo();
+    Logger.log('[getAllData] user=' + user.email + ' role=' + user.role);
     result.dash = getDashboardData();
     if (user.role === 'accounts') {
       result.entry = getEntryData();
@@ -1072,22 +1073,28 @@ function notifyNewRequest_(reqId, type, rawDetails, submittedBy, now) {
 }
 
 function submitRequest(type, details) {
-  var user = getUserInfo();
+  const lock = LockService.getScriptLock();
   try {
-    var ss = SpreadsheetApp.openById(SHEET_ID);
-    var rq = ss.getSheetByName('REQUESTS');
-    var lastRow = Math.max(rq.getLastRow(), 3) + 1;
-    var reqId = 'REQ-' + String(lastRow-3).padStart ? String(lastRow-3).padStart(3,'0') : ('00'+(lastRow-3)).slice(-3);
-    var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
-    var revHistory = '';
-    try { var dp_ = JSON.parse(details); if (dp_ && dp_.revisionRemark) revHistory = 'REVISION_HISTORY: ' + dp_.revisionRemark; } catch(e_) {}
-    rq.getRange(lastRow, 1, 1, 10).setValues([[
-      reqId, now, user.name, type, details, 'PENDING', '', '', 'No', revHistory
-    ]]);
-    SpreadsheetApp.flush();
-    notifyNewRequest_(reqId, type, details, user.name, now);
-    return { success:true, reqId:reqId };
-  } catch(e) { return { success:false, error:e.message }; }
+    lock.waitLock(10000);
+    var user = getUserInfo();
+    try {
+      var ss = SpreadsheetApp.openById(SHEET_ID);
+      var rq = ss.getSheetByName('REQUESTS');
+      var lastRow = Math.max(rq.getLastRow(), 3) + 1;
+      var reqId = 'REQ-' + String(lastRow-3).padStart ? String(lastRow-3).padStart(3,'0') : ('00'+(lastRow-3)).slice(-3);
+      var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
+      var revHistory = '';
+      try { var dp_ = JSON.parse(details); if (dp_ && dp_.revisionRemark) revHistory = 'REVISION_HISTORY: ' + dp_.revisionRemark; } catch(e_) {}
+      rq.getRange(lastRow, 1, 1, 10).setValues([[
+        reqId, now, user.name, type, details, 'PENDING', '', '', 'No', revHistory
+      ]]);
+      SpreadsheetApp.flush();
+      notifyNewRequest_(reqId, type, details, user.name, now);
+      return { success:true, reqId:reqId };
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function processRequest(rowNum, action, notes) {
@@ -1744,7 +1751,10 @@ function WIPE_AND_RESET() {
 }
 
 function saveActivitySetup(sheet, newActivities, dept) {
+  const lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var ws = ss.getSheetByName(sheet);
     if (!ws) return { success:false, error:'Sheet not found: ' + sheet };
@@ -1814,7 +1824,10 @@ function saveActivitySetup(sheet, newActivities, dept) {
     ws.getRange(5, 9, 45, 1).setFormulas(iFormulas);
     SpreadsheetApp.flush();
     return { success:true };
-  } catch(e) { return { success:false, error:e.message }; }
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function getActivitySetup(sheet) {
@@ -1834,7 +1847,7 @@ function getActivitySetup(sheet) {
   } catch(e) { return []; }
 }
 
-function requestActivityRateEdit(rowIndex, newRate, newComm) {
+function requestActivityRateEdit(rowIndex, newRate, newComm, revisionRemark) {
   var user = getUserInfo();
   try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
@@ -1843,8 +1856,9 @@ function requestActivityRateEdit(rowIndex, newRate, newComm) {
     var reqId = 'REQ-' + ('00' + (lastRow - 3)).slice(-3);
     var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
     var payload = JSON.stringify({ rowIndex:rowIndex, newRate:newRate, newComm:newComm });
+    var revHistory = revisionRemark ? 'REVISION_HISTORY: ' + revisionRemark : '';
     rq.getRange(lastRow, 1, 1, 10).setValues([[
-      reqId, now, user.name, 'RATE_EDIT', payload, 'PENDING', '', '', 'No', ''
+      reqId, now, user.name, 'RATE_EDIT', payload, 'PENDING', '', '', 'No', revHistory
     ]]);
     SpreadsheetApp.flush();
     notifyNewRequest_(reqId, 'RATE_EDIT', payload, user.name, now);
