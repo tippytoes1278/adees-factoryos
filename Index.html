@@ -401,6 +401,7 @@ function loadTab(id){
   // Use cached data if available — instant tab switch
   if(id==='home'||id==='orders'){
     var _needReqs=USER&&USER.role==='accounts';
+    if(_needReqs) D.reqs=null;
     if(D.dash&&(!_needReqs||D.reqs)){renderTab(id);return;}
     showLoading();
     var _rem=(!D.dash?1:0)+(_needReqs&&!D.reqs?1:0);
@@ -2295,15 +2296,16 @@ function renderDeptSetupEdit(container,artSheet,dept,deptKey,existingActs){
   var subBtn=el('button',{cls:'primary-btn',text:'Submit for Approval',style:'margin-top:8px'});
   subBtn.onclick=function(){
     if(!selected.length){toast('Add at least one activity',true);return;}
+    var _rmk=ENTRY_REVISION_REMARK||'';
     subBtn.disabled=true;subBtn.textContent='Submitting…';
     google.script.run
       .withSuccessHandler(function(r){
         subBtn.disabled=false;subBtn.textContent='Submit for Approval';
-        if(r&&r.success){toast('Submitted for approval');D.entry=null;setTimeout(function(){loadTab('entry');},600);}
+        if(r&&r.success){ENTRY_REVISION_REMARK=null;toast('Submitted for approval');D.entry=null;setTimeout(function(){loadTab('entry');},600);}
         else toast((r&&r.error)||'Error',true);
       })
       .withFailureHandler(function(){subBtn.disabled=false;subBtn.textContent='Submit for Approval';toast('Error',true);})
-      .requestActivitySetup({sheet:artSheet,dept:dept,activities:selected});
+      .requestActivitySetup({sheet:artSheet,dept:dept,activities:selected},_rmk);
   };
   container.appendChild(listDiv);
   if(deptActs.length){container.appendChild(actSel);container.appendChild(addBtn);}
@@ -2332,15 +2334,16 @@ function renderDeptSetupManual(container,artSheet,dept,deptKey){
   var subBtn=el('button',{cls:'primary-btn',text:'Submit for Approval',style:'margin-top:8px'});
   subBtn.onclick=function(){
     if(!selected.length){toast('Add at least one activity',true);return;}
+    var _rmk=ENTRY_REVISION_REMARK||'';
     subBtn.disabled=true;subBtn.textContent='Submitting…';
     google.script.run
       .withSuccessHandler(function(r){
         subBtn.disabled=false;subBtn.textContent='Submit for Approval';
-        if(r&&r.success){toast('Submitted for approval');D.entry=null;setTimeout(function(){loadTab('entry');},600);}
+        if(r&&r.success){ENTRY_REVISION_REMARK=null;toast('Submitted for approval');D.entry=null;setTimeout(function(){loadTab('entry');},600);}
         else toast((r&&r.error)||'Error',true);
       })
       .withFailureHandler(function(){subBtn.disabled=false;subBtn.textContent='Submit for Approval';toast('Error',true);})
-      .requestActivitySetup({sheet:artSheet,dept:dept,activities:selected});
+      .requestActivitySetup({sheet:artSheet,dept:dept,activities:selected},_rmk);
   };
   container.appendChild(actSel);container.appendChild(addBtn);container.appendChild(listDiv);container.appendChild(subBtn);
 }
@@ -2357,15 +2360,16 @@ function renderDeptSetupConfirm(container,artSheet,dept,acts){
   var subBtn=el('button',{cls:'primary-btn',text:'Submit for Approval'});
   subBtn.onclick=function(){
     var sel=acts.map(function(a){return {activityName:a.activityName||a.name,rate:a.rate||0,comm:a.comm||0};});
+    var _rmk=ENTRY_REVISION_REMARK||'';
     subBtn.disabled=true;subBtn.textContent='Submitting…';
     google.script.run
       .withSuccessHandler(function(r){
         subBtn.disabled=false;subBtn.textContent='Submit for Approval';
-        if(r&&r.success){toast('Submitted for approval');D.entry=null;setTimeout(function(){loadTab('entry');},600);}
+        if(r&&r.success){ENTRY_REVISION_REMARK=null;toast('Submitted for approval');D.entry=null;setTimeout(function(){loadTab('entry');},600);}
         else toast((r&&r.error)||'Error',true);
       })
       .withFailureHandler(function(){subBtn.disabled=false;subBtn.textContent='Submit for Approval';toast('Error',true);})
-      .requestActivitySetup({sheet:artSheet,dept:dept,activities:sel});
+      .requestActivitySetup({sheet:artSheet,dept:dept,activities:sel},_rmk);
   };
   container.appendChild(listDiv);container.appendChild(subBtn);
 }
@@ -2499,6 +2503,7 @@ function renderArticleLevelForm(container,artSheet,importedByDept,isManual,DEPTS
     });
     if(!toSubmit.length){toast('Tick at least one dept and add activities',true);return;}
     submitBtn.disabled=true;submitBtn.textContent='Submitting…';
+    var _rmk=ENTRY_REVISION_REMARK||'';
     var done=0,errors=[];
     toSubmit.forEach(function(item){
       google.script.run
@@ -2507,14 +2512,14 @@ function renderArticleLevelForm(container,artSheet,importedByDept,isManual,DEPTS
           if(done===toSubmit.length){
             submitBtn.disabled=false;submitBtn.textContent='Submit Selected for Approval';
             if(errors.length)toast(errors[0],true);
-            else{toast('Submitted '+toSubmit.length+' dept'+(toSubmit.length>1?'s':'')+' for approval');D.entry=null;setTimeout(function(){loadTab('entry');},600);}
+            else{ENTRY_REVISION_REMARK=null;toast('Submitted '+toSubmit.length+' dept'+(toSubmit.length>1?'s':'')+' for approval');D.entry=null;setTimeout(function(){loadTab('entry');},600);}
           }
         })
         .withFailureHandler(function(){
           done++;errors.push('Network error');
           if(done===toSubmit.length){submitBtn.disabled=false;submitBtn.textContent='Submit Selected for Approval';toast(errors[0],true);}
         })
-        .requestActivitySetup({sheet:artSheet,dept:item.dept,activities:item.activities});
+        .requestActivitySetup({sheet:artSheet,dept:item.dept,activities:item.activities},_rmk);
     });
   };
   submitWrap.appendChild(submitBtn);

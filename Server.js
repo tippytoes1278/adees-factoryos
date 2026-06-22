@@ -865,9 +865,9 @@ function getPendingRequests() {
   } catch(e) {}
   var mrMap = {};
   try {
-    var mr = ss.getSheetByName('MASTER_RATES');
-    if (mr && mr.getLastRow() > 3)
-      mr.getRange(4, 2, mr.getLastRow()-3, 1).getValues().forEach(function(r,i){ mrMap[4+i] = safeStr(r[0]); });
+    var maS = ss.getSheetByName('MASTER_ACTIVITIES');
+    if (maS && maS.getLastRow() > 1)
+      maS.getRange(2, 1, maS.getLastRow()-1, 2).getValues().forEach(function(r,i){ mrMap[2+i] = safeStr(r[1]); });
   } catch(e) {}
   var oiMap = {};
   try {
@@ -1866,7 +1866,7 @@ function requestActivityRateEdit(rowIndex, newRate, newComm, revisionRemark) {
   } catch(e) { return { success:false, error:e.message }; }
 }
 
-function requestActivitySetup(payload) {
+function requestActivitySetup(payload, revisionRemark) {
   var user = getUserInfo();
   try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
@@ -1879,7 +1879,7 @@ function requestActivitySetup(payload) {
       var lastRow = Math.max(rq.getLastRow(), 3) + 1;
       var reqId = 'REQ-' + ('00' + (lastRow - 3)).slice(-3);
       rq.getRange(lastRow, 1, 1, 10).setValues([[
-        reqId, now, user.name, 'ACTIVITY_SETUP', JSON.stringify(item), 'PENDING', '', '', 'No', ''
+        reqId, now, user.name, 'ACTIVITY_SETUP', JSON.stringify(item), 'PENDING', '', '', 'No', revisionRemark ? 'REVISION_HISTORY: ' + revisionRemark : ''
       ]]);
       lastReqId = reqId;
       createdReqs.push({reqId:reqId, details:JSON.stringify(item)});
