@@ -846,6 +846,24 @@ function saveWIP(rowNum, produced) {
   } catch(e) { return { success:false, error:e.message }; }
 }
 
+function getDismissedRevisions() {
+  try {
+    var val = PropertiesService.getUserProperties().getProperty('dismissed_revisions');
+    return val ? JSON.parse(val) : [];
+  } catch(e) { return []; }
+}
+
+function dismissRevisionCard(reqId) {
+  try {
+    var props = PropertiesService.getUserProperties();
+    var dismissed = [];
+    try { var val = props.getProperty('dismissed_revisions'); if (val) dismissed = JSON.parse(val); } catch(e2) {}
+    if (dismissed.indexOf(reqId) === -1) dismissed.push(reqId);
+    props.setProperty('dismissed_revisions', JSON.stringify(dismissed));
+    return { success:true };
+  } catch(e) { return { success:false, error:e.message }; }
+}
+
 function getPendingRequests() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var rq = ss.getSheetByName('REQUESTS');
@@ -917,6 +935,12 @@ function getPendingRequests() {
       } catch(pe2) {}
     }
   });
+  var dismissed = getDismissedRevisions();
+  if (dismissed.length) {
+    requests = requests.filter(function(req) {
+      return !(req.status === 'REVISION' && dismissed.indexOf(req.reqId) !== -1);
+    });
+  }
   return { requests:requests };
 }
 

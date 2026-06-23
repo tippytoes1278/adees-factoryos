@@ -226,7 +226,6 @@ var ENTRY_PERIOD=null;
 var ENTRY_AUTO_OPEN_SHEET=null;
 var ENTRY_REVISION_REMARK=null, ENTRY_REVISION_DEPT=null;
 var ACTS_REVISION_REMARK=null, ACTS_REVISION_ACTIVITY=null, ACTS_REVISION_ROW_INDEX=null;
-var DISMISSED_REVISION_IDS=new Set();
 
 function fmt(n){return '₹'+Number(n).toLocaleString('en-IN',{maximumFractionDigits:0});}
 
@@ -972,7 +971,7 @@ function renderArvindHome(c){
   var d=D.dash;
   c.appendChild(fosPipelineTracker({cutting:12,prep:8,upper:14,lasting:10,sole:6,finishing:4}));
   // ── Revision Required section ──────────────────────────────────────────────
-  var myRevisions=(D.reqs&&D.reqs.requests?D.reqs.requests:[]).filter(function(r){return r.status==='REVISION'&&r.submittedBy===USER.name&&!DISMISSED_REVISION_IDS.has(r.reqId);});
+  var myRevisions=(D.reqs&&D.reqs.requests?D.reqs.requests:[]).filter(function(r){return r.status==='REVISION'&&r.submittedBy===USER.name;});
   if(myRevisions.length){
     c.appendChild(sectionTitle('↩ Revision Required ('+myRevisions.length+')'));
     myRevisions.forEach(function(r){
@@ -981,7 +980,7 @@ function renderArvindHome(c){
       rhdr.appendChild(el('span',{cls:'badge yellow',text:'↩ Revision Required'}));
       rhdr.appendChild(el('span',{style:'font-size:10px;font-weight:700;color:#d97706;text-transform:uppercase;letter-spacing:1px',text:r.type}));
       var xBtn=el('button',{style:'margin-left:auto;background:none;border:none;color:#9ca3af;font-size:14px;cursor:pointer;padding:2px 6px;border-radius:4px;line-height:1',text:'✕'});
-      xBtn.onclick=function(){DISMISSED_REVISION_IDS.add(r.reqId);rc.remove();};
+      (function(id,card){xBtn.onclick=function(){google.script.run.dismissRevisionCard(id);card.remove();};})(r.reqId,rc);
       rhdr.appendChild(xBtn);
       rc.appendChild(rhdr);
       var rdet=el('div',{style:'font-size:12px;color:#c5cae9;margin-bottom:8px'});
@@ -1031,7 +1030,7 @@ function renderArvindHome(c){
               sb.disabled=true;sb.textContent='Submitting…';
               google.script.run
                 .withSuccessHandler(function(res){
-                  if(res&&res.success){rc.remove();toast('Resubmitted — Ayush will be notified');D.reqs=null;setTimeout(function(){loadTab('home');},800);}
+                  if(res&&res.success){google.script.run.dismissRevisionCard(req.reqId);rc.remove();toast('Resubmitted — Ayush will be notified');D.reqs=null;setTimeout(function(){loadTab('home');},800);}
                   else{toast((res&&res.error)||'Error',true);sb.disabled=false;sb.textContent='Resubmit';}
                 })
                 .withFailureHandler(function(){toast('Error',true);sb.disabled=false;sb.textContent='Resubmit';})
