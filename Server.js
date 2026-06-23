@@ -846,24 +846,6 @@ function saveWIP(rowNum, produced) {
   } catch(e) { return { success:false, error:e.message }; }
 }
 
-function getDismissedRevisions() {
-  try {
-    var val = PropertiesService.getUserProperties().getProperty('dismissed_revisions');
-    return val ? JSON.parse(val) : [];
-  } catch(e) { return []; }
-}
-
-function dismissRevisionCard(reqId) {
-  try {
-    var props = PropertiesService.getUserProperties();
-    var dismissed = [];
-    try { var val = props.getProperty('dismissed_revisions'); if (val) dismissed = JSON.parse(val); } catch(e2) {}
-    if (dismissed.indexOf(reqId) === -1) dismissed.push(reqId);
-    props.setProperty('dismissed_revisions', JSON.stringify(dismissed));
-    return { success:true };
-  } catch(e) { return { success:false, error:e.message }; }
-}
-
 function getPendingRequests() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var rq = ss.getSheetByName('REQUESTS');
@@ -935,13 +917,40 @@ function getPendingRequests() {
       } catch(pe2) {}
     }
   });
-  var dismissed = getDismissedRevisions();
-  if (dismissed.length) {
-    requests = requests.filter(function(req) {
-      return !(req.status === 'REVISION' && dismissed.indexOf(req.reqId) !== -1);
-    });
-  }
   return { requests:requests };
+}
+
+function getMyRequests() {
+  var user = getUserInfo();
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var rq = ss.getSheetByName('REQUESTS');
+  var requests = [];
+  try {
+    if (rq && rq.getLastRow() > 3) {
+      rq.getRange(4, 1, rq.getLastRow()-3, 10).getValues().forEach(function(r,i){
+        if (!r[0] || safeStr(r[2]) !== user.name) return;
+        requests.push({
+          rowNum: i+4, reqId: safeStr(r[0]), date: safeStr(r[1]),
+          submittedBy: safeStr(r[2]), type: safeStr(r[3]), details: safeStr(r[4]),
+          status: safeStr(r[5]), ayushNotes: safeStr(r[6]),
+          approvedOn: safeStr(r[7]), processed: safeStr(r[8]), revisionHistory: safeStr(r[9])
+        });
+      });
+    }
+  } catch(e) {}
+  var mrMap = {};
+  try {
+    var maS = ss.getSheetByName('MASTER_ACTIVITIES');
+    if (maS && maS.getLastRow() > 1)
+      maS.getRange(2, 1, maS.getLastRow()-1, 2).getValues().forEach(function(r,i){ mrMap[2+i] = safeStr(r[1]); });
+  } catch(e) {}
+  requests.forEach(function(req) {
+    if (req.type === 'RATE_EDIT') {
+      try { var pl = JSON.parse(req.details); if (pl && pl.rowIndex) req.activityName = mrMap[pl.rowIndex] || ''; } catch(e) {}
+    }
+  });
+  requests.reverse();
+  return { success:true, requests:requests };
 }
 
 function getPaymentSubmissions() {
