@@ -1138,16 +1138,7 @@ function processRequest(rowNum, action, notes) {
     var rq  = ss.getSheetByName('REQUESTS');
     var row = rq.getRange(rowNum, 1, 1, 10).getValues()[0];
     var rowStatus = safeStr(row[5]);
-    if (rowStatus === 'APPROVED' || rowStatus === 'REJECTED' || rowStatus === 'REVISION') return { success: false, error: 'Already processed' };
-    if (action === 'REVISION') {
-      if (!notes || !notes.trim()) return { success:false, error:'Revision remark is required' };
-      rq.getRange(rowNum, 6).setValue('REVISION');
-      rq.getRange(rowNum, 7).setValue(notes.trim());
-      rq.getRange(rowNum, 8).setValue('');
-      rq.getRange(rowNum, 9).setValue('No');
-      SpreadsheetApp.flush();
-      return { success:true };
-    }
+    if (rowStatus === 'APPROVED' || rowStatus === 'REJECTED') return { success: false, error: 'Already processed' };
     var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
     rq.getRange(rowNum, 6).setValue(action === 'REJECT' ? 'REJECTED' : 'APPROVED');
     rq.getRange(rowNum, 7).setValue(notes || (action==='APPROVE'?'Approved':'Rejected'));

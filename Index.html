@@ -225,8 +225,8 @@ var USER=null, TAB='home', D={}, CONTRACTORS=[], MASTER_ACTS=[], NO_RESUBMIT=nul
 var NO_STEP=1, NO_TS=null;
 var ENTRY_PERIOD=null;
 var ENTRY_AUTO_OPEN_SHEET=null;
-var ENTRY_REVISION_REMARK=null, ENTRY_REVISION_DEPT=null;
-var ACTS_REVISION_REMARK=null, ACTS_REVISION_ACTIVITY=null, ACTS_REVISION_ROW_INDEX=null;
+var ENTRY_REVISION_REMARK=null;
+var ACTS_REVISION_REMARK=null, ACTS_REVISION_ACTIVITY=null;
 var SEEN_ALERT_IDS=new Set();
 
 function fmt(n){return '₹'+Number(n).toLocaleString('en-IN',{maximumFractionDigits:0});}
@@ -855,10 +855,6 @@ function renderRequests(c){
       var parts=r.details.split('|');
       parts.forEach(function(p){det.appendChild(el('div',{text:p.trim()}));});
     }
-    if(r.sheetCreated&&r.sheetCreated.indexOf('REVISION_HISTORY:')===0){
-      var rhText=r.sheetCreated.replace('REVISION_HISTORY:','').trim();
-      det.appendChild(el('div',{style:'margin-top:6px;padding:4px 8px;background:#1c1000;border-left:3px solid #d97706;color:#9ca3af;font-size:11px;border-radius:0 4px 4px 0',text:'↩ Previously returned for revision: '+rhText}));
-    }
     card.appendChild(det);
     card.appendChild(el('div',{cls:'req-meta',text:'From: '+r.submittedBy+' on '+r.date}));
     var acts=el('div',{cls:'req-actions'});
@@ -894,34 +890,6 @@ function renderRequests(c){
       acts.appendChild(ab2);acts.appendChild(rb2);
     }
     card.appendChild(acts);
-    (function(rn,actsEl){
-      var rvBtn=el('button',{cls:'rv-btn',style:'width:100%;margin-top:8px',text:'↩ Send for Revision'});
-      var rvForm=el('div',{style:'display:none;background:#1c1000;border:1px solid #92400e;border-radius:10px;padding:10px;margin-top:6px'});
-      var rvTa=el('textarea',{placeholder:'What needs to be changed? (required)',style:'width:100%;min-height:60px;background:#0f0800;border:1px solid #92400e;border-radius:6px;padding:8px;color:#fde68a;font-size:13px;box-sizing:border-box;resize:vertical;margin-bottom:8px;display:block'});
-      var rvBtns=el('div',{style:'display:flex;gap:8px'});
-      var rvSend=el('button',{style:'flex:1;padding:9px;background:linear-gradient(135deg,#78350f,#d97706);color:#fef3c7;font-weight:700;font-size:13px;border-radius:8px;border:none;cursor:pointer',text:'Confirm Send'});
-      var rvCxl=el('button',{style:'padding:9px 14px;background:#1e2540;color:#7986a3;font-size:13px;border-radius:8px;border:none;cursor:pointer',text:'Cancel'});
-      rvBtns.appendChild(rvSend);rvBtns.appendChild(rvCxl);
-      rvForm.appendChild(rvTa);rvForm.appendChild(rvBtns);
-      rvBtn.onclick=function(){rvForm.style.display='block';rvBtn.style.display='none';};
-      rvCxl.onclick=function(){rvForm.style.display='none';rvBtn.style.display='';};
-      rvSend.onclick=function(){
-        var rm=rvTa.value.trim();
-        if(!rm){toast('Revision remark is required',true);return;}
-        rvSend.disabled=true;rvSend.textContent='Sending…';
-        google.script.run
-          .withSuccessHandler(function(res){
-            if(res&&res.success){
-              actsEl.innerHTML='';
-              rvForm.innerHTML='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="badge yellow" style="font-size:11px">↩ REVISION SENT</span><span style="font-size:12px;color:#fde68a">'+rm+'</span></div>';
-            }else{toast((res&&res.error)||'Error',true);rvSend.disabled=false;rvSend.textContent='Confirm Send';}
-          })
-          .withFailureHandler(function(){toast('Error',true);rvSend.disabled=false;rvSend.textContent='Confirm Send';})
-          .processRequest(rn,'REVISION',rm);
-      };
-      card.appendChild(rvBtn);
-      card.appendChild(rvForm);
-    })(r.rowNum,acts);
     c.appendChild(card);
   });
 }
@@ -1020,8 +988,7 @@ function renderAlerts(c){
     var sBadge;
     if(r.status==='PENDING')sBadge=el('span',{cls:'badge grey',text:'⏳ Awaiting Approval'});
     else if(r.status==='APPROVED')sBadge=el('span',{cls:'badge green',text:'✅ Approved'});
-    else if(r.status==='REJECTED')sBadge=el('span',{cls:'badge red',text:'❌ Rejected'});
-    else if(r.status==='REVISION')sBadge=el('span',{cls:'badge yellow',text:'↩ Revision Required'});
+    else if(r.status==='REJECTED'||r.status==='REVISION')sBadge=el('span',{cls:'badge red',text:'❌ Rejected'});
     else sBadge=el('span',{cls:'badge grey',text:r.status});
     typeRow.appendChild(sBadge);
     card.appendChild(typeRow);
@@ -1045,10 +1012,9 @@ function renderAlerts(c){
     card.appendChild(el('div',{cls:'req-meta',text:r.date}));
     // Status detail notes
     if(r.status==='APPROVED'&&r.approvedOn)card.appendChild(el('div',{style:'font-size:11px;color:var(--fos-success);margin-bottom:6px',text:'Approved on: '+r.approvedOn}));
-    if(r.status==='REJECTED'&&r.ayushNotes)card.appendChild(el('div',{style:'padding:6px 10px;background:#450a0a;border-left:3px solid #ef4444;border-radius:0 6px 6px 0;color:#f87171;font-size:12px;margin-bottom:8px',text:'Reason: '+r.ayushNotes}));
-    if(r.status==='REVISION'&&r.ayushNotes)card.appendChild(el('div',{style:'padding:6px 10px;background:#1c1000;border-left:3px solid #d97706;border-radius:0 6px 6px 0;color:#fde68a;font-size:12px;margin-bottom:8px',text:'Ayush\'s note: '+r.ayushNotes}));
-    // Revise & Resubmit for REVISION cards
-    if(r.status==='REVISION'){
+    if((r.status==='REJECTED'||r.status==='REVISION')&&r.ayushNotes)card.appendChild(el('div',{style:'padding:6px 10px;background:#450a0a;border-left:3px solid #ef4444;border-radius:0 6px 6px 0;color:#f87171;font-size:12px;margin-bottom:8px',text:'Reason: '+r.ayushNotes}));
+    // Revise & Resubmit for REJECTED/REVISION cards
+    if(r.status==='REJECTED'||r.status==='REVISION'){
       (function(req,payload){
         if(req.type==='NEW_ORDER'){
           var rsBtn=el('button',{cls:'rv-btn',style:'width:100%',text:'Revise & Resubmit →'});
@@ -1056,11 +1022,11 @@ function renderAlerts(c){
           card.appendChild(rsBtn);
         } else if(req.type==='ACTIVITY_SETUP'){
           var asBtn=el('button',{cls:'rv-btn',style:'width:100%',text:'Revise & Resubmit →'});
-          (function(sheet,rmk,dept){asBtn.onclick=function(){ENTRY_AUTO_OPEN_SHEET=sheet;ENTRY_REVISION_REMARK=rmk;ENTRY_REVISION_DEPT=dept;loadTab('entry');};})(payload.sheet||null,req.ayushNotes||'',payload.dept||null);
+          (function(sheet,rmk){asBtn.onclick=function(){ENTRY_AUTO_OPEN_SHEET=sheet;ENTRY_REVISION_REMARK=rmk;loadTab('entry');};})(payload.sheet||null,req.ayushNotes||'');
           card.appendChild(asBtn);
         } else if(req.type==='RATE_EDIT'){
           var reBtn=el('button',{cls:'rv-btn',style:'width:100%',text:'Revise & Resubmit →'});
-          reBtn.onclick=function(){ACTS_REVISION_ACTIVITY=(req.activityName||payload.activityName||'').toLowerCase().trim();ACTS_REVISION_ROW_INDEX=null;ACTS_REVISION_REMARK=req.ayushNotes||'';loadTab('activities');};
+          reBtn.onclick=function(){ACTS_REVISION_ACTIVITY=(req.activityName||payload.activityName||'').toLowerCase().trim();ACTS_REVISION_REMARK=req.ayushNotes||'';loadTab('activities');};
           card.appendChild(reBtn);
         } else if(req.type==='CUSTOM_PERIOD_REQUEST'){
           var cpBtn=el('button',{cls:'rv-btn',style:'width:100%',text:'Revise & Resubmit →'});
@@ -1507,7 +1473,7 @@ function renderEntry(c,reviewOnly){
     item.appendChild(body);
     c.appendChild(item);
     if(ENTRY_AUTO_OPEN_SHEET&&a.sheet===ENTRY_AUTO_OPEN_SHEET){
-      ENTRY_AUTO_OPEN_SHEET=null;ENTRY_REVISION_REMARK=null;ENTRY_REVISION_DEPT=null;
+      ENTRY_AUTO_OPEN_SHEET=null;ENTRY_REVISION_REMARK=null;
       body.style.display='block';
       setTimeout(function(){item.scrollIntoView({behavior:'smooth',block:'start'});},100);
     }
@@ -2062,7 +2028,7 @@ function renderActivities(c){
       }
       if(ACTS_REVISION_ACTIVITY&&ma.name.toLowerCase().trim()===ACTS_REVISION_ACTIVITY){
         ma.revisionRemark=ACTS_REVISION_REMARK||'';
-        ACTS_REVISION_ACTIVITY=null;ACTS_REVISION_ROW_INDEX=null;ACTS_REVISION_REMARK=null;
+        ACTS_REVISION_ACTIVITY=null;ACTS_REVISION_REMARK=null;
       }
       c.appendChild(card);
     });
