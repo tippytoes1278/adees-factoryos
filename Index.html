@@ -1071,7 +1071,7 @@ function renderAlerts(c){
         } else if(req.type==='RATE_EDIT'){
           var _rk=String(payload.rowIndex||'');
           var _isNewestRate=_rateNewest[_rk]===_cardMs;
-          if(_within48&&_isNewestRate){var reBtn=el('button',{cls:'rv-btn',style:'width:100%',text:'Revise & Resubmit →'});(function(actName,rmk,ri,nr,nc){reBtn.onclick=function(){ACTS_REVISION_ACTIVITY=actName;ACTS_REVISION_REMARK=rmk;NO_RESUBMIT_RATE={rowIndex:ri,currentRate:nr,currentComm:nc,remark:rmk};loadTab('activities');};}})((req.activityName||payload.activityName||'').toLowerCase().trim(),req.ayushNotes||'',payload.rowIndex,payload.newRate,payload.newComm);card.appendChild(reBtn);}
+          if(_within48&&_isNewestRate){var reBtn=el('button',{cls:'rv-btn',style:'width:100%',text:'Revise & Resubmit →'});(function(actName,rmk,ri,nr,nc){reBtn.onclick=function(){ACTS_REVISION_ACTIVITY=actName;ACTS_REVISION_REMARK=rmk;NO_RESUBMIT_RATE={rowIndex:ri,currentRate:nr,currentComm:nc,remark:rmk};loadTab('activities');};})(((req.activityName||payload.activityName||'')).toLowerCase().trim(),req.ayushNotes||'',payload.rowIndex,payload.newRate,payload.newComm);card.appendChild(reBtn);}
           else{card.appendChild(_expiredEl);}
         } else if(req.type==='CUSTOM_PERIOD_REQUEST'){
           if(!_within48){card.appendChild(_expiredEl);}
