@@ -881,9 +881,9 @@ function renderRequests(c){
       btnsDiv.appendChild(ab2);btnsDiv.appendChild(_rjBtn);
     }
     acts.appendChild(btnsDiv);
-    (function(rjBtn,bDiv,actsEl,rowNum){
+    (function(rjBtn,bDiv,actsEl,rowNum,cardEl){
       var rkWrap=el('div',{style:'display:none;margin-top:8px'});
-      var rkInp=el('input',{type:'text',placeholder:'Reason for rejection...',style:'width:100%;background:#0f1117;border:1px solid #ef4444;border-radius:8px;padding:9px 12px;color:#e8eaf0;font-size:13px;box-sizing:border-box;margin-bottom:6px;display:block'});
+      var rkInp=el('textarea',{placeholder:'Reason for rejection — required',style:'width:100%;background:#0f1117;border:1px solid #ef4444;border-radius:8px;padding:9px 12px;color:#e8eaf0;font-size:13px;box-sizing:border-box;margin-bottom:6px;display:block;resize:none;min-height:60px'});
       var rkRow=el('div',{style:'display:flex;gap:8px;align-items:center'});
       var rkConfirm=el('button',{text:'Confirm Reject',style:'flex:1;padding:9px;background:#7f1d1d;color:#fca5a5;font-size:13px;font-weight:700;border-radius:8px;border:none;cursor:not-allowed;opacity:0.4'});
       rkConfirm.disabled=true;
@@ -899,13 +899,20 @@ function renderRequests(c){
         rkConfirm.disabled=true;rkConfirm.textContent='Rejecting...';
         google.script.run
           .withSuccessHandler(function(res){
-            if(res&&res.success){toast('Rejected');D.reqs=null;setTimeout(function(){loadTab('requests');},600);}
-            else{toast((res&&res.error)||'Error',true);rkConfirm.disabled=false;rkConfirm.textContent='Confirm Reject';}
+            if(res&&res.success){
+              D.reqs=null;
+              actsEl.style.display='none';
+              var rejState=el('div',{style:'margin-top:8px'});
+              rejState.appendChild(el('span',{cls:'badge red',text:'✕ Rejected'}));
+              rejState.appendChild(el('div',{style:'font-size:12px;color:#ef4444;margin-top:6px;padding:8px 10px;background:#450a0a;border-left:3px solid #ef4444;border-radius:0 6px 6px 0',text:rmk}));
+              cardEl.appendChild(rejState);
+              toast('Rejected');
+            } else{toast((res&&res.error)||'Error',true);rkConfirm.disabled=false;rkConfirm.textContent='Confirm Reject';}
           })
           .withFailureHandler(function(){toast('Error',true);rkConfirm.disabled=false;rkConfirm.textContent='Confirm Reject';})
           .processRequest(rowNum,'REJECT',rmk);
       };
-    })(_rjBtn,btnsDiv,acts,r.rowNum);
+    })(_rjBtn,btnsDiv,acts,r.rowNum,card);
     card.appendChild(acts);
     c.appendChild(card);
   });
