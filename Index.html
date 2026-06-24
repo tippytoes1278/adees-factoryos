@@ -1004,6 +1004,16 @@ function renderAlerts(c){
     c.appendChild(alert_('green','No submissions yet','Your requests will appear here once submitted'));
     return;
   }
+  var _now48ms=Date.now()-48*60*60*1000;
+  function _parseReqDate(s){var d=new Date((s||'').replace(/(\d+)-(\w+)-(\d+)/,'$2 $1, $3'));return isNaN(d.getTime())?0:d.getTime();}
+  var _rateNewest={},_setupNewest={};
+  reqs.forEach(function(r){
+    if(r.status!=='REJECTED'&&r.status!=='REVISION')return;
+    var ms=_parseReqDate(r.date);
+    var p={};try{p=JSON.parse(r.details);}catch(e){}
+    if(r.type==='RATE_EDIT'){var k=String(p.rowIndex||'');if(!_rateNewest[k]||ms>_rateNewest[k])_rateNewest[k]=ms;}
+    else if(r.type==='ACTIVITY_SETUP'){var k=(p.sheet||'')+'|'+(p.dept||'');if(!_setupNewest[k]||ms>_setupNewest[k])_setupNewest[k]=ms;}
+  });
   reqs.forEach(function(r){
     var card=el('div',{cls:'req-card'});
     // Type + status row
@@ -1047,21 +1057,25 @@ function renderAlerts(c){
     // Revise & Resubmit for REJECTED/REVISION cards
     if(r.status==='REJECTED'||r.status==='REVISION'){
       (function(req,payload){
+        var _cardMs=_parseReqDate(req.date);
+        var _within48=_cardMs>_now48ms;
+        var _expiredEl=el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-top:6px',text:'Expired — submit a new request if needed'});
         if(req.type==='NEW_ORDER'){
-          var rsBtn=el('button',{cls:'rv-btn',style:'width:100%',text:'Revise & Resubmit →'});
-          rsBtn.onclick=function(){NO_TS={tsNumber:payload.tsNumber,styleName:payload.styleName};NO_RESUBMIT={type:'NEW_ORDER',payload:payload,revisionRemark:req.ayushNotes||''};NO_STEP=2;loadTab('neworder');};
-          card.appendChild(rsBtn);
+          if(_within48){var rsBtn=el('button',{cls:'rv-btn',style:'width:100%',text:'Revise & Resubmit →'});rsBtn.onclick=function(){NO_TS={tsNumber:payload.tsNumber,styleName:payload.styleName};NO_RESUBMIT={type:'NEW_ORDER',payload:payload,revisionRemark:req.ayushNotes||''};NO_STEP=2;loadTab('neworder');};card.appendChild(rsBtn);}
+          else{card.appendChild(_expiredEl);}
         } else if(req.type==='ACTIVITY_SETUP'){
-          var asBtn=el('button',{cls:'rv-btn',style:'width:100%',text:'Revise & Resubmit →'});
-          (function(sheet,rmk){asBtn.onclick=function(){ENTRY_AUTO_OPEN_SHEET=sheet;ENTRY_REVISION_REMARK=rmk;loadTab('entry');};})(payload.sheet||null,req.ayushNotes||'');
-          card.appendChild(asBtn);
+          var _sk=(payload.sheet||'')+'|'+(payload.dept||'');
+          var _isNewestSetup=_setupNewest[_sk]===_cardMs;
+          if(_within48&&_isNewestSetup){var asBtn=el('button',{cls:'rv-btn',style:'width:100%',text:'Revise & Resubmit →'});(function(sheet,rmk){asBtn.onclick=function(){ENTRY_AUTO_OPEN_SHEET=sheet;ENTRY_REVISION_REMARK=rmk;loadTab('entry');};})(payload.sheet||null,req.ayushNotes||'');card.appendChild(asBtn);}
+          else{card.appendChild(_expiredEl);}
         } else if(req.type==='RATE_EDIT'){
-          var reBtn=el('button',{cls:'rv-btn',style:'width:100%',text:'Revise & Resubmit →'});
-          (function(actName,rmk,ri,nr,nc){
-            reBtn.onclick=function(){ACTS_REVISION_ACTIVITY=actName;ACTS_REVISION_REMARK=rmk;NO_RESUBMIT_RATE={rowIndex:ri,currentRate:nr,currentComm:nc,remark:rmk};loadTab('activities');};
-          })((req.activityName||payload.activityName||'').toLowerCase().trim(),req.ayushNotes||'',payload.rowIndex,payload.newRate,payload.newComm);
-          card.appendChild(reBtn);
+          var _rk=String(payload.rowIndex||'');
+          var _isNewestRate=_rateNewest[_rk]===_cardMs;
+          if(_within48&&_isNewestRate){var reBtn=el('button',{cls:'rv-btn',style:'width:100%',text:'Revise & Resubmit →'});(function(actName,rmk,ri,nr,nc){reBtn.onclick=function(){ACTS_REVISION_ACTIVITY=actName;ACTS_REVISION_REMARK=rmk;NO_RESUBMIT_RATE={rowIndex:ri,currentRate:nr,currentComm:nc,remark:rmk};loadTab('activities');};}})((req.activityName||payload.activityName||'').toLowerCase().trim(),req.ayushNotes||'',payload.rowIndex,payload.newRate,payload.newComm);card.appendChild(reBtn);}
+          else{card.appendChild(_expiredEl);}
         } else if(req.type==='CUSTOM_PERIOD_REQUEST'){
+          if(!_within48){card.appendChild(_expiredEl);}
+          else{
           var cpBtn=el('button',{cls:'rv-btn',style:'width:100%',text:'Revise & Resubmit →'});
           var cpForm=el('div',{style:'display:none;margin-top:8px;padding:10px;background:#0f0800;border:1px solid #92400e;border-radius:8px'});
           var cpFr=el('input',{type:'date',value:payload.fromDate||'',style:'width:100%;background:#1c1000;border:1px solid #92400e;border-radius:6px;padding:7px;color:#fde68a;font-size:13px;box-sizing:border-box;margin-bottom:6px;display:block'});
@@ -1091,6 +1105,7 @@ function renderAlerts(c){
             };
           })(cpForm,cpFr,cpTo,cpRsn,req.ayushNotes||'',cpSub);
           card.appendChild(cpBtn);card.appendChild(cpForm);
+          } // end _within48 else
         } else if(req.type==='PAYMENT'){
           var pyBtn=el('button',{cls:'rv-btn',style:'width:100%',text:'Go to Review →'});
           pyBtn.onclick=function(){loadTab('review');};

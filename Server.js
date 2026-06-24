@@ -1938,9 +1938,51 @@ function getActivitySetup(sheet) {
   } catch(e) { return []; }
 }
 
+function checkDuplicateRequest(type, subjectKey) {
+  var user = getUserInfo();
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var rq = ss.getSheetByName('REQUESTS');
+    if (!rq || rq.getLastRow() < 4) return { isDuplicate: false };
+    var rows = rq.getRange(4, 1, rq.getLastRow() - 3, 6).getValues();
+    var now = new Date();
+    var ms48 = 48 * 60 * 60 * 1000;
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var rowName = safeStr(r[2]);
+      var rowType = safeStr(r[3]);
+      var rowStatus = safeStr(r[5]).toUpperCase();
+      if (rowName !== user.name) continue;
+      if (rowType !== type) continue;
+      if (rowStatus !== 'PENDING' && rowStatus !== 'REJECTED') continue;
+      if (rowStatus === 'REJECTED') {
+        var dateStr = safeStr(r[1]);
+        var d = new Date(dateStr.replace(/(\d+)-(\w+)-(\d+)/, '$2 $1, $3'));
+        if (isNaN(d.getTime()) || (now - d) > ms48) continue;
+      }
+      try {
+        var pl = JSON.parse(safeStr(r[4]));
+        var match = false;
+        if (type === 'RATE_EDIT') {
+          match = String(pl.rowIndex) === String(subjectKey);
+        } else if (type === 'ACTIVITY_SETUP') {
+          match = pl.sheet === subjectKey.sheet && pl.dept === subjectKey.dept;
+        }
+        if (match) return { isDuplicate: true, status: rowStatus };
+      } catch(pe) {}
+    }
+    return { isDuplicate: false };
+  } catch(e) { return { isDuplicate: false }; }
+}
+
 function requestActivityRateEdit(rowIndex, newRate, newComm, revisionRemark) {
   var user = getUserInfo();
   try {
+    var dup = checkDuplicateRequest('RATE_EDIT', rowIndex);
+    if (dup.isDuplicate) {
+      if (dup.status === 'PENDING') return { success:false, error:'A request for this activity is already pending approval. Wait for Ayush to approve or reject it first.' };
+      if (dup.status === 'REJECTED') return { success:false, error:'A rejected request for this activity is still open. Use Revise & Resubmit from your Alerts tab, or wait 48 hours for it to expire.' };
+    }
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var rq = ss.getSheetByName('REQUESTS');
     var lastRow = Math.max(rq.getLastRow(), 3) + 1;
@@ -1960,10 +2002,17 @@ function requestActivityRateEdit(rowIndex, newRate, newComm, revisionRemark) {
 function requestActivitySetup(payload, revisionRemark) {
   var user = getUserInfo();
   try {
+    var items = Array.isArray(payload) ? payload : [payload];
+    for (var _di = 0; _di < items.length; _di++) {
+      var _dup = checkDuplicateRequest('ACTIVITY_SETUP', {sheet: items[_di].sheet, dept: items[_di].dept});
+      if (_dup.isDuplicate) {
+        if (_dup.status === 'PENDING') return { success:false, error:'A request for this activity is already pending approval. Wait for Ayush to approve or reject it first.' };
+        if (_dup.status === 'REJECTED') return { success:false, error:'A rejected request for this activity is still open. Use Revise & Resubmit from your Alerts tab, or wait 48 hours for it to expire.' };
+      }
+    }
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var rq = ss.getSheetByName('REQUESTS');
     var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
-    var items = Array.isArray(payload) ? payload : [payload];
     var lastReqId = '';
     var createdReqs = [];
     items.forEach(function(item) {
