@@ -2012,9 +2012,10 @@ function renderActivities(c){
       nameDiv.appendChild(el('div',{style:'font-size:11px;color:#4a5578;margin-top:2px',text:'₹'+ma.stdRate+'/pr'+(ma.comm?' + ₹'+ma.comm+' comm':'')}));
       top.appendChild(nameDiv);
       card.appendChild(top);
-      if(ma.hasPendingRateEdit){
+      var _nrrMatch=NO_RESUBMIT_RATE&&NO_RESUBMIT_RATE.rowIndex===ma.rowIndex;
+      if(ma.hasPendingRateEdit&&!_nrrMatch){
         top.appendChild(el('span',{cls:'badge yellow',text:'RATE CHANGE PENDING'}));
-      } else if(ma.hasRejectedRateEdit){
+      } else if(ma.hasRejectedRateEdit&&!_nrrMatch){
         top.appendChild(el('span',{cls:'badge red',text:'RATE CHANGE REJECTED'}));
         var rejDiv=el('div',{style:'margin-top:8px;padding:8px 10px;background:#450a0a;border-radius:8px;display:flex;align-items:center;justify-content:space-between;gap:8px'});
         rejDiv.appendChild(el('span',{style:'font-size:11px;color:#ef4444',text:'Proposed: ₹'+ma.rejectedRate+'/pr'+(ma.rejectedComm?' + ₹'+ma.rejectedComm+' comm':'')}));
