@@ -1735,7 +1735,7 @@ function submitDeptActivities(sheetName, depts) {
   } catch(e) { return { success:false, error:e.message }; }
 }
 
-function rejectRequest(reqId) {
+function rejectRequest(reqId, remark) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only Ayush can reject' };
   try {
@@ -1747,7 +1747,7 @@ function rejectRequest(reqId) {
       if (safeStr(data[i][0]) === reqId) {
         var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
         rq.getRange(i + 4, 6).setValue('REJECTED');
-        rq.getRange(i + 4, 7).setValue('Rejected');
+        rq.getRange(i + 4, 7).setValue(remark || 'Rejected');
         rq.getRange(i + 4, 8).setValue(now);
         rq.getRange(i + 4, 9).setValue('Yes');
         SpreadsheetApp.flush();

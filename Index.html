@@ -228,6 +228,7 @@ var ENTRY_AUTO_OPEN_SHEET=null;
 var ENTRY_REVISION_REMARK=null;
 var ACTS_REVISION_REMARK=null, ACTS_REVISION_ACTIVITY=null;
 var SEEN_ALERT_IDS=new Set();
+var NO_RESUBMIT_RATE=null;
 
 function fmt(n){return '₹'+Number(n).toLocaleString('en-IN',{maximumFractionDigits:0});}
 
@@ -857,38 +858,56 @@ function renderRequests(c){
     }
     card.appendChild(det);
     card.appendChild(el('div',{cls:'req-meta',text:'From: '+r.submittedBy+' on '+r.date}));
-    var acts=el('div',{cls:'req-actions'});
+    var acts=el('div',{style:'margin-top:2px'});
+    var btnsDiv=el('div',{cls:'req-actions'});
+    var _rjBtn=el('button',{cls:'rj-btn',text:'Reject'});
     if(r.type==='RATE_EDIT'){
       var ab=el('button',{cls:'ap-btn',text:'Approve'});
       (function(reqId){ab.onclick=function(){doApproveRateEdit(reqId);};})(r.reqId);
-      var rb=el('button',{cls:'rj-btn',text:'Reject'});
-      (function(reqId){rb.onclick=function(){doRejectRequest(reqId);};})(r.reqId);
-      acts.appendChild(ab);acts.appendChild(rb);
+      btnsDiv.appendChild(ab);btnsDiv.appendChild(_rjBtn);
     } else if(r.type==='EDIT_REQUEST'){
       var ab3=el('button',{cls:'ap-btn',text:'Approve'});
       (function(reqId){ab3.onclick=function(){doApproveEditRequest(reqId);};})(r.reqId);
-      var rb3=el('button',{cls:'rj-btn',text:'Reject'});
-      (function(reqId){rb3.onclick=function(){doRejectRequest(reqId);};})(r.reqId);
-      acts.appendChild(ab3);acts.appendChild(rb3);
+      btnsDiv.appendChild(ab3);btnsDiv.appendChild(_rjBtn);
     } else if(r.type==='SETUP_EDIT_REQUEST'){
       var ab4=el('button',{cls:'ap-btn',text:'Approve'});
       (function(reqId){ab4.onclick=function(){doApproveSetupEditRequest(reqId);};})(r.reqId);
-      var rb4=el('button',{cls:'rj-btn',text:'Reject'});
-      (function(reqId){rb4.onclick=function(){doRejectRequest(reqId);};})(r.reqId);
-      acts.appendChild(ab4);acts.appendChild(rb4);
+      btnsDiv.appendChild(ab4);btnsDiv.appendChild(_rjBtn);
     } else if(r.type==='PAYMENT_SUBMISSION'){
       var abPs=el('button',{cls:'ap-btn',text:'Approve & Lock'});
       (function(reqId){abPs.onclick=function(){approvePaymentSubmission(reqId);};})(r.reqId);
-      var rbPs=el('button',{cls:'rj-btn',text:'Reject'});
-      (function(rowNum){rbPs.onclick=function(){processReq(rowNum,'REJECT');};})(r.rowNum);
-      acts.appendChild(abPs);acts.appendChild(rbPs);
+      btnsDiv.appendChild(abPs);btnsDiv.appendChild(_rjBtn);
     } else {
       var ab2=el('button',{cls:'ap-btn',text:'Approve'});
       (function(rowNum){ab2.onclick=function(){processReq(rowNum,'APPROVE');};})(r.rowNum);
-      var rb2=el('button',{cls:'rj-btn',text:'Reject'});
-      (function(rowNum){rb2.onclick=function(){processReq(rowNum,'REJECT');};})(r.rowNum);
-      acts.appendChild(ab2);acts.appendChild(rb2);
+      btnsDiv.appendChild(ab2);btnsDiv.appendChild(_rjBtn);
     }
+    acts.appendChild(btnsDiv);
+    (function(rjBtn,bDiv,actsEl,rowNum){
+      var rkWrap=el('div',{style:'display:none;margin-top:8px'});
+      var rkInp=el('input',{type:'text',placeholder:'Reason for rejection...',style:'width:100%;background:#0f1117;border:1px solid #ef4444;border-radius:8px;padding:9px 12px;color:#e8eaf0;font-size:13px;box-sizing:border-box;margin-bottom:6px;display:block'});
+      var rkRow=el('div',{style:'display:flex;gap:8px;align-items:center'});
+      var rkConfirm=el('button',{text:'Confirm Reject',style:'flex:1;padding:9px;background:#7f1d1d;color:#fca5a5;font-size:13px;font-weight:700;border-radius:8px;border:none;cursor:not-allowed;opacity:0.4'});
+      rkConfirm.disabled=true;
+      var rkCancel=el('a',{style:'font-size:12px;color:#4a5578;cursor:pointer;text-decoration:underline',text:'Cancel'});
+      rkRow.appendChild(rkConfirm);rkRow.appendChild(rkCancel);
+      rkWrap.appendChild(rkInp);rkWrap.appendChild(rkRow);
+      actsEl.appendChild(rkWrap);
+      rkInp.oninput=function(){var ok=!!rkInp.value.trim();rkConfirm.disabled=!ok;rkConfirm.style.opacity=ok?'1':'0.4';rkConfirm.style.cursor=ok?'pointer':'not-allowed';};
+      rjBtn.onclick=function(){bDiv.style.display='none';rkWrap.style.display='block';rkInp.focus();};
+      rkCancel.onclick=function(){rkWrap.style.display='none';bDiv.style.display='';};
+      rkConfirm.onclick=function(){
+        var rmk=rkInp.value.trim();if(!rmk)return;
+        rkConfirm.disabled=true;rkConfirm.textContent='Rejecting...';
+        google.script.run
+          .withSuccessHandler(function(res){
+            if(res&&res.success){toast('Rejected');setTimeout(function(){loadTab('requests');},600);}
+            else{toast((res&&res.error)||'Error',true);rkConfirm.disabled=false;rkConfirm.textContent='Confirm Reject';}
+          })
+          .withFailureHandler(function(){toast('Error',true);rkConfirm.disabled=false;rkConfirm.textContent='Confirm Reject';})
+          .processRequest(rowNum,'REJECT',rmk);
+      };
+    })(_rjBtn,btnsDiv,acts,r.rowNum);
     card.appendChild(acts);
     c.appendChild(card);
   });
@@ -988,9 +1007,14 @@ function renderAlerts(c){
     var sBadge;
     if(r.status==='PENDING')sBadge=el('span',{cls:'badge grey',text:'⏳ Awaiting Approval'});
     else if(r.status==='APPROVED')sBadge=el('span',{cls:'badge green',text:'✅ Approved'});
-    else if(r.status==='REJECTED'||r.status==='REVISION')sBadge=el('span',{cls:'badge red',text:'❌ Rejected'});
+    else if(r.status==='REJECTED'||r.status==='REVISION'){sBadge=el('span',{cls:'badge red',text:'❌ Rejected'});}
     else sBadge=el('span',{cls:'badge grey',text:r.status});
     typeRow.appendChild(sBadge);
+    if(r.status==='REJECTED'||r.status==='REVISION'){
+      var dimBtn=el('button',{text:'✕',style:'margin-left:auto;background:none;border:none;color:#4a5578;font-size:16px;cursor:pointer;padding:2px 6px;border-radius:4px;flex-shrink:0'});
+      (function(cardEl){dimBtn.onclick=function(){cardEl.remove();};})(card);
+      typeRow.appendChild(dimBtn);
+    }
     card.appendChild(typeRow);
     // Summary
     var sumDiv=el('div',{cls:'req-details'});
@@ -1026,7 +1050,9 @@ function renderAlerts(c){
           card.appendChild(asBtn);
         } else if(req.type==='RATE_EDIT'){
           var reBtn=el('button',{cls:'rv-btn',style:'width:100%',text:'Revise & Resubmit →'});
-          reBtn.onclick=function(){ACTS_REVISION_ACTIVITY=(req.activityName||payload.activityName||'').toLowerCase().trim();ACTS_REVISION_REMARK=req.ayushNotes||'';loadTab('activities');};
+          (function(actName,rmk,ri,nr,nc){
+            reBtn.onclick=function(){ACTS_REVISION_ACTIVITY=actName;ACTS_REVISION_REMARK=rmk;NO_RESUBMIT_RATE={rowIndex:ri,currentRate:nr,currentComm:nc};loadTab('activities');};
+          })((req.activityName||payload.activityName||'').toLowerCase().trim(),req.ayushNotes||'',payload.rowIndex,payload.newRate,payload.newComm);
           card.appendChild(reBtn);
         } else if(req.type==='CUSTOM_PERIOD_REQUEST'){
           var cpBtn=el('button',{cls:'rv-btn',style:'width:100%',text:'Revise & Resubmit →'});
@@ -2025,10 +2051,21 @@ function renderActivities(c){
               .requestActivityRateEdit(m.rowIndex,nr,nc,m.revisionRemark||'');
           };
         })(ma,rInp,cInp,editForm,subBtn,editBtn,cancelBtn);
-      }
-      if(ACTS_REVISION_ACTIVITY&&ma.name.toLowerCase().trim()===ACTS_REVISION_ACTIVITY){
-        ma.revisionRemark=ACTS_REVISION_REMARK||'';
-        ACTS_REVISION_ACTIVITY=null;ACTS_REVISION_REMARK=null;
+        if(ACTS_REVISION_ACTIVITY&&ma.name.toLowerCase().trim()===ACTS_REVISION_ACTIVITY){
+          ma.revisionRemark=ACTS_REVISION_REMARK||'';
+          ACTS_REVISION_ACTIVITY=null;ACTS_REVISION_REMARK=null;
+          if(NO_RESUBMIT_RATE&&NO_RESUBMIT_RATE.rowIndex===ma.rowIndex){
+            rInp.value=NO_RESUBMIT_RATE.currentRate||'';
+            cInp.value=NO_RESUBMIT_RATE.currentComm||'';
+            if(ma.revisionRemark){
+              var rrBanner=el('div',{style:'padding:8px 10px;background:#1c1000;border-left:3px solid #d97706;border-radius:0 6px 6px 0;color:#fde68a;font-size:11px;margin-bottom:8px',text:'Revision note: '+ma.revisionRemark});
+              editForm.insertBefore(rrBanner,editForm.firstChild);
+            }
+            editForm.style.display='block';
+            editBtn.style.display='none';
+            NO_RESUBMIT_RATE=null;
+          }
+        }
       }
       c.appendChild(card);
     });
