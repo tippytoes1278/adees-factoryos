@@ -50,9 +50,10 @@ function isArtSheet(s) {
 }
 
 function getAllData() {
-  var result = { ok:true, dash:null, entry:null, wip:null, reqs:null };
+  var result = { ok:true, dash:null, entry:null, wip:null, reqs:null, user:null };
   try {
     var user = getUserInfo();
+    result.user = user;
     Logger.log('[getAllData] user=' + user.email + ' role=' + user.role);
     result.dash = getDashboardData();
     if (user.role === 'accounts') {
@@ -491,6 +492,11 @@ function getEntryData(periodId) {
 
   var actDeptMap = {};
   masterActivities.forEach(function(ma) { actDeptMap[ma.name] = ma.section || ''; });
+  var _batchReqsData = [];
+  var _batchDsData = [];
+  try { var _bRq = ss.getSheetByName('REQUESTS'); if (_bRq && _bRq.getLastRow() > 3) _batchReqsData = _bRq.getRange(4, 1, _bRq.getLastRow()-3, 6).getValues(); } catch(e) {}
+  try { var _bDs = ss.getSheetByName('DEPT_STATUS'); if (_bDs && _bDs.getLastRow() > 1) _batchDsData = _bDs.getRange(2, 1, _bDs.getLastRow()-1, 3).getValues(); } catch(e) {}
+  var _deptStatusBatch = getDeptStatusBatch(articles.map(function(a){return a.sheet;}), _batchReqsData, _batchDsData);
   articles.forEach(function(art) {
     var perArtMap = articleDeptMaps[art.sheet] || {};
     var deptApproved = {};
@@ -506,7 +512,7 @@ function getEntryData(periodId) {
         if (deptApproved[d] && deptApproved[d] >= lotSize) ac.deptLocked = true;
       }
     });
-    var deptStatus = getDeptStatus(art.sheet);
+    var deptStatus = _deptStatusBatch[art.sheet] || {};
     var DS_KEY = {'Cutting':'cutting','Preparation':'prep','Fitter':'fitter','Lasting':'lasting','Finishing':'finish','Dispatch':'dispatch'};
     if (lotSize > 0) {
       Object.keys(deptStatus).forEach(function(dn) {
@@ -1682,6 +1688,67 @@ function getDeptStatus(sheetName) {
     }
   } catch(e) {}
   return status;
+}
+
+function getDeptStatusBatch(allSheetNames, requestsData, deptStatusData) {
+  var DEPT_KEYS = ['Cutting','Preparation','Fitter','Lasting','Finishing','Dispatch'];
+  var DMAP = {'cutting':'Cutting','prep':'Preparation','fitter':'Fitter','lasting':'Lasting','finish':'Finishing','dispatch':'Dispatch'};
+  var result = {};
+  allSheetNames.forEach(function(sn) {
+    var status = {};
+    DEPT_KEYS.forEach(function(d) { status[d] = 'NOT_SET'; });
+    result[sn] = status;
+  });
+  deptStatusData.forEach(function(r) {
+    var sn = safeStr(r[0]), dn = safeStr(r[1]), st = safeStr(r[2]).toUpperCase();
+    if (result[sn] && st === 'SKIPPED' && DEPT_KEYS.indexOf(dn) >= 0) result[sn][dn] = 'SKIPPED';
+  });
+  requestsData.forEach(function(r) {
+    var rType = safeStr(r[3]);
+    if (rType !== 'ACTIVITY_SETUP' && rType !== 'ACTIVITY_SETUP_RESET' && rType !== 'ACTIVITY_SETUP_UNLOCKED') return;
+    var reqSt = safeStr(r[5]).toUpperCase();
+    try {
+      var pl = JSON.parse(safeStr(r[4]));
+      if (!pl) return;
+      var sn = safeStr(pl.sheet);
+      if (!result[sn]) return;
+      var status = result[sn];
+      if (rType === 'ACTIVITY_SETUP_RESET') {
+        var resetDn = DMAP[safeStr(pl.dept || '').toLowerCase()] || safeStr(pl.dept || '');
+        if (DEPT_KEYS.indexOf(resetDn) >= 0 && status[resetDn] !== 'SKIPPED') status[resetDn] = 'NOT_SET';
+        return;
+      }
+      if (rType === 'ACTIVITY_SETUP_UNLOCKED') {
+        var unlockDn = DMAP[safeStr(pl.dept || '').toLowerCase()] || safeStr(pl.dept || '');
+        if (DEPT_KEYS.indexOf(unlockDn) >= 0 && status[unlockDn] !== 'SKIPPED') status[unlockDn] = 'EDIT_UNLOCKED';
+        return;
+      }
+      if (reqSt !== 'APPROVED' && reqSt !== 'PENDING') return;
+      var depts = [];
+      if (pl.dept) {
+        var dn = DMAP[safeStr(pl.dept).toLowerCase()] || safeStr(pl.dept);
+        if (DEPT_KEYS.indexOf(dn) >= 0) depts = [dn];
+      }
+      if (!depts.length && pl.activities && pl.activities.length) {
+        pl.activities.forEach(function(a) {
+          var dv = safeStr(a.department || '').toLowerCase();
+          var dn2 = DMAP[dv] || '';
+          if (dn2 && DEPT_KEYS.indexOf(dn2) >= 0 && depts.indexOf(dn2) < 0) depts.push(dn2);
+        });
+      }
+      depts.forEach(function(dept) {
+        if (status[dept] === 'SKIPPED') return;
+        if (reqSt === 'APPROVED') status[dept] = 'APPROVED';
+        else if (reqSt === 'PENDING') {
+          if (status[dept] === 'NOT_SET') status[dept] = 'PENDING';
+          else if (status[dept] === 'EDIT_UNLOCKED') status[dept] = 'EDIT_PENDING';
+        } else if (reqSt === 'REJECTED' && status[dept] === 'EDIT_PENDING') {
+          status[dept] = 'EDIT_UNLOCKED';
+        }
+      });
+    } catch(pe) {}
+  });
+  return result;
 }
 
 function markDeptSkipped(sheetName, dept) {

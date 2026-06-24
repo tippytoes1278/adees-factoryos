@@ -289,7 +289,17 @@ function fosPipelineTracker(counts){
 // ── BOOT ──────────────────────────────────────────────────────────────────────
 window.onload=function(){
   google.script.run
-    .withSuccessHandler(function(u){
+    .withSuccessHandler(function(allData){
+      if(!allData||!allData.user){
+        document.getElementById('loading').innerHTML=
+          '<div style="color:#ef4444;text-align:center;padding:40px">' +
+          '<div style="font-size:36px;margin-bottom:12px">!</div>' +
+          '<div style="font-weight:700;font-size:16px">Access Error</div>' +
+          '<div style="font-size:12px;color:#7986a3;margin-top:8px">Could not load user info</div>' +
+          '</div>';
+        return;
+      }
+      var u=allData.user;
       USER=u;
       document.getElementById('userName').textContent=u.name;
       if(u.env==='DEV'){
@@ -302,42 +312,27 @@ window.onload=function(){
       if(u.role==='admin')dot.classList.add('admin');
       else if(u.role==='store')dot.classList.add('store');
       buildNav();
-      // Load ALL data in one call then show app instantly
-      document.getElementById('loading').querySelector('.load-text').textContent='LOADING DATA...';
-      google.script.run
-        .withSuccessHandler(function(allData){
-          if(allData && allData.ok){
-            D.dash  = allData.dash;
-            D.entry = allData.entry;
-            D.wip   = allData.wip;
-            D.reqs  = allData.reqs;
-            if(allData.entry){
-              CONTRACTORS  = allData.entry.contractors  || [];
-              MASTER_ACTS  = allData.entry.masterActivities || [];
-              (allData.entry.articles||[]).forEach(function(a){console.log('[DIAG] boot '+a.sheet+' "'+a.article+'" → '+(a.activities?a.activities.length:0)+' activities');});
-              updateNavBadge('activities',(allData.entry.pendingActsCount||0)>0);
-            }
-            if(allData.reqs&&allData.reqs.requests&&USER.role==='accounts'){
-              var _unseenAlerts=(allData.reqs.requests||[]).filter(function(r){
-                return (r.status==='REVISION'||r.status==='REJECTED')&&r.submittedBy===USER.name&&!SEEN_ALERT_IDS.has(r.reqId);
-              }).length;
-              if(_unseenAlerts>0)updateNavBadge('alerts',true,_unseenAlerts);
-            }
-          }
-          document.getElementById('loading').style.display='none';
-          document.getElementById('app').classList.add('visible');
-          renderTab('home');
-        })
-        .withFailureHandler(function(){
-          // If bulk load fails, load dashboard separately
-          document.getElementById('loading').style.display='none';
-          document.getElementById('app').classList.add('visible');
-          google.script.run
-            .withSuccessHandler(function(d){D.dash=d;renderTab('home');})
-            .withFailureHandler(function(){renderTab('home');})
-            .getDashboardData();
-        })
-        .getAllData();
+      if(allData.ok){
+        D.dash  = allData.dash;
+        D.entry = allData.entry;
+        D.wip   = allData.wip;
+        D.reqs  = allData.reqs;
+        if(allData.entry){
+          CONTRACTORS  = allData.entry.contractors  || [];
+          MASTER_ACTS  = allData.entry.masterActivities || [];
+          (allData.entry.articles||[]).forEach(function(a){console.log('[DIAG] boot '+a.sheet+' "'+a.article+'" → '+(a.activities?a.activities.length:0)+' activities');});
+          updateNavBadge('activities',(allData.entry.pendingActsCount||0)>0);
+        }
+        if(allData.reqs&&allData.reqs.requests&&USER.role==='accounts'){
+          var _unseenAlerts=(allData.reqs.requests||[]).filter(function(r){
+            return (r.status==='REVISION'||r.status==='REJECTED')&&r.submittedBy===USER.name&&!SEEN_ALERT_IDS.has(r.reqId);
+          }).length;
+          if(_unseenAlerts>0)updateNavBadge('alerts',true,_unseenAlerts);
+        }
+      }
+      document.getElementById('loading').style.display='none';
+      document.getElementById('app').classList.add('visible');
+      renderTab('home');
     })
     .withFailureHandler(function(e){
       document.getElementById('loading').innerHTML=
@@ -347,7 +342,7 @@ window.onload=function(){
         '<div style="font-size:12px;color:#7986a3;margin-top:8px">' + (e.message||'Unknown error') + '</div>' +
         '</div>';
     })
-    .getUserInfo();
+    .getAllData();
 };
 
 // ── NAV ───────────────────────────────────────────────────────────────────────
@@ -421,6 +416,7 @@ function loadTab(id){
     if(D.dash){_loadSubs();}
     else{google.script.run.withSuccessHandler(function(d){D.dash=d;_loadSubs();}).withFailureHandler(showErr).getDashboardData();}
   } else if(id==='requests'){
+    if(D.reqs){renderTab(id);return;}
     showLoading();
     google.script.run.withSuccessHandler(function(d){D.reqs=d;renderTab(id);}).withFailureHandler(showErr).getPendingRequests();
   } else if(id==='entry'||id==='review'){
@@ -430,6 +426,7 @@ function loadTab(id){
   } else if(id==='neworder'){
     renderTab(id);
   } else if(id==='payment'){
+    if(D.payment){renderTab(id);return;}
     showLoading();
     google.script.run.withSuccessHandler(function(d){D.payment=d;renderTab(id);}).withFailureHandler(showErr).getPaymentHistory();
   } else if(id==='wip'){
@@ -445,6 +442,7 @@ function loadTab(id){
     showLoading();
     google.script.run.withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];renderTab(id);}).withFailureHandler(showErr).getEntryData();
   } else if(id==='alerts'){
+    if(D.myreqs){renderTab(id);return;}
     showLoading();
     google.script.run.withSuccessHandler(function(d){
       D.myreqs=d;
@@ -901,7 +899,7 @@ function renderRequests(c){
         rkConfirm.disabled=true;rkConfirm.textContent='Rejecting...';
         google.script.run
           .withSuccessHandler(function(res){
-            if(res&&res.success){toast('Rejected');setTimeout(function(){loadTab('requests');},600);}
+            if(res&&res.success){toast('Rejected');D.reqs=null;setTimeout(function(){loadTab('requests');},600);}
             else{toast((res&&res.error)||'Error',true);rkConfirm.disabled=false;rkConfirm.textContent='Confirm Reject';}
           })
           .withFailureHandler(function(){toast('Error',true);rkConfirm.disabled=false;rkConfirm.textContent='Confirm Reject';})
@@ -916,7 +914,7 @@ function renderRequests(c){
 function processReq(rowNum,action){
   google.script.run
     .withSuccessHandler(function(r){
-      if(r.success){toast(action==='APPROVE'?('Approved'+(r.sheetCreated?' - '+r.sheetCreated:'')):'Rejected');setTimeout(function(){loadTab('requests');},600);}
+      if(r.success){toast(action==='APPROVE'?('Approved'+(r.sheetCreated?' - '+r.sheetCreated:'')):'Rejected');D.reqs=null;setTimeout(function(){loadTab('requests');},600);}
       else toast(r.error||'Error',true);
     })
     .withFailureHandler(function(){toast('Error',true);})
@@ -926,7 +924,7 @@ function processReq(rowNum,action){
 function doApproveRateEdit(reqId){
   google.script.run
     .withSuccessHandler(function(r){
-      if(r.success){toast('Rate change approved');setTimeout(function(){loadTab('requests');},600);}
+      if(r.success){toast('Rate change approved');D.reqs=null;setTimeout(function(){loadTab('requests');},600);}
       else toast(r.error||'Error',true);
     })
     .withFailureHandler(function(){toast('Error',true);})
@@ -936,7 +934,7 @@ function doApproveRateEdit(reqId){
 function doRejectRequest(reqId){
   google.script.run
     .withSuccessHandler(function(r){
-      if(r.success){toast('Rejected');setTimeout(function(){loadTab('requests');},600);}
+      if(r.success){toast('Rejected');D.reqs=null;setTimeout(function(){loadTab('requests');},600);}
       else toast(r.error||'Error',true);
     })
     .withFailureHandler(function(){toast('Error',true);})
@@ -946,7 +944,7 @@ function doRejectRequest(reqId){
 function doApproveEditRequest(reqId){
   google.script.run
     .withSuccessHandler(function(r){
-      if(r.success){toast('Edit approved');setTimeout(function(){loadTab('requests');},600);}
+      if(r.success){toast('Edit approved');D.reqs=null;setTimeout(function(){loadTab('requests');},600);}
       else toast(r.error||'Error',true);
     })
     .withFailureHandler(function(){toast('Error',true);})
@@ -956,7 +954,7 @@ function doApproveEditRequest(reqId){
 function doApproveSetupEditRequest(reqId){
   google.script.run
     .withSuccessHandler(function(r){
-      if(r.success){toast('Setup edit approved');setTimeout(function(){loadTab('requests');},600);}
+      if(r.success){toast('Setup edit approved');D.reqs=null;setTimeout(function(){loadTab('requests');},600);}
       else toast(r.error||'Error',true);
     })
     .withFailureHandler(function(){toast('Error',true);})
