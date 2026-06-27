@@ -1764,8 +1764,12 @@ function renderNO_Step2(c){
   var clI=el('input',{cls:'form-input',type:'text',placeholder:'e.g. Full Black'});clG.appendChild(clI);card.appendChild(clG);
   var byG=el('div',{cls:'form-group'});byG.appendChild(el('label',{cls:'form-label',text:'Buyer *'}));
   var byS=el('select',{cls:'form-select'});['','Snitch','Tata/Westside','Van Heusen','Mothercare','Other'].forEach(function(b){byS.appendChild(el('option',{text:b||'Select buyer…',value:b}));});byG.appendChild(byS);card.appendChild(byG);
+  var brG=el('div',{cls:'form-group'});brG.appendChild(el('label',{cls:'form-label',text:'Brand'}));
+  var brI=el('input',{cls:'form-input',type:'text',placeholder:'e.g. Van Heusen (if different from buyer)'});brG.appendChild(brI);card.appendChild(brG);
   var poG=el('div',{cls:'form-group'});poG.appendChild(el('label',{cls:'form-label',text:'PO Number'}));
   var poI=el('input',{cls:'form-input',type:'text',placeholder:'e.g. PO-2026-001'});poG.appendChild(poI);card.appendChild(poG);
+  var prG=el('div',{cls:'form-group'});prG.appendChild(el('label',{cls:'form-label',text:'PO Receive Date'}));
+  var prI=el('input',{cls:'form-input',type:'date'});prG.appendChild(prI);card.appendChild(prG);
   var ddG=el('div',{cls:'form-group'});ddG.appendChild(el('label',{cls:'form-label',text:'Delivery Date *'}));
   var ddI=el('input',{cls:'form-input',type:'date'});ddG.appendChild(ddI);card.appendChild(ddG);
   c.appendChild(card);
@@ -1790,7 +1794,9 @@ function renderNO_Step2(c){
     if(nrp.styleName)aI.value=nrp.styleName;
     if(nrp.color)clI.value=nrp.color;
     if(nrp.buyer)byS.value=nrp.buyer;
+    if(nrp.brand)brI.value=nrp.brand;
     if(nrp.poNumber)poI.value=nrp.poNumber;
+    if(nrp.poReceiveDate)prI.value=nrp.poReceiveDate;
     if(nrp.deliveryDate)ddI.value=nrp.deliveryDate;
     if(nrp.sizeRun)Object.keys(nrp.sizeRun).forEach(function(sz){if(sIs[sz])sIs[sz].value=nrp.sizeRun[sz];});
     recalc();
@@ -1811,7 +1817,7 @@ function renderNO_Step2(c){
         else{toast((r&&r.error)||'Error',true);sbB.disabled=false;sbB.textContent='Submit for Approval';}
       })
       .withFailureHandler(function(){toast('Error',true);sbB.disabled=false;sbB.textContent='Submit for Approval';})
-      .submitRequest('NEW_ORDER',(function(){var p={tsNumber:NO_TS.tsNumber,styleName:art,color:col,buyer:buyer,poNumber:poI.value.trim(),deliveryDate:dd,sizeRun:sr,lotSize:lot};if(NO_RESUBMIT&&NO_RESUBMIT.revisionRemark)p.revisionRemark=NO_RESUBMIT.revisionRemark;return JSON.stringify(p);})());
+      .submitRequest('NEW_ORDER',(function(){var p={tsNumber:NO_TS.tsNumber,styleName:art,color:col,buyer:buyer,brand:brI.value.trim(),poNumber:poI.value.trim(),poReceiveDate:prI.value,deliveryDate:dd,sizeRun:sr,lotSize:lot};if(NO_RESUBMIT&&NO_RESUBMIT.revisionRemark)p.revisionRemark=NO_RESUBMIT.revisionRemark;return JSON.stringify(p);})());
   };
   sbC.appendChild(sbB);c.appendChild(sbC);
 }
