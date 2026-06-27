@@ -182,6 +182,34 @@ input,select,textarea{font-family:inherit;outline:none;border:none}
 .fos-admin-order{background:var(--fos-surface);border:0.5px solid var(--fos-border);border-radius:10px;padding:12px 16px;margin-bottom:8px}
 .fos-progress{height:3px;background:var(--fos-border);border-radius:2px;margin-top:4px;overflow:hidden}
 .fos-progress-fill{height:100%;background:var(--fos-accent);border-radius:2px}
+/* ── FOS Tutorial System ──────────────────────────────────────────── */
+.fos-guide-btn{width:28px;height:28px;border-radius:50%;background:var(--fos-accent);color:#fff;border:none;font-family:var(--fos-font-display);font-size:15px;font-weight:700;cursor:pointer;line-height:28px;flex-shrink:0;padding:0;}
+.fos-guide-btn:hover{background:var(--fos-ink);}
+#fos-welcome{position:fixed;inset:0;background:rgba(43,36,32,.72);align-items:center;justify-content:center;z-index:9000;}
+#fos-welcome-box{background:var(--fos-surface);border-radius:16px;padding:40px 36px;max-width:400px;width:90%;text-align:center;font-family:var(--fos-font-body);color:var(--fos-ink);}
+#fos-wi{font-size:40px;color:var(--fos-accent);margin-bottom:12px;}
+#fos-wt{font-family:var(--fos-font-display);font-size:22px;margin:0 0 10px;color:var(--fos-ink);}
+#fos-wb{color:var(--fos-ink-secondary);font-size:14px;line-height:1.6;margin:0 0 20px;}
+#fos-blocker{position:fixed;z-index:9100;box-sizing:border-box;pointer-events:none;border-radius:8px;border:2.5px solid var(--fos-accent);box-shadow:0 0 0 9999px rgba(43,36,32,.65),0 0 16px rgba(181,86,42,.35);}
+#fos-tip{position:fixed;z-index:9200;background:var(--fos-surface);border:1.5px solid var(--fos-accent);border-radius:12px;padding:16px 18px;width:280px;font-family:var(--fos-font-body);color:var(--fos-ink);box-shadow:0 4px 20px rgba(43,36,32,.18);}
+#fos-tip-step{font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-accent);margin-bottom:6px;letter-spacing:.04em;}
+#fos-tip-text{font-size:13px;line-height:1.55;margin-bottom:14px;}
+#fos-tip-nav{display:flex;gap:8px;justify-content:flex-end;}
+#fos-tip-nav button{padding:5px 12px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid var(--fos-border);background:var(--fos-bg);color:var(--fos-ink);font-family:var(--fos-font-body);}
+#fos-tip-next{background:var(--fos-accent);color:#fff;border-color:var(--fos-accent);}
+#fos-help{position:fixed;inset:0;background:rgba(43,36,32,.6);align-items:center;justify-content:center;z-index:9500;}
+#fos-help-box{background:var(--fos-surface);border-radius:14px;width:min(520px,92vw);max-height:80vh;overflow-y:auto;font-family:var(--fos-font-body);color:var(--fos-ink);}
+#fos-help-header{display:flex;justify-content:space-between;align-items:center;padding:20px 24px;border-bottom:1px solid var(--fos-border);position:sticky;top:0;background:var(--fos-surface);}
+#fos-help-title{font-family:var(--fos-font-display);font-size:18px;margin:0;}
+#fos-help-close{background:none;border:none;font-size:18px;cursor:pointer;color:var(--fos-ink-secondary);line-height:1;padding:0;}
+#fos-help-content{padding:20px 24px;}
+#fos-help-content h3{font-family:var(--fos-font-display);font-size:15px;color:var(--fos-accent);margin:16px 0 8px;}
+#fos-help-content h3:first-child{margin-top:0;}
+#fos-help-content ul{margin:0 0 12px;padding-left:18px;}
+#fos-help-content li{font-size:13px;line-height:1.6;color:var(--fos-ink-secondary);margin-bottom:4px;}
+#fos-help-footer{padding:16px 24px;border-top:1px solid var(--fos-border);text-align:center;}
+#fos-help-replay{background:var(--fos-accent);color:#fff;border:none;padding:8px 20px;border-radius:8px;font-family:var(--fos-font-body);font-size:13px;cursor:pointer;}
+#fos-help-replay:hover{background:var(--fos-ink);}
 </style>
 </head>
 <body>
@@ -197,6 +225,7 @@ input,select,textarea{font-family:inherit;outline:none;border:none}
     </div>
     <div style="display:flex;align-items:center;gap:10px">
       <button onclick="refreshTab()" style="background:none;border:1px solid var(--fos-border);color:var(--fos-ink-secondary);padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer;line-height:1.4">↻</button>
+      <button class="fos-guide-btn" onclick="fosOpenHelp()" title="Help &amp; Guide">?</button>
       <div class="user-chip">
         <div class="role-dot" id="roleDot"></div>
         <span id="userName">...</span>
@@ -321,6 +350,7 @@ window.onload=function(){
       if(u.role==='admin')dot.classList.add('admin');
       else if(u.role==='store')dot.classList.add('store');
       buildNav();
+      fosShowWelcome();
       if(allData.ok){
         D.dash  = allData.dash;
         D.entry = allData.entry;
@@ -2737,6 +2767,143 @@ function showErr(e){
     '<div style="color:#e8eaf0;font-size:13px">'+(e.message||'Unknown error')+'</div>' +
     '</div></div>';
 }
+
+/* ── FOS Tutorial System ──────────────────────────────────────────── */
+var FOS_STEPS=[],FOS_IDX=0;
+var FOS_TOUR={
+  admin:[
+    {sel:'.topbar',text:'Yahan se sab control hota hai. Role dekho, view refresh karo — apna FactoryOS command centre.'},
+    {sel:'#nav-home',text:'Apna daily dashboard. Active orders, pending approvals, aur recent payments — ek nazar mein sab.'},
+    {sel:'#nav-orders',text:'Sab production orders yahan hain. Buyer, delivery date, lot size — sab track karo.'},
+    {sel:'#nav-requests',text:'Accounts team ki requests yahan aati hain. Roz dekho aur resolve karo.'},
+    {sel:'#nav-approve',text:'Pending approvals yahan hain. Orders, expenses, contractors — sab clear karo yahan se.'}
+  ],
+  accounts:[
+    {sel:'.topbar',text:'Yahan se sab dikhta hai. Apna role, current view, aur refresh button — sab ek jagah.'},
+    {sel:'#nav-home',text:'Apna daily snapshot. Pending entries, khule alerts, aur aaj ka kaam — ek nazar mein.'},
+    {sel:'#nav-entry',text:'Yahan apna main kaam karo. Payments, expenses, updates — bharo aur submit karo. Admin approve karega.'},
+    {sel:'#nav-review',text:'Jo bhi submit kiya uska status yahan dikhega. Reject hua toh yahan se fix karke dobara bhejo.'},
+    {sel:'#nav-contractors',text:'Sab active contractors ka record. Work orders, baaki payment, paid amount — sab yahan track hota hai.'}
+  ]
+};
+var FOS_WELCOME={
+  admin:{icon:'★',title:'Swagat hai, Ayush! 👋',body:'Apna command centre ready hai. Orders, approvals, payments — sab kuch ek hi jagah se dikhta aur control hota hai.'},
+  accounts:{icon:'✦',title:'Swagat hai! 👋',body:'Tera kaam yahan se shuru hota hai — entry karo, review karo, contractors manage karo.'}
+};
+function fosShowWelcome(){
+  if(!USER||!USER.role)return;
+  var role=USER.role;
+  if(role!=='admin'&&role!=='accounts')return;
+  if(localStorage.getItem('fos_tour_done_'+role))return;
+  var wc=FOS_WELCOME[role];
+  document.getElementById('fos-wi').textContent=wc.icon;
+  document.getElementById('fos-wt').textContent=wc.title;
+  document.getElementById('fos-wb').textContent=wc.body;
+  document.getElementById('fos-welcome').style.display='flex';
+}
+function fosWelcomeDone(){
+  if(USER&&USER.role)localStorage.setItem('fos_tour_done_'+USER.role,'1');
+  document.getElementById('fos-welcome').style.display='none';
+}
+function fosStartTour(){
+  fosWelcomeDone();
+  fosCloseHelp();
+  FOS_STEPS=FOS_TOUR[USER&&USER.role]||[];
+  if(!FOS_STEPS.length)return;
+  FOS_IDX=0;
+  fosTourShow(0);
+}
+function fosTourShow(i){
+  var s=FOS_STEPS[i];
+  if(!s)return;
+  var tgt=document.querySelector(s.sel);
+  document.getElementById('fos-tip-step').textContent='Step '+(i+1)+' / '+FOS_STEPS.length;
+  document.getElementById('fos-tip-text').textContent=s.text;
+  document.getElementById('fos-tip-prev').style.visibility=(i===0?'hidden':'visible');
+  document.getElementById('fos-tip-next').textContent=(i===FOS_STEPS.length-1?'Ho Gaya!':'Aage →');
+  var bl=document.getElementById('fos-blocker');
+  var tp=document.getElementById('fos-tip');
+  if(tgt){
+    var r=tgt.getBoundingClientRect(),pd=7;
+    bl.style.top=(r.top-pd)+'px';
+    bl.style.left=(r.left-pd)+'px';
+    bl.style.width=(r.width+pd*2)+'px';
+    bl.style.height=(r.height+pd*2)+'px';
+    bl.style.display='block';
+    var tpH=150,tpW=280,mg=12;
+    var tx=r.left,ty=r.bottom+mg;
+    if(ty+tpH>window.innerHeight-16)ty=r.top-tpH-mg;
+    if(tx+tpW>window.innerWidth-16)tx=window.innerWidth-tpW-16;
+    if(tx<8)tx=8;
+    tp.style.left=tx+'px';
+    tp.style.top=ty+'px';
+  }
+  tp.style.display='block';
+}
+function fosTourNext(){
+  FOS_IDX++;
+  if(FOS_IDX>=FOS_STEPS.length){fosTourDone();return;}
+  fosTourShow(FOS_IDX);
+}
+function fosTourPrev(){if(FOS_IDX>0){FOS_IDX--;fosTourShow(FOS_IDX);}}
+function fosTourDone(){
+  fosWelcomeDone();
+  document.getElementById('fos-blocker').style.display='none';
+  document.getElementById('fos-tip').style.display='none';
+}
+function fosOpenHelp(){
+  var role=USER&&USER.role,s='';
+  if(role==='admin'){
+    s='<h3>Orders</h3><ul><li>Sab active production orders ek jagah — buyer, delivery date, lot size dekho</li><li>Kisi bhi order mein jaake poori detail lo</li><li>Status filter karo — buyer, style, ya progress se</li></ul>'+
+      '<h3>Approvals</h3><ul><li>Accounts team ke submissions yahan aate hain review ke liye</li><li>Approve karo ya reject karo note ke saath — team ko pata chal jayega</li></ul>'+
+      '<h3>Payments</h3><ul><li>Sab outgoing aur incoming payments ka record yahan hai</li><li>Order value aur contractor records se cross-check karo</li></ul>'+
+      '<h3>Requests</h3><ul><li>Accounts team ki ad-hoc requests yahan aati hain</li><li>Resolve karo ya zaroori ho toh escalate karo</li></ul>';
+  }else if(role==='accounts'){
+    s='<h3>Entry</h3><ul><li>Roz ka kaam yahan — payments, expenses, production updates bharo</li><li>Sab entries admin ke paas approval ke liye jaati hain</li></ul>'+
+      '<h3>New Order</h3><ul><li>Naya production order banao — article, buyer, brand, PO, size run, lot size</li><li>Do-step form hai taaki koi cheez miss na ho</li></ul>'+
+      '<h3>Review</h3><ul><li>Jo bhi submit kiya uska status yahan dikhega</li><li>Reject hua toh yahan se fix karke resubmit karo</li></ul>'+
+      '<h3>Contractors</h3><ul><li>Sab active contractors ka record aur work orders yahan hain</li><li>Kitna baaki hai, kitna paid — sab track hota hai</li></ul>'+
+      '<h3>Activities</h3><ul><li>Poori system ka audit log — kaun ne kya kiya, kab kiya</li></ul>';
+  }else{
+    s='<p style="color:var(--fos-ink-secondary);font-size:13px;padding:4px 0">Tumhare role ke liye koi guide available nahi hai.</p>';
+  }
+  document.getElementById('fos-help-content').innerHTML=s;
+  document.getElementById('fos-help').style.display='flex';
+}
+function fosCloseHelp(){document.getElementById('fos-help').style.display='none';}
 </script>
+<div id="fos-welcome" style="display:none">
+  <div id="fos-welcome-box">
+    <div id="fos-wi"></div>
+    <div id="fos-wt"></div>
+    <div id="fos-wb"></div>
+    <div style="display:flex;gap:10px;justify-content:center">
+      <button onclick="fosStartTour()" style="background:var(--fos-accent);color:#fff;border:none;padding:8px 20px;border-radius:8px;font-family:var(--fos-font-body);font-size:13px;cursor:pointer">Tour Shuru Karo</button>
+      <button onclick="fosWelcomeDone()" style="background:none;border:1px solid var(--fos-border);color:var(--fos-ink-secondary);padding:8px 16px;border-radius:8px;font-family:var(--fos-font-body);font-size:13px;cursor:pointer">Abhi Nahi</button>
+    </div>
+  </div>
+</div>
+<div id="fos-blocker" style="display:none"></div>
+<div id="fos-tip" style="display:none">
+  <div id="fos-tip-step"></div>
+  <div id="fos-tip-text"></div>
+  <div id="fos-tip-nav">
+    <button id="fos-tip-prev" onclick="fosTourPrev()">&#8592; Peeche</button>
+    <button onclick="fosTourDone()">Skip karo</button>
+    <button id="fos-tip-next" onclick="fosTourNext()">Aage &#8594;</button>
+  </div>
+</div>
+<div id="fos-help" style="display:none">
+  <div id="fos-help-box">
+    <div id="fos-help-header">
+      <span id="fos-help-title">FactoryOS Guide</span>
+      <button id="fos-help-close" onclick="fosCloseHelp()">&#x2715;</button>
+    </div>
+    <div id="fos-help-content"></div>
+    <div id="fos-help-footer">
+      <button id="fos-help-replay" onclick="fosStartTour()">&#x21BA; Tour Dobara Chalao</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
