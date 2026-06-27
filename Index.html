@@ -210,6 +210,13 @@ input,select,textarea{font-family:inherit;outline:none;border:none}
 #fos-help-footer{padding:16px 24px;border-top:1px solid var(--fos-border);text-align:center;}
 #fos-help-replay{background:var(--fos-accent);color:#fff;border:none;padding:8px 20px;border-radius:8px;font-family:var(--fos-font-body);font-size:13px;cursor:pointer;}
 #fos-help-replay:hover{background:var(--fos-ink);}
+#fos-whatsnew{position:fixed;inset:0;background:rgba(43,36,32,.75);align-items:center;justify-content:center;z-index:9600;}
+#fos-whatsnew-box{background:var(--fos-surface);border-radius:16px;padding:36px 32px;max-width:420px;width:92%;font-family:var(--fos-font-body);color:var(--fos-ink);}
+#fos-wn-title{font-family:var(--fos-font-display);font-size:22px;margin:0 0 18px;color:var(--fos-ink);}
+#fos-wn-body ul{margin:0 0 20px;padding-left:4px;list-style:none;}
+#fos-wn-body li{font-size:13px;line-height:1.7;color:var(--fos-ink-secondary);padding:2px 0;}
+#fos-wn-btn{background:var(--fos-accent);color:#fff;border:none;padding:9px 22px;border-radius:8px;font-family:var(--fos-font-body);font-size:13px;cursor:pointer;width:100%;}
+#fos-wn-btn:hover{background:var(--fos-ink);}
 </style>
 </head>
 <body>
@@ -350,6 +357,7 @@ window.onload=function(){
       if(u.role==='admin')dot.classList.add('admin');
       else if(u.role==='store')dot.classList.add('store');
       buildNav();
+      fosShowWhatsNew();
       fosShowWelcome();
       if(allData.ok){
         D.dash  = allData.dash;
@@ -2871,7 +2879,40 @@ function fosOpenHelp(){
   document.getElementById('fos-help').style.display='flex';
 }
 function fosCloseHelp(){document.getElementById('fos-help').style.display='none';}
+
+function fosShowWhatsNew(){
+  if(localStorage.getItem('fos_whatsnew_217')==='seen')return;
+  var role=USER&&USER.role,items='';
+  if(role==='admin'){
+    items='<p style="font-weight:600;margin:0 0 12px;color:var(--fos-ink)">Admin ke liye naya:</p><ul>'+
+      '<li>&#x2756; New Order form mein Brand aur PO Receive Date fields wapas aaye</li>'+
+      '<li>&#x2756; Naya Guide button (?) — top right mein hai, kabhi bhi help lo</li>'+
+      '<li>&#x2756; First-time tour — har role ke liye alag, Hinglish mein</li>'+
+      '<li>&#x2756; Tour complete karne ke baad ? se dobara chala sakte ho</li>'+
+      '</ul>';
+  }else if(role==='accounts'){
+    items='<p style="font-weight:600;margin:0 0 12px;color:var(--fos-ink)">Accounts ke liye naya:</p><ul>'+
+      '<li>&#x2756; Naya Guide button (?) — top right mein hai, kabhi bhi help lo</li>'+
+      '<li>&#x2756; First-time tour — apna workflow step by step dikhayega</li>'+
+      '<li>&#x2756; Tour complete karne ke baad ? se dobara chala sakte ho</li>'+
+      '</ul>';
+  }
+  if(!items)return;
+  document.getElementById('fos-wn-body').innerHTML=items;
+  document.getElementById('fos-whatsnew').style.display='flex';
+}
+function fosCloseWhatsNew(){
+  localStorage.setItem('fos_whatsnew_217','seen');
+  document.getElementById('fos-whatsnew').style.display='none';
+}
 </script>
+<div id="fos-whatsnew" style="display:none">
+  <div id="fos-whatsnew-box">
+    <div id="fos-wn-title">&#x1F195; Kya Naya Hai?</div>
+    <div id="fos-wn-body"></div>
+    <button id="fos-wn-btn" onclick="fosCloseWhatsNew()">Samajh Gaya, Chalo! &#8594;</button>
+  </div>
+</div>
 <div id="fos-welcome" style="display:none">
   <div id="fos-welcome-box">
     <div id="fos-wi"></div>
