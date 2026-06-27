@@ -2322,8 +2322,6 @@ function createOrder(payload) {
     ws.getRange('J2').setValue(now);
     ws.getRange('M14').setValue(bomNumber);
     ws.getRange('M15').setValue(safeStr(payload.color));
-    if (payload.brand) ws.getRange('M18').setValue(safeStr(payload.brand));
-    if (payload.poReceiveDate) ws.getRange('M19').setValue(safeStr(payload.poReceiveDate));
     for (var r = 5; r <= 49; r++) {
       ws.getRange('G'+r).setFormula('=IF(D'+r+'="",0,D'+r+'*F'+r+')');
       ws.getRange('I'+r).setFormula('=IF(D'+r+'="",0,(D'+r+'*E'+r+')+G'+r+'+IF(H'+r+'="",0,H'+r+'))');
@@ -2355,7 +2353,7 @@ function createOrder(payload) {
       var oiRow = Math.max(oi.getLastRow(), 3) + 1;
       oi.getRange(oiRow, 1, 1, 12).setValues([[
         bomNumber, artSheet, safeStr(payload.styleName), safeStr(payload.color),
-        safeStr(payload.buyer), safeStr(payload.tsNumber), safeStr(payload.brand||''), safeStr(payload.poReceiveDate||''), lotSize,
+        safeStr(payload.buyer), safeStr(payload.tsNumber), '', '', lotSize,
         now, 'Active', safeStr(payload.poNumber)
       ]]);
     }
