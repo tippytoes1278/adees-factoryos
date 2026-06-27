@@ -950,9 +950,21 @@ function getMyRequests() {
     if (maS && maS.getLastRow() > 1)
       maS.getRange(2, 1, maS.getLastRow()-1, 2).getValues().forEach(function(r,i){ mrMap[2+i] = safeStr(r[1]); });
   } catch(e) {}
+  var oiMap = {};
+  try {
+    var oiS2 = ss.getSheetByName('ORDER_INDEX');
+    if (oiS2 && oiS2.getLastRow() > 3)
+      oiS2.getRange(4, 1, oiS2.getLastRow()-3, 4).getValues().forEach(function(r) {
+        var sn = safeStr(r[1]);
+        if (sn) oiMap[sn] = safeStr(r[2]) + (r[3] ? ' - ' + safeStr(r[3]) : '');
+      });
+  } catch(e) {}
   requests.forEach(function(req) {
     if (req.type === 'RATE_EDIT') {
       try { var pl = JSON.parse(req.details); if (pl && pl.rowIndex) req.activityName = mrMap[pl.rowIndex] || ''; } catch(e) {}
+    }
+    if (req.type === 'SETUP_EDIT_REQUEST') {
+      try { var pl = JSON.parse(req.details); if (pl && pl.sheet) req.articleLabel = oiMap[pl.sheet] || pl.sheet; } catch(e) {}
     }
   });
   requests.reverse();
@@ -2310,6 +2322,8 @@ function createOrder(payload) {
     ws.getRange('J2').setValue(now);
     ws.getRange('M14').setValue(bomNumber);
     ws.getRange('M15').setValue(safeStr(payload.color));
+    if (payload.brand) ws.getRange('M18').setValue(safeStr(payload.brand));
+    if (payload.poReceiveDate) ws.getRange('M19').setValue(safeStr(payload.poReceiveDate));
     for (var r = 5; r <= 49; r++) {
       ws.getRange('G'+r).setFormula('=IF(D'+r+'="",0,D'+r+'*F'+r+')');
       ws.getRange('I'+r).setFormula('=IF(D'+r+'="",0,(D'+r+'*E'+r+')+G'+r+'+IF(H'+r+'="",0,H'+r+'))');
@@ -2341,7 +2355,7 @@ function createOrder(payload) {
       var oiRow = Math.max(oi.getLastRow(), 3) + 1;
       oi.getRange(oiRow, 1, 1, 12).setValues([[
         bomNumber, artSheet, safeStr(payload.styleName), safeStr(payload.color),
-        safeStr(payload.buyer), safeStr(payload.tsNumber), '', '', lotSize,
+        safeStr(payload.buyer), safeStr(payload.tsNumber), safeStr(payload.brand||''), safeStr(payload.poReceiveDate||''), lotSize,
         now, 'Active', safeStr(payload.poNumber)
       ]]);
     }
