@@ -1,3 +1,15 @@
+## LIVE DEPLOY PROTOCOL — must follow exactly, every time
+
+Every LIVE deploy is a 4-step sequence. Never split across separate prompts.
+
+Step 1: Change CONFIG.ENV to 'LIVE' in Server.js
+Step 2: Push and deploy to LIVE deployment ID
+Step 3: Immediately change CONFIG.ENV back to 'DEV' in Server.js  
+Step 4: Push and deploy to DEV deployment ID
+
+Never deploy to LIVE without completing all 4 steps in the same prompt.
+Never leave HEAD at CONFIG.ENV = 'LIVE'.
+
 ## Deployment and run rules
 
 The `/run` skill may only be invoked when the user types `/run` with a

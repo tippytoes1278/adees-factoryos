@@ -59,8 +59,6 @@ function getAllData() {
     if (user.role === 'accounts') {
       result.entry = getEntryData();
       result.reqs = getPendingRequests();
-    } else if (user.role === 'store') {
-      result.wip = getWIPData();
     } else if (user.role === 'admin') {
       result.reqs = getPendingRequests();
     }
@@ -134,20 +132,19 @@ function getDashboardData() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var weeklyPayout = 0, approvalStatus = '', weekEnding = '';
 
-  try {
-    var wm = ss.getSheetByName('WEEKLY PAYMENT MASTER');
-    if (wm) {
-      weeklyPayout   = safeNum(wm.getRange('R55').getValue());
-      approvalStatus = safeStr(wm.getRange('B57').getValue());
-      weekEnding     = safeStr(wm.getRange('B2').getValue());
-    }
-  } catch(e) { Logger.log('WM error: ' + e.message); }
-
   var week = getCurrentWeek();
-  if (!weekEnding) weekEnding = week.weekLabel;
+  weekEnding = week.weekLabel;
 
   var orders = [];
   var redCount = 0, completeCount = 0;
+  var oiBomMap = {};
+  try {
+    var oiSd = ss.getSheetByName('ORDER_INDEX');
+    if (oiSd && oiSd.getLastRow() > 3)
+      oiSd.getRange(4, 1, oiSd.getLastRow()-3, 2).getValues().forEach(function(r) {
+        var sn = safeStr(r[1]); if (sn) oiBomMap[sn] = safeStr(r[0]);
+      });
+  } catch(e) {}
   try {
     var ot = ss.getSheetByName('ORDER_TRACKER');
     if (ot && ot.getLastRow() > 3) {
@@ -161,7 +158,7 @@ function getDashboardData() {
           sheet:r[0], article:safeStr(r[1]), customer:safeStr(r[2]),
           orderQty:oQty, prior:safeNum(r[4]),
           thisWeek:safeNum(r[5]), cumul:cumul,
-          remaining:safeNum(r[7]), status:status
+          remaining:safeNum(r[7]), status:status, bom:oiBomMap[safeStr(r[0])]||''
         });
         if (oQty > 0 && cumul > oQty)   redCount++;
         if (oQty > 0 && cumul === oQty) completeCount++;
@@ -358,6 +355,14 @@ function getEntryData(periodId) {
     }
   } catch(ep) {}
   var effectivePeriodId = periodId || firstOpenId;
+  var oiBomEnt = {};
+  try {
+    var oiEnt = ss.getSheetByName('ORDER_INDEX');
+    if (oiEnt && oiEnt.getLastRow() > 3)
+      oiEnt.getRange(4, 1, oiEnt.getLastRow()-3, 2).getValues().forEach(function(r) {
+        var sn = safeStr(r[1]); if (sn) oiBomEnt[sn] = safeStr(r[0]);
+      });
+  } catch(e) {}
   var artSheets = ss.getSheets().filter(isArtSheet);
   var articles = [];
 
@@ -397,7 +402,7 @@ function getEntryData(periodId) {
       });
       articles.push({ sheet:name, article:article, customer:customer,
         orderQty:orderQty, status:status, thisWeek:thisWeek,
-        remaining:remaining, activities:activities, _aqa:approvedByAct });
+        remaining:remaining, activities:activities, _aqa:approvedByAct, bom:oiBomEnt[name]||'' });
     } catch(e) { Logger.log('ART error ' + ws.getName() + ': ' + e.message); }
   });
 
@@ -464,8 +469,8 @@ function getEntryData(periodId) {
   try {
     var oiS = ss.getSheetByName('ORDER_INDEX');
     if (oiS && oiS.getLastRow() > 3)
-      oiS.getRange(4, 1, oiS.getLastRow()-3, 6).getValues().forEach(function(r) {
-        var sn = safeStr(r[1]), ls = safeNum(r[5]);
+      oiS.getRange(4, 1, oiS.getLastRow()-3, 9).getValues().forEach(function(r) {
+        var sn = safeStr(r[1]), ls = safeNum(r[8]);  // col I (index 8) = LOT QTY
         if (sn && ls) oiLotMap[sn] = ls;
       });
   } catch(e) {}
@@ -823,22 +828,7 @@ function deleteOrder(sheetName) {
   } catch(e) { return { success:false, error:e.message }; }
 }
 
-function getWIPData() {
-  var ss = SpreadsheetApp.openById(SHEET_ID);
-  var wr = ss.getSheetByName('WIP_RECONCILIATION');
-  var rows = [];
-  try {
-    if (wr && wr.getLastRow() > 4) {
-      wr.getRange(5, 1, wr.getLastRow()-4, 8).getValues().forEach(function(r,i){
-        if (!r[0]) return;
-        rows.push({ rowNum:i+5, sheet:safeStr(r[0]), article:safeStr(r[1]),
-          activity:safeStr(r[2]), produced:safeStr(r[3]),
-          paid:safeNum(r[4]), difference:safeStr(r[5]), status:safeStr(r[6]) });
-      });
-    }
-  } catch(e) {}
-  return { rows:rows };
-}
+// getWIPData removed — replaced by getWipEntries / getWipGrid in Phase 5
 
 function saveWIP(rowNum, produced) {
   try {
@@ -950,21 +940,21 @@ function getMyRequests() {
     if (maS && maS.getLastRow() > 1)
       maS.getRange(2, 1, maS.getLastRow()-1, 2).getValues().forEach(function(r,i){ mrMap[2+i] = safeStr(r[1]); });
   } catch(e) {}
-  var oiMap = {};
+  var oiMap = {}, oiBomMR = {};
   try {
     var oiS2 = ss.getSheetByName('ORDER_INDEX');
     if (oiS2 && oiS2.getLastRow() > 3)
       oiS2.getRange(4, 1, oiS2.getLastRow()-3, 4).getValues().forEach(function(r) {
         var sn = safeStr(r[1]);
-        if (sn) oiMap[sn] = safeStr(r[2]) + (r[3] ? ' - ' + safeStr(r[3]) : '');
+        if (sn) { oiMap[sn] = safeStr(r[2]) + (r[3] ? ' - ' + safeStr(r[3]) : ''); oiBomMR[sn] = safeStr(r[0]); }
       });
   } catch(e) {}
   requests.forEach(function(req) {
     if (req.type === 'RATE_EDIT') {
       try { var pl = JSON.parse(req.details); if (pl && pl.rowIndex) req.activityName = mrMap[pl.rowIndex] || ''; } catch(e) {}
     }
-    if (req.type === 'SETUP_EDIT_REQUEST') {
-      try { var pl = JSON.parse(req.details); if (pl && pl.sheet) req.articleLabel = oiMap[pl.sheet] || pl.sheet; } catch(e) {}
+    if (req.type === 'SETUP_EDIT_REQUEST' || req.type === 'ACTIVITY_SETUP') {
+      try { var pl = JSON.parse(req.details); if (pl && pl.sheet) { req.articleLabel = oiMap[pl.sheet] || pl.sheet; req.bom = oiBomMR[pl.sheet] || ''; } } catch(e) {}
     }
   });
   requests.reverse();
@@ -976,6 +966,14 @@ function getPaymentSubmissions() {
   if (user.role !== 'admin') return { submissions:[], pmMap:{} };
   try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
+    var oiBomPS = {};
+    try {
+      var oiPS = ss.getSheetByName('ORDER_INDEX');
+      if (oiPS && oiPS.getLastRow() > 3)
+        oiPS.getRange(4, 1, oiPS.getLastRow()-3, 2).getValues().forEach(function(r) {
+          var sn = safeStr(r[1]); if (sn) oiBomPS[sn] = safeStr(r[0]);
+        });
+    } catch(e) {}
     var rq = ss.getSheetByName('REQUESTS');
     var pmMap = {};
     try {
@@ -1014,6 +1012,7 @@ function getPaymentSubmissions() {
         });
         submissions.push({ reqId:safeStr(r[0]), rowNum:i+4, date:safeStr(r[1]),
           submittedBy:safeStr(r[2]), sheet:pl.sheet, article:pl.article||pl.sheet,
+          bom:oiBomPS[pl.sheet]||'',
           customer:customer, periodId:pl.periodId||'', activities:activities, grandTotal:grandTotal });
       } catch(e2) { Logger.log('getPaymentSubmissions: '+e2.message); }
     });
@@ -1075,7 +1074,7 @@ function notifyNewRequest_(reqId, type, rawDetails, submittedBy, now) {
     switch (type) {
       case 'NEW_ORDER':
         lines.push((pl.styleName||'?') + (pl.color ? ' — ' + pl.color : '') + ' for ' + (pl.buyer||'?'));
-        lines.push('TS: ' + (pl.tsNumber||'?') + ' | Lot: ' + (pl.lotSize||0) + ' pairs | Del: ' + (pl.deliveryDate||'?'));
+        lines.push('BOM: ' + (pl.tsNumber||'?') + ' | Lot: ' + (pl.lotSize||0) + ' pairs | Del: ' + (pl.deliveryDate||'?'));
         break;
       case 'PAYMENT':
         lines.push('Week entries submitted for approval: ' + (pl.weekLabel||'?'));
@@ -1231,12 +1230,6 @@ function processRequest(rowNum, action, notes) {
         return { success:false, error: pe.message };
       }
     }
-    if (action === 'APPROVE' && safeStr(row[3]) === 'PAYMENT') {
-      try {
-        var wm2 = ss.getSheetByName('WEEKLY PAYMENT MASTER');
-        if (wm2) wm2.getRange('B57').setValue(user.name + ' — ' + now);
-      } catch(pe) { Logger.log('PAYMENT approval error: ' + pe.message); }
-    }
     SpreadsheetApp.flush();
     return { success:true, action:action, sheetCreated:sheetCreated };
   } catch(e) { return { success:false, error:e.message }; }
@@ -1255,64 +1248,7 @@ function approveWeek(initials) {
   } catch(e) { return { success:false, error:e.message }; }
 }
 
-function getPaymentList() {
-  var ss = SpreadsheetApp.openById(SHEET_ID);
-  var paymentMethods = {};
-  try {
-    var mc = ss.getSheetByName('MASTER_CONTRACTORS');
-    if (mc && mc.getLastRow() > 3) {
-      mc.getRange(4, 2, mc.getLastRow()-3, 2).getValues().forEach(function(r){
-        if (r[0]) paymentMethods[safeStr(r[0])] = safeStr(r[1]) || 'Cash';
-      });
-    }
-  } catch(e) {}
-
-  var contractors = {};
-  var totalPayout = 0;
-  var weekEnding = '', approvedBy = '';
-
-  try {
-    var wm = ss.getSheetByName('WEEKLY PAYMENT MASTER');
-    if (wm) {
-      weekEnding = safeStr(wm.getRange('B2').getValue());
-      approvedBy = safeStr(wm.getRange('B57').getValue());
-    }
-  } catch(e) {}
-
-  ss.getSheets().filter(isArtSheet).forEach(function(ws) {
-    try {
-      var article = safeStr(ws.getRange('B2').getValue());
-      var actData = ws.getRange(5, 2, 45, 8).getValues();
-      actData.forEach(function(r) {
-        var activity   = safeStr(r[0]);
-        var contractor = safeStr(r[1]);
-        var qty        = safeNum(r[2]);
-        var rate       = safeNum(r[3]);
-        var comm       = safeNum(r[4]);
-        var conveyance = safeNum(r[6]);
-        var total      = safeNum(r[7]);
-        if (!contractor || !qty) return;
-        var amount = total || ((qty*rate) + (qty*comm) + conveyance);
-        if (!amount) return;
-        if (!contractors[contractor]) {
-          contractors[contractor] = { name:contractor,
-            method:paymentMethods[contractor]||'Cash', total:0, details:[] };
-        }
-        contractors[contractor].total += amount;
-        contractors[contractor].details.push({ article:article,
-          activity:activity, qty:qty, rate:rate, amount:amount });
-        totalPayout += amount;
-      });
-    } catch(e) {}
-  });
-
-  var list = Object.keys(contractors).map(function(k){ return contractors[k]; })
-    .sort(function(a,b){ return b.total - a.total; });
-
-  return { list:list, totalPayout:totalPayout,
-    weekEnding:weekEnding, approvedBy:approvedBy,
-    approved:approvedBy !== '' };
-}
+// getPaymentList removed — replaced by getPaymentBatches in Phase 5
 
 function createNewArtSheet(detailsStr) {
   var ss = SpreadsheetApp.openById(SHEET_ID);
@@ -1412,56 +1348,9 @@ function updateTrackers(ss, newName, orderId, article, color, customer, brand, s
   } catch(e) { Logger.log('WR error: ' + e.message); }
 }
 
-function archiveWeek() {
-  var ss  = SpreadsheetApp.openById(SHEET_ID);
-  var wm  = ss.getSheetByName('WEEKLY PAYMENT MASTER');
-  var approval = safeStr(wm.getRange('B57').getValue());
-  if (!approval || approval.trim() === '')
-    return { success:false, error:'Week not approved yet. Ayush must approve first.' };
-  var ph  = ss.getSheetByName('PAYMENT_HISTORY');
-  var ot  = ss.getSheetByName('ORDER_TRACKER');
-  var artSheets = ss.getSheets().filter(isArtSheet);
-  var archiveDate = new Date();
-  var weekEnding  = wm.getRange('B2').getValue() || archiveDate;
-  var rowsAdded = 0;
-  artSheets.forEach(function(ws) {
-    try {
-      var pairsThisWk = safeNum(ws.getRange('Q2').getValue());
-      if (!pairsThisWk) return;
-      var artName  = safeStr(ws.getRange('B2').getValue());
-      var customer = safeStr(ws.getRange('E2').getValue());
-      ws.getRange(54, 2, 30, 8).getValues().forEach(function(r) {
-        var contractor = safeStr(r[0]), total = safeNum(r[7]);
-        if (contractor && total > 0) {
-          ph.getRange(ph.getLastRow()+1, 1, 1, 8).setValues([[
-            weekEnding, artName, customer, contractor,
-            pairsThisWk, total, approval, archiveDate
-          ]]);
-          rowsAdded++;
-        }
-      });
-      if (ot && ot.getLastRow() > 3) {
-        ot.getRange(4, 1, ot.getLastRow()-3, 5).getValues().forEach(function(r,i){
-          if (safeStr(r[0]) === ws.getName())
-            ot.getRange(4+i, 5).setValue(safeNum(r[4]) + pairsThisWk);
-        });
-      }
-    } catch(e) { Logger.log('Archive error: ' + e.message); }
-  });
-  return { success:true, rowsAdded:rowsAdded };
-}
+// archiveWeek removed — replaced by job card payment batch system in Phase 5
 
-function clearWeekForNext() {
-  var ss = SpreadsheetApp.openById(SHEET_ID);
-  ss.getSheets().filter(isArtSheet).forEach(function(ws){
-    ws.getRange('D5:D49').clearContent();
-    ws.getRange('H5:H49').clearContent();
-    ws.getRange('J5:J49').clearContent();
-  });
-  var wm = ss.getSheetByName('WEEKLY PAYMENT MASTER');
-  if (wm) wm.getRange('B57').clearContent();
-  return { success:true };
-}
+// clearWeekForNext removed — week lifecycle handled by payment period system in Phase 5
 
 function fixFormulas() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
@@ -1532,60 +1421,7 @@ function getPrintSummary() {
   return records;
 }
 
-function approvePeriodPayment(periodId) {
-  var user = getUserInfo();
-  if (user.role !== 'admin') return { success:false, error:'Only admin can approve' };
-  try {
-    var ss = SpreadsheetApp.openById(SHEET_ID);
-    var tz = Session.getScriptTimeZone();
-    var now = Utilities.formatDate(new Date(), tz, 'dd-MMM-yyyy HH:mm');
-    var rq = ss.getSheetByName('REQUESTS');
-    var approvedRows = 0, histRows = 0;
-    if (rq && rq.getLastRow() > 3) {
-      var reqData = rq.getRange(4, 1, rq.getLastRow()-3, 10).getValues();
-      reqData.forEach(function(r, i) {
-        if (safeStr(r[3]) !== 'PAYMENT_SUBMISSION' || safeStr(r[5]).toUpperCase() !== 'PENDING') return;
-        try {
-          var pl = JSON.parse(safeStr(r[4]));
-          if (!pl || !pl.sheet || safeStr(pl.periodId) !== safeStr(periodId)) return;
-          var ws = ss.getSheetByName(pl.sheet);
-          if (!ws) return;
-          var article = safeStr(ws.getRange('B2').getValue());
-          var customer = safeStr(ws.getRange('E2').getValue());
-          var ph = ss.getSheetByName('PAYMENT_HISTORY');
-          if (!ph) { ph = ss.insertSheet('PAYMENT_HISTORY'); ph.getRange(1,1,1,8).setValues([['PeriodID','Article','Customer','Contractor','Qty','Amount','ApprovedBy','Date']]); }
-          ws.getRange(5, 1, 45, 12).getValues().forEach(function(ar, ai) {
-            if (!safeStr(ar[1]).trim() || safeNum(ar[0]) <= 0) return;
-            if (safeStr(ar[10]) !== safeStr(periodId)) return;
-            if (safeStr(ar[11]).toUpperCase() !== 'SUBMITTED') return;
-            ws.getRange('L'+(ai+5)).setValue('APPROVED');
-            var qty = safeNum(ar[3]), total = safeNum(ar[8]);
-            if (qty > 0 && total > 0) {
-              ph.appendRow([periodId, article, customer, safeStr(ar[2]), qty, total, user.name+' — '+now, new Date()]);
-              histRows++;
-            }
-            approvedRows++;
-          });
-          rq.getRange(i+4, 6).setValue('APPROVED');
-          rq.getRange(i+4, 7).setValue('Payment approved');
-          rq.getRange(i+4, 8).setValue(now);
-          rq.getRange(i+4, 9).setValue('Yes');
-        } catch(e2) { Logger.log('approvePeriodPayment: '+e2.message); }
-      });
-    }
-    try {
-      var ph2 = ss.getSheetByName('PAYMENT_HISTORY');
-      if (ph2 && ph2.getLastRow() > 1) {
-        ph2.getRange(2, 1, ph2.getLastRow()-1, 8).getValues().forEach(function(r, i) {
-          if (safeStr(r[0]) === safeStr(periodId) && !safeStr(r[6]))
-            ph2.getRange(i+2, 7).setValue(user.name+' — '+now);
-        });
-      }
-    } catch(e3) {}
-    SpreadsheetApp.flush();
-    return { success:true, approvedRows:approvedRows, histRows:histRows };
-  } catch(e) { return { success:false, error:e.message }; }
-}
+// approvePeriodPayment removed — replaced by approvePaymentBatch in Phase 5
 
 function getActivitiesFromTS(sheetName) {
   try {
@@ -1593,12 +1429,16 @@ function getActivitiesFromTS(sheetName) {
     var tsNumber = '';
     var oi = ss.getSheetByName('ORDER_INDEX');
     if (oi && oi.getLastRow() > 3) {
-      var oiData = oi.getRange(4, 1, oi.getLastRow()-3, 6).getValues();
+      var oiData = oi.getRange(4, 1, oi.getLastRow()-3, 12).getValues();
       for (var i = 0; i < oiData.length; i++) {
-        if (safeStr(oiData[i][1]) === sheetName) { tsNumber = safeStr(oiData[i][5]); break; }
+        if (safeStr(oiData[i][1]) === sheetName) {
+          // col L (index 11) = tsNumber for new rows; col F (index 5) fallback for old buggy rows
+          tsNumber = safeStr(oiData[i][11]) || safeStr(oiData[i][5]);
+          break;
+        }
       }
     }
-    if (!tsNumber) return { success:false, error:'No TS linked to this article' };
+    if (!tsNumber) return { success:false, error:'No BOM linked to this article' };
     var tm = ss.getSheetByName('TS_MASTER');
     if (!tm || tm.getLastRow() < 2) return { success:false, error:'TS_MASTER not found' };
     var tmData = tm.getRange(2, 1, tm.getLastRow()-1, 7).getValues();
@@ -1607,10 +1447,10 @@ function getActivitiesFromTS(sheetName) {
         var raw = safeStr(tmData[j][6]);
         if (!raw) return { success:true, activities:[] };
         try { return { success:true, activities:JSON.parse(raw) }; }
-        catch(pe) { return { success:false, error:'Invalid activities JSON in TS' }; }
+        catch(pe) { return { success:false, error:'Invalid activities JSON in BOM' }; }
       }
     }
-    return { success:false, error:'TS not found: ' + tsNumber };
+    return { success:false, error:'BOM not found: ' + tsNumber };
   } catch(e) { return { success:false, error:e.message }; }
 }
 
@@ -2194,6 +2034,14 @@ function getPaymentHistory() {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var ph = ss.getSheetByName('PAYMENT_HISTORY');
     if (!ph || ph.getLastRow() < 2) return { success:true, records:[] };
+    var oiBomPH = {};
+    try {
+      var oiPH = ss.getSheetByName('ORDER_INDEX');
+      if (oiPH && oiPH.getLastRow() > 3)
+        oiPH.getRange(4, 1, oiPH.getLastRow()-3, 2).getValues().forEach(function(r) {
+          var sn = safeStr(r[1]); if (sn) oiBomPH[sn] = safeStr(r[0]);
+        });
+    } catch(e) {}
     var tz = Session.getScriptTimeZone();
     var data = ph.getRange(2, 1, ph.getLastRow()-1, 8).getValues();
     var records = [];
@@ -2201,9 +2049,11 @@ function getPaymentHistory() {
       var periodId = safeStr(r[0]);
       if (!periodId) return;
       var dv = r[7];
+      var sht = safeStr(r[1]);
       records.push({
         periodId: periodId,
-        sheet: safeStr(r[1]),
+        sheet: sht,
+        bom: oiBomPH[sht] || '',
         qty: safeNum(r[4]),
         amount: safeNum(r[5]),
         approvedBy: safeStr(r[6]),
@@ -2284,7 +2134,7 @@ function createTS(styleName, category, season, activities) {
     var lastRow = Math.max(tm.getLastRow(), 1);
     var seq = String(lastRow);
     while (seq.length < 3) seq = '0' + seq;
-    var tsNumber = 'TS-' + (season||'SS26') + '-' + seq;
+    var tsNumber = 'BOM-' + (season||'SS26') + '-' + seq;
     tm.getRange(lastRow + 1, 1, 1, 9).setValues([[tsNumber, styleName, category||'', season||'SS26', '', '', JSON.stringify(activities||[]), new Date(), user.name]]);
     SpreadsheetApp.flush();
     return { success:true, tsNumber:tsNumber };
@@ -2301,7 +2151,7 @@ function createOrder(payload) {
     var oiCount = oi ? Math.max(oi.getLastRow() - 3, 0) : 0;
     var bomSeq = String(oiCount + 1);
     while (bomSeq.length < 3) bomSeq = '0' + bomSeq;
-    var bomNumber = 'BOM-' + new Date().getFullYear() + '-' + bomSeq;
+    var bomNumber = 'WO-' + new Date().getFullYear() + '-' + bomSeq;
     var artSheets = ss.getSheets().filter(isArtSheet);
     var nums = artSheets.map(function(s){ return parseInt(s.getName().replace('ART-',''))||0; });
     var nextNum = String(Math.max.apply(null,[0].concat(nums))+1);
@@ -2353,11 +2203,19 @@ function createOrder(payload) {
     }
     if (oi) {
       var oiRow = Math.max(oi.getLastRow(), 3) + 1;
-      oi.getRange(oiRow, 1, 1, 12).setValues([[
+      var _sizeRun = {};
+      try { if (payload.sizeBreakdown) _sizeRun = JSON.parse(payload.sizeBreakdown); } catch(se) {}
+      var _sizeVals = [23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46].map(function(s){ return parseInt(_sizeRun[String(s)])||0; });
+      var _tsParts = safeStr(payload.tsNumber||'').split('-');
+      var _season = _tsParts.length >= 2 ? _tsParts[1] : '';
+      // Columns A–K match updateTrackers layout; L–Q are new extended fields; R–AO are size values
+      oi.getRange(oiRow, 1, 1, 41).setValues([[
         bomNumber, artSheet, safeStr(payload.styleName), safeStr(payload.color),
-        safeStr(payload.buyer), safeStr(payload.tsNumber), safeStr(payload.brand||''), safeStr(payload.poReceiveDate||''), lotSize,
-        now, 'Active', safeStr(payload.poNumber)
-      ]]);
+        safeStr(payload.buyer), safeStr(payload.brand||''), _season, safeStr(payload.deliveryDate||''), lotSize,
+        now, 'Active',
+        safeStr(payload.tsNumber||''), safeStr(payload.poNumber||''), safeStr(payload.poReceiveDate||''),
+        safeStr(payload.grading||''), safeStr(payload.category||''), safeStr(payload.sizeBreakdown||'')
+      ].concat(_sizeVals)]);
     }
     var ot = ss.getSheetByName('ORDER_TRACKER');
     if (ot) {
@@ -2416,4 +2274,1562 @@ function deleteOrphanedArt005() {
   var result = log.join('\n');
   Logger.log(result);
   return result;
+}
+
+function getOrderProgress(artSheet) {
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var actDeptMap = {};
+    var maS = ss.getSheetByName('MASTER_ACTIVITIES');
+    if (maS && maS.getLastRow() > 1) {
+      maS.getRange(2, 1, maS.getLastRow()-1, 5).getValues().forEach(function(r) {
+        var dept = safeStr(r[0]).trim();
+        var actName = safeStr(r[1]).trim();
+        if (actName && safeStr(r[4]).trim().toUpperCase() === 'APPROVED') {
+          actDeptMap[actName.toLowerCase()] = dept;
+        }
+      });
+    }
+    var ws = ss.getSheetByName(artSheet);
+    if (!ws) return { error: 'Sheet not found: ' + artSheet };
+    var lotSize = safeNum(ws.getRange('H2').getValue());
+    var lastRow = ws.getLastRow();
+    var deptQty = {};
+    if (lastRow >= 5) {
+      ws.getRange(5, 1, lastRow - 4, 12).getValues().forEach(function(r) {
+        var actName = safeStr(r[1]).trim();
+        var qty = safeNum(r[3]);
+        if (!actName || qty <= 0) return;
+        var dept = actDeptMap[actName.toLowerCase()] || 'unknown';
+        deptQty[dept] = (deptQty[dept] || 0) + qty;
+      });
+    }
+    var DEPT_KEY_MAP = {
+      'cutting':'cutting','preparation':'prep','fitter':'fitter',
+      'lasting':'lasting','finishing':'finish','dispatch':'dispatch'
+    };
+    var sq = {cutting:0,prep:0,fitter:0,lasting:0,finish:0,dispatch:0};
+    Object.keys(deptQty).forEach(function(dept) {
+      var key = DEPT_KEY_MAP[dept.toLowerCase()];
+      if (key) sq[key] += deptQty[dept];
+    });
+    return {
+      lotSize: lotSize,
+      stages: [
+        {key:'cutting',  label:'Cutting',             paidQty:sq.cutting},
+        {key:'prep',     label:'Preparation',         paidQty:sq.prep},
+        {key:'fitter',   label:'Upper Making',        paidQty:sq.fitter},
+        {key:'lasting',  label:'Lasting & Pasting',   paidQty:sq.lasting},
+        {key:'finish',   label:'Finishing & Packing', paidQty:sq.finish},
+        {key:'dispatch', label:'Dispatch',             paidQty:sq.dispatch}
+      ]
+    };
+  } catch(e) {
+    return { error: e.message };
+  }
+}
+
+// ── WIP ENTRIES — Phase 5.1 ───────────────────────────────────────────────────
+
+function ensureWipEntriesSheet() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var ws = ss.getSheetByName('WIP_ENTRIES');
+  var NEW_HEADERS = ['WIP_ID','ORDER_REF','WORK_ORDER','STORE','MOVEMENT','ENTRY_TYPE','PAIRS','SUBMITTED_BY','SUBMITTED_AT','PERIOD_ID','STATUS','NOTES','CONTRACTORS','JOB_CARD_REF'];
+  if (!ws) {
+    ws = ss.insertSheet('WIP_ENTRIES');
+    ws.getRange(1, 1, 1, 14).setValues([NEW_HEADERS]);
+    ws.setFrozenRows(1);
+  } else {
+    if (safeStr(ws.getRange(1, 1).getValue()) !== 'WIP_ID') {
+      ws.clearContents();
+      ws.getRange(1, 1, 1, 14).setValues([NEW_HEADERS]);
+      ws.setFrozenRows(1);
+    }
+  }
+  return ws;
+}
+
+function saveWipEntry(data, status) {
+  var STORE_MOVEMENT_MAP = {
+    'Upper Store':              ['Cutting IN','Cutting OUT','Preparation IN','Preparation OUT','Fitter IN','Fitter OUT'],
+    'Lasting & Packing Store':  ['Upper IN','Lasting IN','Lasting OUT','Packing IN','Packing OUT'],
+    'Dispatch Store':           ['Dispatch IN','Dispatch OUT']
+  };
+  var lock = LockService.getPublicLock();
+  try {
+    lock.waitLock(10000);
+    try {
+      var orderRef    = safeStr(data.orderRef).trim();
+      var workOrder   = safeStr(data.workOrder   || '').trim();
+      var store       = safeStr(data.store).trim();
+      var movement    = safeStr(data.movement).trim();
+      var pairs       = safeNum(data.pairs);
+      var periodId    = safeStr(data.periodId).trim();
+      var notes       = safeStr(data.notes       || '').trim();
+      var contractors = Array.isArray(data.contractors) ? data.contractors : [];
+      var jobCardRef  = safeStr(data.jobCardRef  || '').trim();
+
+      if (!orderRef) throw new Error('orderRef is required');
+      if (!STORE_MOVEMENT_MAP[store]) throw new Error('Invalid store: ' + store);
+      if (STORE_MOVEMENT_MAP[store].indexOf(movement) < 0) throw new Error('Invalid movement for store: ' + movement);
+      if (!pairs || pairs <= 0 || Math.floor(pairs) !== pairs) throw new Error('pairs must be a positive integer');
+      if (!periodId) throw new Error('periodId is required');
+
+      status = status || 'SUBMITTED';
+      var entryType = movement.slice(-2) === 'IN' ? 'IN' : 'OUT';
+
+      var ws = ensureWipEntriesSheet();
+      var dataRows = Math.max(0, ws.getLastRow() - 1);
+      var nextNum  = dataRows + 1;
+      var year     = new Date().getFullYear();
+      var wipId    = 'WIP-' + year + '-' + (String(nextNum).padStart ? String(nextNum).padStart(3,'0') : ('00'+nextNum).slice(-3));
+
+      var user          = getUserInfo();
+      var now           = new Date().toISOString();
+      var contractorsStr = contractors.join(',');
+
+      ws.appendRow([wipId, orderRef, workOrder, store, movement, entryType, pairs, user.email, now, periodId, status, notes, contractorsStr, jobCardRef]);
+      SpreadsheetApp.flush();
+      return { success: true, wipId: wipId };
+    } catch(e) {
+      return { success: false, error: e.message };
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function getWipEntries(filters) {
+  try {
+    var ws = ensureWipEntriesSheet();
+    var lastRow = ws.getLastRow();
+    if (lastRow < 2) return [];
+    var rows = ws.getRange(2, 1, lastRow - 1, 14).getValues();
+    var entries = rows.map(function(r) {
+      return {
+        wipId:       safeStr(r[0]),
+        orderRef:    safeStr(r[1]),
+        workOrder:   safeStr(r[2]),
+        store:       safeStr(r[3]),
+        movement:    safeStr(r[4]),
+        entryType:   safeStr(r[5]),
+        pairs:       safeNum(r[6]),
+        submittedBy: safeStr(r[7]),
+        submittedAt: safeStr(r[8]),
+        periodId:    safeStr(r[9]),
+        status:      safeStr(r[10]),
+        notes:       safeStr(r[11]),
+        contractors: safeStr(r[12]),
+        jobCardRef:  safeStr(r[13])
+      };
+    });
+    if (filters) {
+      if (filters.orderRef)   entries = entries.filter(function(e){ return e.orderRef   === filters.orderRef; });
+      if (filters.store)      entries = entries.filter(function(e){ return e.store      === filters.store; });
+      if (filters.movement)   entries = entries.filter(function(e){ return e.movement   === filters.movement; });
+      if (filters.entryType)  entries = entries.filter(function(e){ return e.entryType  === filters.entryType; });
+      if (filters.periodId)   entries = entries.filter(function(e){ return e.periodId   === filters.periodId; });
+      if (filters.status)     entries = entries.filter(function(e){ return e.status     === filters.status; });
+      if (filters.jobCardRef) entries = entries.filter(function(e){ return e.jobCardRef === filters.jobCardRef; });
+    }
+    return entries;
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function voidWipEntry(wipId) {
+  var lock = LockService.getPublicLock();
+  try {
+    lock.waitLock(10000);
+    try {
+      var ws = ensureWipEntriesSheet();
+      var lastRow = ws.getLastRow();
+      if (lastRow < 2) return { success: false, error: 'WIP entry not found' };
+      var ids = ws.getRange(2, 1, lastRow - 1, 1).getValues();
+      var targetRow = -1;
+      for (var i = 0; i < ids.length; i++) {
+        if (safeStr(ids[i][0]) === wipId) { targetRow = i + 2; break; }
+      }
+      if (targetRow < 0) return { success: false, error: 'WIP entry not found' };
+      var status = safeStr(ws.getRange(targetRow, 11).getValue());
+      if (status === 'LINKED') return { success: false, error: 'Cannot void a linked entry' };
+      ws.getRange(targetRow, 11).setValue('VOID');
+      SpreadsheetApp.flush();
+      return { success: true };
+    } catch(e) {
+      return { success: false, error: e.message };
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ── CTR-ID MIGRATION & CONTRACTOR LOOKUP — Phase 5.2b-pre ────────────────────
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('Factory OS Admin')
+    .addItem('Run CTR-ID Migration', 'assignContractorIds')
+    .addItem('Backfill Order Size Columns', 'backfillOrderSizesMenu')
+    .addItem('Migrate WIP_ENTRIES Schema', 'migrateWipEntriesMenu')
+    .addToUi();
+}
+
+function assignContractorIds() {
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var mc = ss.getSheetByName('MASTER_CONTRACTORS');
+    if (!mc) return { success: false, error: 'MASTER_CONTRACTORS sheet not found' };
+
+    var lastRow = mc.getLastRow();
+    if (lastRow < 4) return { success: true, assigned: 0, duplicate: 'none' };
+
+    // Write CTR-ID header into A3
+    mc.getRange(3, 1).setValue('CTR-ID');
+
+    // Read all data rows: cols A-G (1-7), starting row 4
+    var numRows = lastRow - 3;
+    var data = mc.getRange(4, 1, numRows, 7).getValues();
+
+    // Detect duplicate "Jai Prakash Press" — keep first occurrence (lower row index)
+    var jpSeen = -1;
+    var duplicateRowNum = -1;
+    for (var i = 0; i < data.length; i++) {
+      var name = safeStr(data[i][1]).trim();
+      if (name.toLowerCase() === 'jai prakash press') {
+        if (jpSeen < 0) {
+          jpSeen = i;
+        } else {
+          duplicateRowNum = i + 4;
+          mc.getRange(duplicateRowNum, 4).setValue('INACTIVE');
+          mc.getRange(duplicateRowNum, 5).setValue('DUPLICATE - REMOVED');
+          data[i][3] = 'INACTIVE';
+          Logger.log('Marked row ' + duplicateRowNum + ' (Jai Prakash Press) as DUPLICATE - REMOVED');
+          break;
+        }
+      }
+    }
+
+    // Find highest existing CTR-nnn to avoid collisions on re-run
+    var maxExisting = 0;
+    for (var i = 0; i < data.length; i++) {
+      var existing = safeStr(data[i][0]).trim();
+      if (/^CTR-\d+$/.test(existing)) {
+        var n = parseInt(existing.replace('CTR-', ''), 10);
+        if (n > maxExisting) maxExisting = n;
+      }
+    }
+    var nextId = maxExisting + 1;
+
+    // Assign CTR-IDs to active, non-blank, ID-less rows
+    var counter = 0;
+    for (var i = 0; i < data.length; i++) {
+      var ctrId  = safeStr(data[i][0]).trim();
+      var rName  = safeStr(data[i][1]).trim();
+      var status = safeStr(data[i][3]).trim().toUpperCase();
+      if (!rName) continue;
+      if (status === 'INACTIVE') continue;
+      if (ctrId) continue;
+      var newId = 'CTR-' + (String(nextId).padStart ? String(nextId).padStart(3,'0') : ('00'+nextId).slice(-3));
+      mc.getRange(i + 4, 1).setValue(newId);
+      Logger.log('Assigned ' + newId + ' → row ' + (i+4) + ': ' + rName);
+      nextId++;
+      counter++;
+    }
+
+    SpreadsheetApp.flush();
+    var dupMsg = duplicateRowNum > 0 ? 'row ' + duplicateRowNum + ' marked INACTIVE' : 'none found';
+    Logger.log('assignContractorIds done — assigned: ' + counter + ', duplicate: ' + dupMsg);
+    return { success: true, assigned: counter, duplicate: dupMsg };
+  } catch(e) {
+    Logger.log('assignContractorIds error: ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+function getContractors() {
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var mc = ss.getSheetByName('MASTER_CONTRACTORS');
+    if (!mc || mc.getLastRow() < 4) return [];
+    var rows = mc.getRange(4, 1, mc.getLastRow()-3, 4).getValues();
+    var result = [];
+    rows.forEach(function(r) {
+      var name   = safeStr(r[1]).trim();
+      var status = safeStr(r[3]).trim().toUpperCase();
+      if (!name) return;
+      if (status === 'INACTIVE') return;
+      result.push({
+        ctrId:         safeStr(r[0]).trim(),
+        name:          name,
+        paymentMethod: safeStr(r[2]).trim() || 'Cash',
+        status:        status || 'ACTIVE'
+      });
+    });
+    return result;
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function ensureEnrollmentsSheet() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var ws = ss.getSheetByName('CONTRACTOR_ENROLLMENTS');
+  if (!ws) {
+    ws = ss.insertSheet('CONTRACTOR_ENROLLMENTS');
+    ws.getRange(1, 1, 1, 7).setValues([[
+      'ENROLLMENT_ID', 'CONTRACTOR_ID', 'CONTRACTOR_NAME',
+      'DEPARTMENT', 'ENROLLED_BY', 'ENROLLED_AT', 'STATUS'
+    ]]);
+    ws.setFrozenRows(1);
+  }
+  return ws;
+}
+
+function enrollContractor(data) {
+  var VALID_DEPTS = [
+    'Cutting', 'Preparation', 'Fitter',
+    'Lasting/Pasting', 'Finishing/Packing', 'Dispatch'
+  ];
+  const lock = LockService.getPublicLock();
+  try {
+    lock.waitLock(10000);
+    try {
+      var contractorId = safeStr(data.contractorId).trim();
+      var department   = safeStr(data.department).trim();
+      if (!contractorId) throw new Error('contractorId is required');
+      if (VALID_DEPTS.indexOf(department) < 0) throw new Error('Invalid department: ' + department);
+
+      var ws = ensureEnrollmentsSheet();
+      var lastRow = ws.getLastRow();
+      if (lastRow > 1) {
+        var existing = ws.getRange(2, 1, lastRow - 1, 7).getValues();
+        for (var i = 0; i < existing.length; i++) {
+          if (safeStr(existing[i][1]).trim() === contractorId &&
+              safeStr(existing[i][3]).trim() === department &&
+              safeStr(existing[i][6]).trim().toUpperCase() === 'ACTIVE') {
+            return { success: false, error: 'Already enrolled in this department' };
+          }
+        }
+      }
+
+      var contractorName = '';
+      var ss = SpreadsheetApp.openById(SHEET_ID);
+      var mc = ss.getSheetByName('MASTER_CONTRACTORS');
+      if (mc && mc.getLastRow() >= 4) {
+        var mcRows = mc.getRange(4, 1, mc.getLastRow() - 3, 2).getValues();
+        for (var j = 0; j < mcRows.length; j++) {
+          if (safeStr(mcRows[j][0]).trim() === contractorId) {
+            contractorName = safeStr(mcRows[j][1]).trim();
+            break;
+          }
+        }
+      }
+
+      var dataRows = Math.max(0, lastRow - 1);
+      var nextNum  = dataRows + 1;
+      var year     = new Date().getFullYear();
+      var enrollmentId = 'ENR-' + year + '-' + (String(nextNum).padStart ? String(nextNum).padStart(3, '0') : ('00' + nextNum).slice(-3));
+      var user = getUserInfo();
+      var now  = new Date().toISOString();
+      ws.appendRow([enrollmentId, contractorId, contractorName, department, user.email, now, 'ACTIVE']);
+      SpreadsheetApp.flush();
+      return { success: true, enrollmentId: enrollmentId };
+    } catch(e) { return { success: false, error: e.message }; }
+  } finally { lock.releaseLock(); }
+}
+
+function unenrollContractor(enrollmentId) {
+  const lock = LockService.getPublicLock();
+  try {
+    lock.waitLock(10000);
+    try {
+      var ws = ensureEnrollmentsSheet();
+      var lastRow = ws.getLastRow();
+      if (lastRow < 2) return { success: false, error: 'Enrollment not found' };
+      var colA = ws.getRange(2, 1, lastRow - 1, 1).getValues();
+      for (var i = 0; i < colA.length; i++) {
+        if (safeStr(colA[i][0]).trim() === safeStr(enrollmentId).trim()) {
+          ws.getRange(i + 2, 7).setValue('INACTIVE');
+          SpreadsheetApp.flush();
+          return { success: true };
+        }
+      }
+      return { success: false, error: 'Enrollment not found' };
+    } catch(e) { return { success: false, error: e.message }; }
+  } finally { lock.releaseLock(); }
+}
+
+function getEnrollments(filters) {
+  try {
+    var ws = ensureEnrollmentsSheet();
+    var lastRow = ws.getLastRow();
+    if (lastRow < 2) return [];
+    var rows = ws.getRange(2, 1, lastRow - 1, 7).getValues();
+    var result = [];
+    rows.forEach(function(r) {
+      var obj = {
+        enrollmentId:   safeStr(r[0]).trim(),
+        contractorId:   safeStr(r[1]).trim(),
+        contractorName: safeStr(r[2]).trim(),
+        department:     safeStr(r[3]).trim(),
+        enrolledBy:     safeStr(r[4]).trim(),
+        enrolledAt:     safeStr(r[5]).trim(),
+        status:         safeStr(r[6]).trim()
+      };
+      if (!obj.enrollmentId) return;
+      if (filters) {
+        if (filters.contractorId && obj.contractorId !== filters.contractorId) return;
+        if (filters.department   && obj.department   !== filters.department)   return;
+        if (filters.status       && obj.status.toUpperCase() !== filters.status.toUpperCase()) return;
+      }
+      result.push(obj);
+    });
+    return result;
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+// ── WIP GRID — Phase 5.2f ────────────────────────────────────────────────────
+
+function getWipGrid() {
+  var ALL_MOVEMENTS = [
+    'Cutting IN','Cutting OUT','Preparation IN','Preparation OUT','Fitter IN','Fitter OUT',
+    'Upper IN','Lasting IN','Lasting OUT','Packing IN','Packing OUT',
+    'Dispatch IN','Dispatch OUT'
+  ];
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var oi = ss.getSheetByName('ORDER_INDEX');
+    var orders = [];
+    if (oi && oi.getLastRow() >= 4) {
+      var oiRows = oi.getRange(4, 1, oi.getLastRow() - 3, 9).getValues();
+      oiRows.forEach(function(r) {
+        var orderId  = safeStr(r[0]).trim();
+        var artSheet = safeStr(r[1]).trim();
+        var article  = safeStr(r[2]).trim();
+        var color    = safeStr(r[3]).trim();
+        var customer = safeStr(r[4]).trim();
+        var lotSize  = safeNum(r[8]);
+        if (!orderId || lotSize <= 0) return;
+        orders.push({ orderId: orderId, artSheet: artSheet, article: article, color: color, customer: customer, lotSize: lotSize });
+      });
+    }
+    var ws = ensureWipEntriesSheet();
+    var today = new Date();
+    var mm = String(today.getMonth() + 1); if (mm.length < 2) mm = '0' + mm;
+    var dd = String(today.getDate());      if (dd.length < 2) dd = '0' + dd;
+    var todayStr = today.getFullYear() + '-' + mm + '-' + dd;
+    var map = {};
+    if (ws.getLastRow() >= 2) {
+      var wipRows = ws.getRange(2, 1, ws.getLastRow() - 1, 14).getValues();
+      wipRows.forEach(function(r) {
+        var orderRef    = safeStr(r[1]).trim();  // WIP_ENTRIES col B = ART sheet name
+        var movement    = safeStr(r[4]).trim();
+        var pairs       = safeNum(r[6]);
+        var submittedAt = safeStr(r[8]).trim();
+        var status      = safeStr(r[10]).trim();
+        if (!orderRef || !movement || status === 'VOID') return;
+        // Match WIP entry to order via artSheet (col B of ORDER_INDEX)
+        var matched = null;
+        for (var oi2 = 0; oi2 < orders.length; oi2++) {
+          if (orders[oi2].artSheet === orderRef) { matched = orders[oi2]; break; }
+        }
+        if (!matched) return;
+        var key = matched.orderId;
+        if (!map[key]) map[key] = {};
+        if (!map[key][movement]) map[key][movement] = { today: 0, total: 0 };
+        map[key][movement].total += pairs;
+        if (submittedAt && submittedAt.indexOf(todayStr) === 0) map[key][movement].today += pairs;
+      });
+    }
+    var entries = [];
+    Object.keys(map).forEach(function(orderId) {
+      ALL_MOVEMENTS.forEach(function(mv) {
+        var m = map[orderId][mv] || { today: 0, total: 0 };
+        entries.push({ orderRef: orderId, movement: mv, pairsToday: m.today, pairsTotal: m.total });
+      });
+    });
+    return { orders: orders, entries: entries, movements: ALL_MOVEMENTS };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function submitWipGrid(gridEntries) {
+  var STORE_MOVEMENT_MAP = {
+    'Upper Store':              ['Cutting IN','Cutting OUT','Preparation IN','Preparation OUT','Fitter IN','Fitter OUT'],
+    'Lasting & Packing Store':  ['Upper IN','Lasting IN','Lasting OUT','Packing IN','Packing OUT'],
+    'Dispatch Store':           ['Dispatch IN','Dispatch OUT']
+  };
+  var lock = LockService.getPublicLock();
+  try {
+    lock.waitLock(10000);
+    try {
+      if (!Array.isArray(gridEntries) || !gridEntries.length) throw new Error('No entries provided');
+      var ws = ensureWipEntriesSheet();
+      var today = new Date();
+      var mm = String(today.getMonth() + 1); if (mm.length < 2) mm = '0' + mm;
+      var dd = String(today.getDate());      if (dd.length < 2) dd = '0' + dd;
+      var defaultPeriodId = 'GRID-' + today.getFullYear() + '-' + mm + '-' + dd;
+      var user = getUserInfo();
+      var now  = new Date().toISOString();
+      var toInsert = [];
+      gridEntries.forEach(function(entry) {
+        var orderRef  = safeStr(entry.orderRef).trim();
+        var workOrder = safeStr(entry.workOrder  || '').trim();
+        var store     = safeStr(entry.store).trim();
+        var movement  = safeStr(entry.movement).trim();
+        var pairs     = safeNum(entry.pairs);
+        var periodId  = safeStr(entry.periodId   || defaultPeriodId).trim();
+        if (!orderRef) throw new Error('orderRef required');
+        if (!STORE_MOVEMENT_MAP[store]) throw new Error('Invalid store: ' + store);
+        if (STORE_MOVEMENT_MAP[store].indexOf(movement) < 0) throw new Error('Invalid movement for store: ' + movement);
+        if (!pairs || pairs <= 0) throw new Error('pairs must be positive for: ' + orderRef);
+        var entryType = movement.slice(-2) === 'IN' ? 'IN' : 'OUT';
+        toInsert.push([orderRef, workOrder, store, movement, entryType, pairs, periodId]);
+      });
+      var dataRows = Math.max(0, ws.getLastRow() - 1);
+      var saved = 0;
+      toInsert.forEach(function(row, i) {
+        var nextNum = dataRows + i + 1;
+        var seq = String(nextNum); while (seq.length < 3) seq = '0' + seq;
+        var wipId = 'WIP-' + today.getFullYear() + '-' + seq;
+        ws.appendRow([wipId, row[0], row[1], row[2], row[3], row[4], row[5], user.email, now, row[6], 'PENDING', 'Grid entry', '', '']);
+        saved++;
+      });
+      SpreadsheetApp.flush();
+      return { success: true, saved: saved };
+    } catch(e) {
+      return { success: false, error: e.message };
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ── WIP_ENTRIES SCHEMA MIGRATION — Phase 5.3 ─────────────────────────────────
+
+function migrateWipEntries() {
+  var STAGE_MAP = {
+    'Cutting':             { store: 'Upper Store',             movement: 'Cutting IN' },
+    'Preparation':         { store: 'Upper Store',             movement: 'Preparation IN' },
+    'Upper Making':        { store: 'Upper Store',             movement: 'Fitter IN' },
+    'Lasting & Pasting':   { store: 'Lasting & Packing Store', movement: 'Lasting IN' },
+    'Finishing & Packing': { store: 'Lasting & Packing Store', movement: 'Packing IN' },
+    'Dispatch':            { store: 'Dispatch Store',          movement: 'Dispatch IN' }
+  };
+  var NEW_HEADERS = ['WIP_ID','ORDER_REF','WORK_ORDER','STORE','MOVEMENT','ENTRY_TYPE','PAIRS','SUBMITTED_BY','SUBMITTED_AT','PERIOD_ID','STATUS','NOTES','CONTRACTORS','JOB_CARD_REF'];
+  var lock = LockService.getPublicLock();
+  try {
+    lock.waitLock(10000);
+    try {
+      var ss = SpreadsheetApp.openById(SHEET_ID);
+      var ws = ss.getSheetByName('WIP_ENTRIES');
+      if (!ws) {
+        ensureWipEntriesSheet();
+        return { success: true, message: 'Created WIP_ENTRIES with new schema. No migration needed.' };
+      }
+      var header3 = safeStr(ws.getRange(1, 3).getValue());
+      if (header3 === 'WORK_ORDER') {
+        return { success: true, message: 'Already on new schema. No migration needed.' };
+      }
+      var header1 = safeStr(ws.getRange(1, 1).getValue());
+      if (header1 !== 'WIP_ID') {
+        ws.clearContents();
+        ws.getRange(1, 1, 1, 14).setValues([NEW_HEADERS]);
+        ws.setFrozenRows(1);
+        SpreadsheetApp.flush();
+        return { success: true, message: 'Reinitialized blank/corrupt sheet with new schema.' };
+      }
+      var lastRow = ws.getLastRow();
+      var migratedRows = 0;
+      var skippedRows  = 0;
+      var newRows      = [];
+      if (lastRow >= 2) {
+        var oldData = ws.getRange(2, 1, lastRow - 1, 12).getValues();
+        oldData.forEach(function(r) {
+          var wipId       = safeStr(r[0]).trim();
+          var orderRef    = safeStr(r[1]).trim();
+          var workOrder   = safeStr(r[2]).trim();
+          var stage       = safeStr(r[3]).trim();
+          var pairs       = safeNum(r[5]);
+          var submittedBy = safeStr(r[6]).trim();
+          var submittedAt = safeStr(r[7]).trim();
+          var periodId    = safeStr(r[8]).trim();
+          var status      = safeStr(r[9]).trim();
+          var notes       = safeStr(r[10]).trim();
+          var contractors = safeStr(r[11]).trim();
+          if (!wipId) { skippedRows++; return; }
+          var mapped    = STAGE_MAP[stage] || { store: 'Upper Store', movement: 'Cutting IN' };
+          newRows.push([wipId, orderRef, workOrder, mapped.store, mapped.movement, 'IN', pairs, submittedBy, submittedAt, periodId, status, notes, contractors, '']);
+          migratedRows++;
+        });
+      }
+      ws.clearContents();
+      ws.getRange(1, 1, 1, 14).setValues([NEW_HEADERS]);
+      if (newRows.length) ws.getRange(2, 1, newRows.length, 14).setValues(newRows);
+      ws.setFrozenRows(1);
+      SpreadsheetApp.flush();
+      return { success: true, migrated: migratedRows, skipped: skippedRows };
+    } catch(e) {
+      return { success: false, error: e.message };
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function migrateWipEntriesMenu() {
+  var result = migrateWipEntries();
+  var ui = SpreadsheetApp.getUi();
+  var msg = result.success
+    ? (result.message || ('Migrated: ' + result.migrated + ' rows. Skipped: ' + result.skipped + ' blank rows.'))
+    : ('Error: ' + result.error);
+  ui.alert('Migrate WIP_ENTRIES Schema', msg, ui.ButtonSet.OK);
+}
+
+// ── ORDER SIZE LOOKUP — Phase pre-5.2g ───────────────────────────────────────
+
+var _SIZES_RANGE = [23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46];
+
+function getOrderSizes(orderRef) {
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var oi = ss.getSheetByName('ORDER_INDEX');
+    if (!oi) return { success: false, error: 'ORDER_INDEX sheet not found' };
+    var lastRow = oi.getLastRow();
+    if (lastRow < 4) return { success: false, error: 'Order not found' };
+    var ncols = Math.max(oi.getLastColumn(), 41);
+    var data = oi.getRange(4, 1, lastRow - 3, ncols).getValues();
+    var ref = safeStr(orderRef).trim();
+    for (var i = 0; i < data.length; i++) {
+      var r = data[i];
+      // col A (index 0) = workOrder/WO-...; col B (index 1) = artSheet/ART-...
+      if (safeStr(r[0]).trim() === ref || safeStr(r[1]).trim() === ref) {
+        var sizes = {};
+        var totalQty = 0;
+        _SIZES_RANGE.forEach(function(s, si) {
+          var qty = safeNum(r[17 + si]);  // size cols start at col R (index 17)
+          if (qty > 0) { sizes[String(s)] = qty; totalQty += qty; }
+        });
+        return { sizes: sizes, totalQty: totalQty };
+      }
+    }
+    return { success: false, error: 'Order not found' };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function backfillOrderSizes() {
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var oi = ss.getSheetByName('ORDER_INDEX');
+    if (!oi) return { success: false, error: 'ORDER_INDEX sheet not found' };
+    var rq = ss.getSheetByName('REQUESTS');
+    if (!rq) return { success: false, error: 'REQUESTS sheet not found' };
+
+    // Build lookup: tsNumber → sizeBreakdown JSON string (from NEW_ORDER requests)
+    var tsToSize = {};
+    if (rq.getLastRow() >= 4) {
+      var reqRows = rq.getRange(4, 1, rq.getLastRow() - 3, 6).getValues();
+      reqRows.forEach(function(r) {
+        if (safeStr(r[3]).trim() !== 'NEW_ORDER') return;
+        try {
+          var pl = JSON.parse(safeStr(r[4]));
+          if (pl && pl.tsNumber && pl.sizeBreakdown) {
+            tsToSize[safeStr(pl.tsNumber).trim()] = safeStr(pl.sizeBreakdown);
+          }
+        } catch(e) {}
+      });
+    }
+
+    if (oi.getLastRow() < 4) return { success: true, updated: 0, skipped: 0 };
+    var oiRows = oi.getRange(4, 1, oi.getLastRow() - 3, 12).getValues();
+    var updated = 0, skipped = 0;
+    oiRows.forEach(function(r, i) {
+      // col L (index 11) = tsNumber for new rows; col F (index 5) fallback for old buggy rows
+      var tsNumber = safeStr(r[11]).trim() || safeStr(r[5]).trim();
+      if (!tsNumber || !tsToSize[tsNumber]) { skipped++; return; }
+      var sizeRun = {};
+      try { sizeRun = JSON.parse(tsToSize[tsNumber]); } catch(e) { skipped++; return; }
+      var sizeVals = _SIZES_RANGE.map(function(s){ return parseInt(sizeRun[String(s)])||0; });
+      oi.getRange(4 + i, 18, 1, 24).setValues([sizeVals]);  // col R (1-based 18) = SIZE_23
+      updated++;
+    });
+    SpreadsheetApp.flush();
+    return { success: true, updated: updated, skipped: skipped };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function backfillOrderSizesMenu() {
+  var result = backfillOrderSizes();
+  var msg = result.success
+    ? 'Done. Updated: ' + result.updated + ' rows | Skipped: ' + result.skipped + ' rows'
+    : 'Error: ' + result.error;
+  SpreadsheetApp.getUi().alert('Backfill Order Sizes', msg, SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+// ── DAILY REPORTS — Phase 5.3a ────────────────────────────────────────────────
+
+function ensureDailyReportsSheet() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var ws = ss.getSheetByName('DAILY_REPORTS');
+  if (!ws) {
+    ws = ss.insertSheet('DAILY_REPORTS');
+    ws.getRange(1, 1, 1, 7).setValues([[
+      'REPORT_ID', 'DATE', 'SUBMITTED_BY', 'SUBMITTED_AT',
+      'ENTRY_COUNT', 'TOTAL_PAIRS', 'STATUS'
+    ]]);
+    ws.setFrozenRows(1);
+  }
+  return ws;
+}
+
+function submitDay() {
+  var lock = LockService.getPublicLock();
+  try {
+    lock.waitLock(10000);
+    try {
+      var ss        = SpreadsheetApp.openById(SHEET_ID);
+      var email     = Session.getActiveUser().getEmail();
+      var todayDate = new Date().toISOString().slice(0, 10);
+      var now       = new Date().toISOString();
+
+      var ws      = ensureWipEntriesSheet();
+      var lastRow = ws.getLastRow();
+      if (lastRow < 2) return { success: false, error: 'No draft entries to submit' };
+
+      var rows        = ws.getRange(2, 1, lastRow - 1, 14).getValues();
+      var matchedIdxs = [];
+      rows.forEach(function(r, i) {
+        var status      = safeStr(r[10]).trim();
+        var submittedBy = safeStr(r[7]).trim();
+        var submittedAt = safeStr(r[8]).trim();
+        if (status === 'DRAFT' && submittedBy === email && submittedAt.slice(0, 10) === todayDate) {
+          matchedIdxs.push(i);
+        }
+      });
+
+      if (!matchedIdxs.length) return { success: false, error: 'No draft entries to submit' };
+
+      matchedIdxs.forEach(function(i) {
+        ws.getRange(i + 2, 11).setValue('SUBMITTED');
+      });
+
+      var entryCount = matchedIdxs.length;
+      var totalPairs = 0;
+      matchedIdxs.forEach(function(i) { totalPairs += safeNum(rows[i][6]); });
+
+      var dr       = ensureDailyReportsSheet();
+      var drRows   = Math.max(0, dr.getLastRow() - 1);
+      var nextNum  = drRows + 1;
+      var year     = new Date().getFullYear();
+      var reportId = 'DR-' + year + '-' + (String(nextNum).padStart ? String(nextNum).padStart(3,'0') : ('00'+nextNum).slice(-3));
+
+      dr.appendRow([reportId, todayDate, email, now, entryCount, totalPairs, 'SUBMITTED']);
+      SpreadsheetApp.flush();
+      return { success: true, reportId: reportId, entryCount: entryCount, totalPairs: totalPairs, date: todayDate };
+    } catch(e) {
+      return { success: false, error: e.message };
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function generateDailyReport() {
+  try {
+    var email     = Session.getActiveUser().getEmail();
+    var todayDate = new Date().toISOString().slice(0, 10);
+    var now       = new Date().toISOString();
+
+    var wipWs   = ensureWipEntriesSheet();
+    var lastRow = wipWs.getLastRow();
+    var entryCount = 0, totalPairs = 0;
+    if (lastRow >= 2) {
+      var rows = wipWs.getRange(2, 1, lastRow - 1, 11).getValues();
+      rows.forEach(function(r) {
+        if (safeStr(r[10]).trim() === 'SUBMITTED' &&
+            safeStr(r[7]).trim() === email &&
+            safeStr(r[8]).trim().slice(0, 10) === todayDate) {
+          entryCount++;
+          totalPairs += safeNum(r[6]);
+        }
+      });
+    }
+    if (entryCount === 0) return;
+
+    var dr      = ensureDailyReportsSheet();
+    var drLast  = dr.getLastRow();
+    var foundRow = -1;
+    if (drLast >= 2) {
+      var drRows = dr.getRange(2, 1, drLast - 1, 4).getValues();
+      for (var i = 0; i < drRows.length; i++) {
+        if (safeStr(drRows[i][1]).trim() === todayDate &&
+            safeStr(drRows[i][2]).trim() === email) {
+          foundRow = i + 2; break;
+        }
+      }
+    }
+    if (foundRow > 0) {
+      dr.getRange(foundRow, 4).setValue(now);
+      dr.getRange(foundRow, 5).setValue(entryCount);
+      dr.getRange(foundRow, 6).setValue(totalPairs);
+    } else {
+      var drRowCount = Math.max(0, dr.getLastRow() - 1);
+      var nextNum    = drRowCount + 1;
+      var year       = new Date().getFullYear();
+      var reportId   = 'DR-' + year + '-' + (String(nextNum).padStart ? String(nextNum).padStart(3,'0') : ('00'+nextNum).slice(-3));
+      dr.appendRow([reportId, todayDate, email, now, entryCount, totalPairs, 'AUTO']);
+    }
+    SpreadsheetApp.flush();
+  } catch(e) {}
+}
+
+function getDailyReports(filters) {
+  try {
+    var ws      = ensureDailyReportsSheet();
+    var lastRow = ws.getLastRow();
+    if (lastRow < 2) return [];
+    var rows    = ws.getRange(2, 1, lastRow - 1, 7).getValues();
+    var result  = [];
+    rows.forEach(function(r) {
+      var reportId    = safeStr(r[0]).trim();
+      if (!reportId) return;
+      var date        = safeStr(r[1]).trim();
+      var submittedBy = safeStr(r[2]).trim();
+      var submittedAt = safeStr(r[3]).trim();
+      var entryCount  = safeNum(r[4]);
+      var totalPairs  = safeNum(r[5]);
+      var status      = safeStr(r[6]).trim();
+      if (filters) {
+        if (filters.date        && date        !== filters.date)        return;
+        if (filters.submittedBy && submittedBy !== filters.submittedBy) return;
+      }
+      result.push({ reportId: reportId, date: date, submittedBy: submittedBy, submittedAt: submittedAt, entryCount: entryCount, totalPairs: totalPairs, status: status });
+    });
+    result.sort(function(a, b) { return b.date < a.date ? -1 : b.date > a.date ? 1 : 0; });
+    if (filters && filters.limit) result = result.slice(0, filters.limit);
+    return result;
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function getTodaysDrafts() {
+  try {
+    var ss        = SpreadsheetApp.openById(SHEET_ID);
+    var todayDate = new Date().toISOString().slice(0, 10);
+    var ws        = ensureWipEntriesSheet();
+    var lastRow   = ws.getLastRow();
+    if (lastRow < 2) return [];
+    var rows      = ws.getRange(2, 1, lastRow - 1, 14).getValues();
+    var result    = [];
+    rows.forEach(function(r) {
+      var status      = safeStr(r[10]).trim();
+      var submittedAt = safeStr(r[8]).trim();
+      if (status !== 'DRAFT' || submittedAt.slice(0, 10) !== todayDate) return;
+      result.push({
+        wipId:       safeStr(r[0]),
+        orderRef:    safeStr(r[1]),
+        workOrder:   safeStr(r[2]),
+        store:       safeStr(r[3]),
+        movement:    safeStr(r[4]),
+        entryType:   safeStr(r[5]),
+        pairs:       safeNum(r[6]),
+        submittedBy: safeStr(r[7]),
+        submittedAt: submittedAt,
+        periodId:    safeStr(r[9]),
+        status:      status,
+        notes:       safeStr(r[11]),
+        contractors: safeStr(r[12]),
+        jobCardRef:  safeStr(r[13])
+      });
+    });
+    return result;
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// ── JOB CARDS ─────────────────────────────────────────────────────────────────
+
+function ensureJobCardsSheet() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var ws = ss.getSheetByName('JOB_CARDS');
+  if (!ws) {
+    ws = ss.insertSheet('JOB_CARDS');
+    // STATUS values: ISSUED | PARTIAL | COMPLETE | PAYMENT_PENDING | PAID | CANCELLED
+    ws.appendRow([
+      'JOB_CARD_ID','ORDER_REF','WORK_ORDER','STORE','MOVEMENT',
+      'CONTRACTOR_ID','PAIRS_ISSUED','PAIRS_RECEIVED','SIZE_BREAKDOWN',
+      'ISSUED_BY','ISSUED_AT','EXPECTED_RETURN','RECEIVED_AT','STATUS','NOTES'
+    ]);
+    ws.setFrozenRows(1);
+  }
+  return ws;
+}
+
+function issueJobCard(data) {
+  var STORE_MOVEMENT_MAP = {
+    'Upper Store':             ['Cutting IN','Cutting OUT','Preparation IN','Preparation OUT','Fitter IN','Fitter OUT'],
+    'Lasting & Packing Store': ['Upper IN','Lasting IN','Lasting OUT','Packing IN','Packing OUT'],
+    'Dispatch Store':          ['Dispatch IN','Dispatch OUT']
+  };
+  var orderRef       = safeStr(data.orderRef       || '').trim();
+  var workOrder      = safeStr(data.workOrder      || '').trim();
+  var store          = safeStr(data.store          || '').trim();
+  var movement       = safeStr(data.movement       || '').trim();
+  var contractorId   = safeStr(data.contractorId   || '').trim();
+  var pairsIssued    = safeNum(data.pairsIssued);
+  var sizeBreakdown  = data.sizeBreakdown || {};
+  var expectedReturn = safeStr(data.expectedReturn || '').trim();
+  var notes          = safeStr(data.notes          || '').trim();
+
+  if (!orderRef)                                                                    return { success: false, error: 'orderRef is required' };
+  if (!STORE_MOVEMENT_MAP[store])                                                   return { success: false, error: 'Invalid store: ' + store };
+  if (STORE_MOVEMENT_MAP[store].indexOf(movement) < 0)                             return { success: false, error: 'Invalid movement for store: ' + movement };
+  if (!contractorId)                                                                return { success: false, error: 'contractorId is required' };
+  if (!pairsIssued || pairsIssued <= 0 || Math.floor(pairsIssued) !== pairsIssued) return { success: false, error: 'pairsIssued must be a positive integer' };
+  if (!expectedReturn)                                                              return { success: false, error: 'expectedReturn is required' };
+
+  // Check approved activities exist for this order + department
+  var deptKey = {
+    'Cutting IN':     'cutting',
+    'Preparation IN': 'prep',
+    'Fitter IN':      'fitter',
+    'Upper IN':       'lasting',
+    'Lasting IN':     'lasting',
+    'Packing IN':     'finishing',
+    'Dispatch IN':    'dispatch'
+  }[movement] || '';
+
+  if (deptKey) {
+    var actResult = getApprovedActivitiesForArticle(orderRef);
+    if (actResult && actResult.success && Array.isArray(actResult.activities)) {
+      var deptActs = actResult.activities.filter(function(a) {
+        return safeStr(a.dept).toLowerCase().indexOf(deptKey) === 0;
+      });
+      if (deptActs.length === 0) {
+        return {
+          success: false,
+          error: 'No approved activities for this department on order ' + orderRef +
+                 '. Ask Arvind to set up and get activities approved first.'
+        };
+      }
+    }
+  }
+
+  var jobCardId;
+  var lock = LockService.getPublicLock();
+  try {
+    lock.waitLock(10000);
+    var ws       = ensureJobCardsSheet();
+    var dataRows = Math.max(0, ws.getLastRow() - 1);
+    var nextNum  = dataRows + 1;
+    var year     = new Date().getFullYear();
+    var seq      = String(nextNum); while (seq.length < 3) seq = '0' + seq;
+    jobCardId    = 'JC-' + year + '-' + seq;
+    var issuedBy = Session.getActiveUser().getEmail();
+    var now      = new Date().toISOString();
+    ws.appendRow([
+      jobCardId, orderRef, workOrder, store, movement, contractorId,
+      pairsIssued, 0, JSON.stringify(sizeBreakdown), issuedBy,
+      now, expectedReturn, '', 'ISSUED', notes
+    ]);
+    SpreadsheetApp.flush();
+  } catch(e) {
+    return { success: false, error: e.message };
+  } finally {
+    lock.releaseLock();
+  }
+
+  // Resolve current open periodId; fall back to synthetic JC date if none open
+  var periodId = 'JC-' + new Date().toISOString().slice(0, 10);
+  try {
+    var ss2 = SpreadsheetApp.openById(SHEET_ID);
+    var pp  = ss2.getSheetByName('PAYMENT_PERIODS');
+    if (pp && pp.getLastRow() > 1) {
+      var ppV  = pp.getRange(2, 1, pp.getLastRow() - 1, 7).getValues();
+      var oids = [];
+      ppV.forEach(function(r){ if (safeStr(r[6]).trim().toUpperCase() === 'OPEN') oids.push(safeStr(r[0])); });
+      oids.sort();
+      if (oids.length) periodId = oids[0];
+    }
+  } catch(pe) {}
+
+  // Create IN-side WIP entry; saveWipEntry manages its own lock
+  var wipWarning;
+  try {
+    var wipResult = saveWipEntry({
+      orderRef:    orderRef,
+      workOrder:   workOrder,
+      store:       store,
+      movement:    movement,
+      pairs:       pairsIssued,
+      periodId:    periodId,
+      notes:       'Job Card ' + jobCardId,
+      contractors: [contractorId],
+      jobCardRef:  jobCardId
+    });
+    if (wipResult && wipResult.success === false) wipWarning = wipResult.error;
+    else try { generateDailyReport(); } catch(e) {}
+  } catch(wipErr) { wipWarning = wipErr.message; }
+
+  var issueResult = { success: true, jobCardId: jobCardId };
+  if (wipWarning) issueResult.warning = 'WIP entry not created: ' + wipWarning;
+  return issueResult;
+}
+
+function receiveJobCard(data) {
+  var jobCardId     = safeStr(data.jobCardId     || '').trim();
+  var pairsReceived = safeNum(data.pairsReceived);
+  var notes         = safeStr(data.notes         || '').trim();
+
+  if (!jobCardId)                                                                           return { success: false, error: 'jobCardId is required' };
+  if (!pairsReceived || pairsReceived <= 0 || Math.floor(pairsReceived) !== pairsReceived) return { success: false, error: 'pairsReceived must be a positive integer' };
+
+  var orderRef, workOrder, store, inMovement, contractorId;
+  var pairsIssued, effectivePairs, newReceived, newStatus;
+
+  var lock = LockService.getPublicLock();
+  try {
+    lock.waitLock(10000);
+    var ws      = ensureJobCardsSheet();
+    var lastRow = ws.getLastRow();
+    if (lastRow < 2) return { success: false, error: 'Job Card not found' };
+    var rows     = ws.getRange(2, 1, lastRow - 1, 15).getValues();
+    var rowIndex = -1;
+    for (var i = 0; i < rows.length; i++) {
+      if (safeStr(rows[i][0]).trim() === jobCardId) { rowIndex = i; break; }
+    }
+    if (rowIndex < 0) return { success: false, error: 'Job Card not found' };
+
+    var row           = rows[rowIndex];
+    var sheetRow      = rowIndex + 2;
+    var currentStatus = safeStr(row[13]).trim();
+    if (currentStatus === 'COMPLETE')  return { success: false, error: 'Job Card already complete' };
+    if (currentStatus === 'CANCELLED') return { success: false, error: 'Job Card is cancelled' };
+
+    pairsIssued      = safeNum(row[6]);
+    var currentRecvd = safeNum(row[7]);
+    orderRef         = safeStr(row[1]).trim();
+    workOrder        = safeStr(row[2]).trim();
+    store            = safeStr(row[3]).trim();
+    inMovement       = safeStr(row[4]).trim();
+    contractorId     = safeStr(row[5]).trim();
+    var existingNotes = safeStr(row[14]).trim();
+
+    if (inMovement.slice(-2) !== 'IN') return { success: false, error: 'Job card movement must be an IN movement' };
+
+    effectivePairs = pairsReceived;
+    var finalNotes = notes;
+    if (currentRecvd + pairsReceived > pairsIssued) {
+      var excess   = (currentRecvd + pairsReceived) - pairsIssued;
+      effectivePairs = pairsIssued - currentRecvd;
+      finalNotes   = (notes ? notes + '; ' : '') + 'Capped: ' + excess + ' excess pairs ignored';
+    }
+    if (effectivePairs <= 0) return { success: false, error: 'No remaining capacity on this job card' };
+
+    newReceived = currentRecvd + effectivePairs;
+    newStatus   = newReceived >= pairsIssued ? 'COMPLETE' : 'PARTIAL';
+    var now     = new Date().toISOString();
+
+    ws.getRange(sheetRow, 8).setValue(newReceived);
+    if (!safeStr(row[12]).trim()) ws.getRange(sheetRow, 13).setValue(now);
+    ws.getRange(sheetRow, 14).setValue(newStatus);
+    if (finalNotes) {
+      ws.getRange(sheetRow, 15).setValue(existingNotes ? existingNotes + '; ' + finalNotes : finalNotes);
+    }
+    SpreadsheetApp.flush();
+  } catch(e) {
+    return { success: false, error: e.message };
+  } finally {
+    lock.releaseLock();
+  }
+
+  // Resolve current open periodId; fall back to synthetic JC date if none open
+  var periodId = 'JC-' + new Date().toISOString().slice(0, 10);
+  try {
+    var ss2 = SpreadsheetApp.openById(SHEET_ID);
+    var pp  = ss2.getSheetByName('PAYMENT_PERIODS');
+    if (pp && pp.getLastRow() > 1) {
+      var ppV  = pp.getRange(2, 1, pp.getLastRow() - 1, 7).getValues();
+      var oids = [];
+      ppV.forEach(function(r){ if (safeStr(r[6]).trim().toUpperCase() === 'OPEN') oids.push(safeStr(r[0])); });
+      oids.sort();
+      if (oids.length) periodId = oids[0];
+    }
+  } catch(pe) {}
+
+  var rcvWarning;
+  // 'Upper IN' is a one-way transfer into Lasting & Packing Store — no OUT counterpart exists.
+  // All other IN movements pair with an OUT movement of the same prefix.
+  if (inMovement === 'Upper IN') {
+    // No OUT-side WIP entry for Upper IN receives; job card is simply marked COMPLETE.
+  } else {
+    var outMovement = inMovement.slice(0, -2) + 'OUT';
+    try {
+      var wipResult = saveWipEntry({
+        orderRef:    orderRef,
+        workOrder:   workOrder,
+        store:       store,
+        movement:    outMovement,
+        pairs:       effectivePairs,
+        periodId:    periodId,
+        notes:       'Job Card ' + jobCardId + ' receive',
+        contractors: [contractorId],
+        jobCardRef:  jobCardId
+      });
+      if (wipResult && wipResult.success === false) rcvWarning = wipResult.error;
+      else try { generateDailyReport(); } catch(e) {}
+    } catch(wipErr) { rcvWarning = wipErr.message; }
+  }
+
+  var rcvResult = { success: true, jobCardId: jobCardId, totalReceived: newReceived, pairsIssued: pairsIssued, status: newStatus };
+  if (rcvWarning) rcvResult.warning = 'WIP entry not created: ' + rcvWarning;
+  return rcvResult;
+}
+
+function getJobCards(filters) {
+  try {
+    var ws      = ensureJobCardsSheet();
+    var lastRow = ws.getLastRow();
+    if (lastRow < 2) return [];
+    var rows   = ws.getRange(2, 1, lastRow - 1, 15).getValues();
+    var result = [];
+    rows.forEach(function(r) {
+      if (!safeStr(r[0]).trim()) return;
+      var sd = {};
+      try { sd = JSON.parse(safeStr(r[8])) || {}; } catch(e) {}
+      result.push({
+        jobCardId:      safeStr(r[0]),
+        orderRef:       safeStr(r[1]),
+        workOrder:      safeStr(r[2]),
+        store:          safeStr(r[3]),
+        movement:       safeStr(r[4]),
+        contractorId:   safeStr(r[5]),
+        pairsIssued:    safeNum(r[6]),
+        pairsReceived:  safeNum(r[7]),
+        sizeBreakdown:  sd,
+        issuedBy:       safeStr(r[9]),
+        issuedAt:       safeStr(r[10]),
+        expectedReturn: safeStr(r[11]),
+        receivedAt:     safeStr(r[12]),
+        status:         safeStr(r[13]),
+        notes:          safeStr(r[14])
+      });
+    });
+    if (filters) {
+      if (filters.orderRef)     result = result.filter(function(c){ return c.orderRef     === filters.orderRef; });
+      if (filters.store)        result = result.filter(function(c){ return c.store        === filters.store; });
+      if (filters.status)       result = result.filter(function(c){ return c.status       === filters.status; });
+      if (filters.contractorId) result = result.filter(function(c){ return c.contractorId === filters.contractorId; });
+    }
+    result.sort(function(a, b){ return a.issuedAt < b.issuedAt ? 1 : a.issuedAt > b.issuedAt ? -1 : 0; });
+    return result;
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function getOpenJobCards(store) {
+  try {
+    var all = store ? getJobCards({ store: store }) : getJobCards({});
+    if (!Array.isArray(all)) return all;
+    return all.filter(function(c){ return c.status === 'ISSUED' || c.status === 'PARTIAL'; });
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// ── PAYMENT — Phase 5.6a ─────────────────────────────────────────────────────
+
+function getCompletedUnpaidJobCards() {
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+
+    // contractor name lookup
+    var ctrNameById = {};
+    try {
+      var mc = ss.getSheetByName('MASTER_CONTRACTORS');
+      if (mc && mc.getLastRow() >= 4) {
+        mc.getRange(4, 1, mc.getLastRow()-3, 2).getValues().forEach(function(r) {
+          var id = safeStr(r[0]).trim(); if (id) ctrNameById[id] = safeStr(r[1]).trim();
+        });
+      }
+    } catch(e) {}
+
+    // ORDER_INDEX lookup: artSheet → {article, color, customer}
+    var orderInfo = {};
+    try {
+      var oi = ss.getSheetByName('ORDER_INDEX');
+      if (oi && oi.getLastRow() >= 4) {
+        oi.getRange(4, 1, oi.getLastRow()-3, 5).getValues().forEach(function(r) {
+          var sh = safeStr(r[1]).trim();
+          if (sh) orderInfo[sh] = { article: safeStr(r[2]).trim(), color: safeStr(r[3]).trim(), customer: safeStr(r[4]).trim() };
+        });
+      }
+    } catch(e) {}
+
+    var MOVEMENT_DEPT_KEY = {
+      'Cutting IN':     'cutting',
+      'Preparation IN': 'prep',
+      'Fitter IN':      'fitter',
+      'Upper IN':       'lasting',
+      'Lasting IN':     'lasting',
+      'Packing IN':     'finishing',
+      'Dispatch IN':    'dispatch'
+    };
+
+    var ws = ensureJobCardsSheet();
+    if (ws.getLastRow() < 2) return [];
+    var rows = ws.getRange(2, 1, ws.getLastRow()-1, 15).getValues();
+    var result = [];
+
+    rows.forEach(function(r) {
+      if (safeStr(r[0]).trim() === '') return;
+      if (safeStr(r[13]).trim() !== 'COMPLETE') return;
+
+      var jobCardId     = safeStr(r[0]).trim();
+      var orderRef      = safeStr(r[1]).trim();
+      var workOrder     = safeStr(r[2]).trim();
+      var store         = safeStr(r[3]).trim();
+      var movement      = safeStr(r[4]).trim();
+      var contractorId  = safeStr(r[5]).trim();
+      var pairsIssued   = safeNum(r[6]);
+      var pairsReceived = safeNum(r[7]);
+      var issuedAt      = safeStr(r[10]).trim();
+      var expectedReturn= safeStr(r[11]).trim();
+      var deptKey       = MOVEMENT_DEPT_KEY[movement] || '';
+      var oiEntry       = orderInfo[orderRef] || {};
+
+      var activities = [], ratePerPair = 0;
+      try {
+        var actRes = getApprovedActivitiesForArticle(orderRef);
+        if (actRes && actRes.success && actRes.activities) {
+          activities = deptKey
+            ? actRes.activities.filter(function(a) { return safeStr(a.dept).toLowerCase().trim().indexOf(deptKey) >= 0; })
+            : actRes.activities;
+          activities.forEach(function(a) { ratePerPair += safeNum(a.rate); });
+        }
+      } catch(ae) {}
+
+      result.push({
+        jobCardId:      jobCardId,
+        orderRef:       orderRef,
+        workOrder:      workOrder,
+        store:          store,
+        movement:       movement,
+        contractorId:   contractorId,
+        contractorName: ctrNameById[contractorId] || contractorId,
+        pairsIssued:    pairsIssued,
+        pairsReceived:  pairsReceived,
+        department:     deptKey,
+        activities:     activities,
+        ratePerPair:    ratePerPair,
+        totalAmount:    ratePerPair * pairsIssued,
+        article:        oiEntry.article  || '',
+        color:          oiEntry.color    || '',
+        customer:       oiEntry.customer || '',
+        issuedAt:       issuedAt,
+        expectedReturn: expectedReturn,
+        status:         'COMPLETE'
+      });
+    });
+
+    return result;
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function submitJobCardPayment(data) {
+  var contractorId = safeStr(data.contractorId || '').trim();
+  var jobCardIds   = Array.isArray(data.jobCardIds) ? data.jobCardIds : [];
+  var periodId     = safeStr(data.periodId     || '').trim();
+  var notes        = safeStr(data.notes        || '').trim();
+
+  if (!contractorId)      return { success: false, error: 'contractorId is required' };
+  if (!jobCardIds.length) return { success: false, error: 'jobCardIds must not be empty' };
+  if (!periodId)          return { success: false, error: 'periodId is required' };
+
+  var MOVEMENT_DEPT_KEY = {
+    'Cutting IN':     'cutting',
+    'Preparation IN': 'prep',
+    'Fitter IN':      'fitter',
+    'Upper IN':       'lasting',
+    'Lasting IN':     'lasting',
+    'Packing IN':     'finishing',
+    'Dispatch IN':    'dispatch'
+  };
+
+  var lock = LockService.getPublicLock();
+  try {
+    lock.waitLock(10000);
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+
+    // contractor name
+    var contractorName = contractorId;
+    try {
+      var mc = ss.getSheetByName('MASTER_CONTRACTORS');
+      if (mc && mc.getLastRow() >= 4) {
+        var mcRows = mc.getRange(4, 1, mc.getLastRow()-3, 2).getValues();
+        for (var mi = 0; mi < mcRows.length; mi++) {
+          if (safeStr(mcRows[mi][0]).trim() === contractorId) {
+            contractorName = safeStr(mcRows[mi][1]).trim() || contractorId; break;
+          }
+        }
+      }
+    } catch(e) {}
+
+    // ORDER_INDEX: artSheet → {customer}
+    var orderInfo = {};
+    try {
+      var oi2 = ss.getSheetByName('ORDER_INDEX');
+      if (oi2 && oi2.getLastRow() >= 4) {
+        oi2.getRange(4, 1, oi2.getLastRow()-3, 5).getValues().forEach(function(r) {
+          var sh = safeStr(r[1]).trim();
+          if (sh) orderInfo[sh] = { customer: safeStr(r[4]).trim() };
+        });
+      }
+    } catch(e) {}
+
+    // index all JOB_CARDS by ID
+    var jcWs = ensureJobCardsSheet();
+    var jcAllRows = jcWs.getLastRow() > 1 ? jcWs.getRange(2, 1, jcWs.getLastRow()-1, 15).getValues() : [];
+    var jcIndexById = {};
+    jcAllRows.forEach(function(r, i) {
+      var id = safeStr(r[0]).trim(); if (id) jcIndexById[id] = { sheetRow: i + 2, data: r };
+    });
+
+    // activities cache
+    var actCache = {};
+    function deptActs(orderRef, deptKey) {
+      if (!actCache[orderRef]) {
+        try {
+          var res = getApprovedActivitiesForArticle(orderRef);
+          actCache[orderRef] = (res && res.success && res.activities) ? res.activities : [];
+        } catch(e) { actCache[orderRef] = []; }
+      }
+      if (!deptKey) return actCache[orderRef];
+      return actCache[orderRef].filter(function(a) {
+        return safeStr(a.dept).toLowerCase().trim().indexOf(deptKey) >= 0;
+      });
+    }
+
+    // PAYMENT_HISTORY — get or create sheet, generate unique PAYMENT_ID
+    var ph = ss.getSheetByName('PAYMENT_HISTORY');
+    if (!ph) {
+      ph = ss.insertSheet('PAYMENT_HISTORY');
+      ph.getRange(1, 1, 1, 12).setValues([[
+        'PeriodID','Article','Customer','Contractor','Qty','Amount',
+        'ApprovedBy','Date','Contractor_ID','Job_Card_Ref','Department','Payment_ID'
+      ]]);
+    }
+    // count distinct existing PAY-IDs for sequence
+    var existingPayIds = {};
+    if (ph.getLastRow() > 1) {
+      ph.getRange(2, 12, ph.getLastRow()-1, 1).getValues().forEach(function(r) {
+        var pid = safeStr(r[0]).trim(); if (pid) existingPayIds[pid] = true;
+      });
+    }
+    var payYear  = new Date().getFullYear();
+    var paySeq   = Object.keys(existingPayIds).length + 1;
+    var paySeqStr = String(paySeq); while (paySeqStr.length < 3) paySeqStr = '0' + paySeqStr;
+    var PAYMENT_ID = 'PAY-' + payYear + '-' + paySeqStr;
+
+    // process each job card
+    var totalPairs = 0, totalAmount = 0, written = [];
+
+    jobCardIds.forEach(function(jcId) {
+      var entry = jcIndexById[safeStr(jcId).trim()];
+      if (!entry) return;
+      var r = entry.data;
+      if (safeStr(r[13]).trim() !== 'COMPLETE')       return;
+      if (safeStr(r[5]).trim()  !== contractorId)     return;
+
+      var orderRef = safeStr(r[1]).trim();
+      var movement = safeStr(r[4]).trim();
+      var pairs    = safeNum(r[6]);
+      var deptKey  = MOVEMENT_DEPT_KEY[movement] || '';
+      var customer = (orderInfo[orderRef] || {}).customer || '';
+
+      var acts = deptActs(orderRef, deptKey);
+      var ratePerPair = 0;
+      acts.forEach(function(a) { ratePerPair += safeNum(a.rate); });
+      var amount = ratePerPair * pairs;
+
+      ph.appendRow([
+        periodId, orderRef, customer, contractorName,
+        pairs, amount, '', new Date(),
+        contractorId, safeStr(jcId).trim(), deptKey, PAYMENT_ID
+      ]);
+
+      totalPairs  += pairs;
+      totalAmount += amount;
+      written.push(safeStr(jcId).trim());
+    });
+
+    // update job card statuses to PAYMENT_PENDING
+    written.forEach(function(jcId) {
+      var entry = jcIndexById[jcId];
+      if (entry) jcWs.getRange(entry.sheetRow, 14).setValue('PAYMENT_PENDING');
+    });
+
+    SpreadsheetApp.flush();
+    return { success: true, paymentId: PAYMENT_ID, totalPairs: totalPairs, totalAmount: totalAmount, jobCardCount: written.length };
+  } catch(e) {
+    return { success: false, error: e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function getPaymentBatches(filters) {
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var ph = ss.getSheetByName('PAYMENT_HISTORY');
+    if (!ph || ph.getLastRow() < 2) return [];
+
+    var rows = ph.getRange(2, 1, ph.getLastRow()-1, 12).getValues();
+    var batchMap = {}, batchOrder = [];
+    var tz = Session.getScriptTimeZone();
+
+    rows.forEach(function(r) {
+      var paymentId = safeStr(r[11]).trim();
+      if (!paymentId) return;  // skip legacy rows without payment ID
+
+      if (!batchMap[paymentId]) {
+        var dv = r[7];
+        var dateStr = dv instanceof Date ? Utilities.formatDate(dv, tz, 'dd-MMM-yyyy') : safeStr(dv);
+        batchMap[paymentId] = {
+          paymentId:      paymentId,
+          contractorId:   safeStr(r[8]).trim(),
+          contractorName: safeStr(r[3]).trim(),
+          periodId:       safeStr(r[0]).trim(),
+          approvedBy:     safeStr(r[6]).trim(),
+          date:           dateStr,
+          _dateMs:        dv instanceof Date ? dv.getTime() : 0,
+          status:         safeStr(r[6]).trim() ? 'APPROVED' : 'PENDING',
+          lines:          [],
+          totalPairs:     0,
+          totalAmount:    0
+        };
+        batchOrder.push(paymentId);
+      }
+
+      var pairs  = safeNum(r[4]);
+      var amount = safeNum(r[5]);
+      batchMap[paymentId].lines.push({
+        jobCardId:  safeStr(r[9]).trim(),
+        orderRef:   safeStr(r[1]).trim(),
+        customer:   safeStr(r[2]).trim(),
+        department: safeStr(r[10]).trim(),
+        pairs:      pairs,
+        amount:     amount
+      });
+      batchMap[paymentId].totalPairs  += pairs;
+      batchMap[paymentId].totalAmount += amount;
+    });
+
+    var result = batchOrder.map(function(pid) { return batchMap[pid]; });
+
+    if (filters) {
+      if (filters.periodId)     result = result.filter(function(b){ return b.periodId     === safeStr(filters.periodId); });
+      if (filters.contractorId) result = result.filter(function(b){ return b.contractorId === safeStr(filters.contractorId); });
+      if (filters.orderRef) {
+        var filterOr = safeStr(filters.orderRef);
+        result = result.filter(function(b){ return b.lines.some(function(l){ return l.orderRef === filterOr; }); });
+      }
+    }
+
+    result.sort(function(a, b) { return b._dateMs - a._dateMs; });
+    return result;
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function approvePaymentBatch(paymentId) {
+  var lock = LockService.getPublicLock();
+  try {
+    lock.waitLock(10000);
+    var ss   = SpreadsheetApp.openById(SHEET_ID);
+    var user = getUserInfo();
+    var tz   = Session.getScriptTimeZone();
+    var now  = Utilities.formatDate(new Date(), tz, 'dd-MMM-yyyy HH:mm');
+    var approverStr = (user.name || user.email || 'Unknown') + ' — ' + now;
+
+    var ph = ss.getSheetByName('PAYMENT_HISTORY');
+    if (!ph || ph.getLastRow() < 2) return { success: false, error: 'Payment batch not found' };
+
+    var rows = ph.getRange(2, 1, ph.getLastRow()-1, 12).getValues();
+    var matchedRows = [], jobCardIds = [];
+    rows.forEach(function(r, i) {
+      if (safeStr(r[11]).trim() !== safeStr(paymentId).trim()) return;
+      matchedRows.push(i + 2);
+      var jcId = safeStr(r[9]).trim(); if (jcId) jobCardIds.push(jcId);
+    });
+
+    if (!matchedRows.length) return { success: false, error: 'Payment batch not found' };
+
+    matchedRows.forEach(function(sheetRow) {
+      ph.getRange(sheetRow, 7).setValue(approverStr);
+    });
+
+    var jcWs = ensureJobCardsSheet();
+    if (jcWs.getLastRow() > 1) {
+      jcWs.getRange(2, 1, jcWs.getLastRow()-1, 14).getValues().forEach(function(r, i) {
+        if (jobCardIds.indexOf(safeStr(r[0]).trim()) >= 0) jcWs.getRange(i + 2, 14).setValue('PAID');
+      });
+    }
+
+    SpreadsheetApp.flush();
+    return { success: true, paymentId: paymentId, jobCardCount: matchedRows.length };
+  } catch(e) {
+    return { success: false, error: e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function rejectPaymentBatch(paymentId, reason) {
+  var lock = LockService.getPublicLock();
+  try {
+    lock.waitLock(10000);
+    var ss         = SpreadsheetApp.openById(SHEET_ID);
+    var reasonStr  = 'REJECTED: ' + safeStr(reason || '').trim();
+
+    var ph = ss.getSheetByName('PAYMENT_HISTORY');
+    if (!ph || ph.getLastRow() < 2) return { success: false, error: 'Payment batch not found' };
+
+    var rows = ph.getRange(2, 1, ph.getLastRow()-1, 12).getValues();
+    var matchedRows = [], jobCardIds = [];
+    rows.forEach(function(r, i) {
+      if (safeStr(r[11]).trim() !== safeStr(paymentId).trim()) return;
+      matchedRows.push(i + 2);
+      var jcId = safeStr(r[9]).trim(); if (jcId) jobCardIds.push(jcId);
+    });
+
+    if (!matchedRows.length) return { success: false, error: 'Payment batch not found' };
+
+    matchedRows.forEach(function(sheetRow) {
+      ph.getRange(sheetRow, 7).setValue(reasonStr);
+    });
+
+    var jcWs = ensureJobCardsSheet();
+    if (jcWs.getLastRow() > 1) {
+      jcWs.getRange(2, 1, jcWs.getLastRow()-1, 14).getValues().forEach(function(r, i) {
+        if (jobCardIds.indexOf(safeStr(r[0]).trim()) >= 0) jcWs.getRange(i + 2, 14).setValue('COMPLETE');
+      });
+    }
+
+    SpreadsheetApp.flush();
+    return { success: true };
+  } catch(e) {
+    return { success: false, error: e.message };
+  } finally {
+    lock.releaseLock();
+  }
 }

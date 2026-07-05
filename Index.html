@@ -246,24 +246,6 @@ input,select,textarea{font-family:inherit;outline:none;border:none}
 </div>
 <div id="toast"></div>
 
-<div id="pso">
-  <div class="pso-wrap">
-    <div class="pso-hdr">
-      <div>
-        <div class="pso-title">ADEES EXPORTS — WEEKLY PAYMENT SUMMARY</div>
-        <div class="pso-sub" id="psoPrintDate"></div>
-      </div>
-      <div class="pso-ctrl">
-        <button class="pso-vbtn active" id="psBtn-contractor" onclick="setPSView('contractor')">Contractor Wise</button>
-        <button class="pso-vbtn" id="psBtn-article" onclick="setPSView('article')">Article Wise</button>
-        <button class="pso-vbtn" id="psBtn-period" onclick="setPSView('period')">Period Wise</button>
-        <button class="pso-pbtn" onclick="window.print()">Print</button>
-        <button class="pso-xbtn" onclick="closePrintSummary()">✕</button>
-      </div>
-    </div>
-    <div id="psoContent"></div>
-  </div>
-</div>
 
 <script>
 var USER=null, TAB='home', D={}, CONTRACTORS=[], MASTER_ACTS=[], NO_RESUBMIT=null;
@@ -275,7 +257,7 @@ var ACTS_REVISION_REMARK=null, ACTS_REVISION_ACTIVITY=null;
 var SEEN_ALERT_IDS=new Set();
 var NO_RESUBMIT_RATE=null;
 
-function fmt(n){return '₹'+Number(n).toLocaleString('en-IN',{maximumFractionDigits:0});}
+function fmt(n){return '₹'+Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});}
 
 function fmtPd(ds,yr){
   if(!ds)return '';
@@ -283,8 +265,8 @@ function fmtPd(ds,yr){
   var mo={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
   var m1=s.match(/^(\d{1,2})-([A-Za-z]+)-(\d{4})$/);
   if(m1)d=new Date(+m1[3],mo[m1[2].toLowerCase()]||0,+m1[1]);
-  if(!d){var m2=s.match(/^(\d{4})-(\d{2})-(\d{2})/);if(m2)d=new Date(+m2[1],+m2[2]-1,+m2[3]);}
-  if(!d)d=new Date(s);
+  if(!d){var m2=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);if(m2)d=new Date(+m2[1],+m2[2]-1,+m2[3]);}
+  if(!d)d=new Date(s.indexOf('T')<0?s+'T00:00:00':s);
   if(!d||isNaN(d.getTime()))return s;
   var dn=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   var mn=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -405,12 +387,16 @@ var FOS_ICONS={
   review:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
   contractors:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>',
   activities:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/></svg>',
-  wip:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>'
+  wip:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>',
+  jobcards:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h10M7 13h10M7 17h6"/><path d="M15 1v4M9 1v4"/></svg>',
+  floor:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V8l7-5 7 5v13"/><path d="M9 21v-5h6v5"/><rect x="9.5" y="10" width="2" height="2" rx="0.5"/><rect x="12.5" y="10" width="2" height="2" rx="0.5"/></svg>',
+  grid:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>',
+  payhistory:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v16l2-2 2 2 2-2 2 2 2-2 2 2 2-2V4z"/><path d="M8 10h8M8 14h6"/></svg>'
 };
 var NAVS={
-  admin:   [{id:'home',icon:'Home',label:'Home'},{id:'orders',icon:'Orders',label:'Orders'},{id:'approve',icon:'Approve',label:'Approve'},{id:'payment',icon:'Pay',label:'Payment'},{id:'requests',icon:'Req',label:'Requests'}],
-  accounts:[{id:'home',icon:'Home',label:'Home'},{id:'entry',icon:'Entry',label:'Entry'},{id:'neworder',icon:'New',label:'New Order'},{id:'review',icon:'Review',label:'Review'},{id:'alerts',icon:'Alerts',label:'Alerts'},{id:'contractors',icon:'Ctrs',label:'Contractors'},{id:'activities',icon:'Acts',label:'Activities'}],
-  store:   [{id:'home',icon:'Home',label:'Home'},{id:'wip',icon:'WIP',label:'WIP'}],
+  admin:   [{id:'home',icon:'Home',label:'Home'},{id:'orders',icon:'Orders',label:'Orders'},{id:'approve',icon:'Approve',label:'Approvals'},{id:'payment',icon:'Pay',label:'Payment'},{id:'payhistory',icon:'Pay',label:'Pay History'},{id:'requests',icon:'Req',label:'Requests'},{id:'grid',icon:'Grid',label:'Grid'},{id:'floor',icon:'FLOOR',label:'Floor'}],
+  accounts:[{id:'home',icon:'Home',label:'Home'},{id:'neworder',icon:'New',label:'New Order'},{id:'payment',icon:'Pay',label:'Payment'},{id:'payhistory',icon:'Pay',label:'Pay History'},{id:'alerts',icon:'Alerts',label:'Alerts'},{id:'contractors',icon:'Ctrs',label:'Contractors'},{id:'activities',icon:'Acts',label:'Activities'},{id:'grid',icon:'Grid',label:'Grid'},{id:'floor',icon:'FLOOR',label:'Floor'}],
+  store:   [{id:'home',icon:'Home',label:'Home'},{id:'wip',icon:'WIP',label:'WIP'},{id:'jobcards',icon:'JC',label:'Job Cards'},{id:'grid',icon:'Grid',label:'Grid'},{id:'floor',icon:'FLOOR',label:'Floor'}],
   viewer:  [{id:'home',icon:'Home',label:'Home'}]
 };
 
@@ -453,9 +439,15 @@ function loadTab(id){
   TAB=id; setNav(id);
   // Use cached data if available — instant tab switch
   if(id==='home'||id==='orders'){
-    if(D.dash){renderTab(id);return;}
-    showLoading();
-    google.script.run.withSuccessHandler(function(d){D.dash=d;renderTab(id);}).withFailureHandler(showErr).getDashboardData();
+    if(USER&&USER.role==='store'&&id==='home'){
+      if(D.wip&&Array.isArray(D.wip)){renderTab(id);return;}
+      showLoading();
+      google.script.run.withSuccessHandler(function(w){D.wip=w;renderTab(id);}).withFailureHandler(showErr).getWipEntries({});
+    } else {
+      if(D.dash){renderTab(id);return;}
+      showLoading();
+      google.script.run.withSuccessHandler(function(d){D.dash=d;renderTab(id);}).withFailureHandler(showErr).getDashboardData();
+    }
   } else if(id==='approve'){
     if(D.dash&&D.subs){renderTab(id);return;}
     showLoading();
@@ -466,24 +458,66 @@ function loadTab(id){
     if(D.reqs){renderTab(id);return;}
     showLoading();
     google.script.run.withSuccessHandler(function(d){D.reqs=d;renderTab(id);}).withFailureHandler(showErr).getPendingRequests();
-  } else if(id==='entry'||id==='review'){
-    if(D.entry){renderTab(id);return;}
-    showLoading();
-    google.script.run.withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];(d.articles||[]).forEach(function(a){console.log('[DIAG] '+a.sheet+' "'+a.article+'" → '+(a.activities?a.activities.length:0)+' activities');});renderTab(id);}).withFailureHandler(showErr).getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
   } else if(id==='neworder'){
     renderTab(id);
   } else if(id==='payment'){
-    if(D.payment){renderTab(id);return;}
     showLoading();
-    google.script.run.withSuccessHandler(function(d){D.payment=d;renderTab(id);}).withFailureHandler(showErr).getPaymentHistory();
+    var _payLoadCards=function(){
+      google.script.run
+        .withSuccessHandler(function(jcs){D.completedJobCards=Array.isArray(jcs)?jcs:[];renderTab(id);})
+        .withFailureHandler(showErr)
+        .getCompletedUnpaidJobCards();
+    };
+    var _payLoadContractors=function(){
+      if(D.contractors){_payLoadCards();return;}
+      google.script.run
+        .withSuccessHandler(function(ctrs){D.contractors=Array.isArray(ctrs)?ctrs:[];_payLoadCards();})
+        .withFailureHandler(showErr)
+        .getContractors();
+    };
+    if(D.entry){_payLoadContractors();}
+    else{
+      google.script.run
+        .withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];_payLoadContractors();})
+        .withFailureHandler(showErr)
+        .getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
+    }
   } else if(id==='wip'){
-    if(D.wip){renderTab(id);return;}
     showLoading();
-    google.script.run.withSuccessHandler(function(d){D.wip=d;renderTab(id);}).withFailureHandler(showErr).getWIPData();
+    var _doLoadJobCards=function(){
+      google.script.run
+        .withSuccessHandler(function(jcs){D.jobCards=Array.isArray(jcs)?jcs:[];renderTab(id);})
+        .withFailureHandler(showErr)
+        .getJobCards({});
+    };
+    var _doLoadEnrollments=function(){
+      if(D.enrollments){_doLoadJobCards();return;}
+      google.script.run
+        .withSuccessHandler(function(e){D.enrollments=Array.isArray(e)?e:[];_doLoadJobCards();})
+        .withFailureHandler(showErr)
+        .getEnrollments({status:'ACTIVE'});
+    };
+    var _doLoadContractors=function(){
+      if(D.contractors){_doLoadEnrollments();return;}
+      google.script.run
+        .withSuccessHandler(function(ctrs){D.contractors=Array.isArray(ctrs)?ctrs:[];_doLoadEnrollments();})
+        .withFailureHandler(showErr)
+        .getContractors();
+    };
+    if(D.entry){_doLoadContractors();}
+    else{
+      google.script.run
+        .withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];_doLoadContractors();})
+        .withFailureHandler(showErr)
+        .getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
+    }
   } else if(id==='contractors'){
-    if(D.ctrs){renderTab(id);return;}
+    if(D.ctrs&&D.contractors&&D.enrollments){renderTab(id);return;}
     showLoading();
-    google.script.run.withSuccessHandler(function(d){D.ctrs=d;renderTab(id);}).withFailureHandler(showErr).getContractorsData();
+    var _loadEnrollments=function(){google.script.run.withSuccessHandler(function(e){D.enrollments=Array.isArray(e)?e:[];renderTab(id);}).withFailureHandler(showErr).getEnrollments({status:'ACTIVE'});};
+    var _loadContractorsList=function(){if(D.contractors){_loadEnrollments();return;}google.script.run.withSuccessHandler(function(ctrs){D.contractors=Array.isArray(ctrs)?ctrs:[];_loadEnrollments();}).withFailureHandler(showErr).getContractors();};
+    if(D.ctrs){_loadContractorsList();}
+    else{google.script.run.withSuccessHandler(function(d){D.ctrs=d;_loadContractorsList();}).withFailureHandler(showErr).getContractorsData();}
   } else if(id==='activities'){
     if(D.entry){renderTab(id);return;}
     showLoading();
@@ -497,6 +531,76 @@ function loadTab(id){
       updateNavBadge('alerts',false);
       renderTab(id);
     }).withFailureHandler(showErr).getMyRequests();
+  } else if(id==='jobcards'){
+    showLoading();
+    var _jcLoadCards=function(){
+      google.script.run
+        .withSuccessHandler(function(jcs){D.jobCards=Array.isArray(jcs)?jcs:[];renderTab(id);})
+        .withFailureHandler(showErr)
+        .getJobCards({});
+    };
+    var _jcLoadContractors=function(){
+      if(D.contractors){_jcLoadCards();return;}
+      google.script.run
+        .withSuccessHandler(function(ctrs){D.contractors=Array.isArray(ctrs)?ctrs:[];_jcLoadCards();})
+        .withFailureHandler(showErr)
+        .getContractors();
+    };
+    if(D.entry){_jcLoadContractors();}
+    else{
+      google.script.run
+        .withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];_jcLoadContractors();})
+        .withFailureHandler(showErr)
+        .getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
+    }
+  } else if(id==='payhistory'){
+    showLoading();
+    var _phLoadBatches=function(){
+      google.script.run
+        .withSuccessHandler(function(b){D.payBatches=Array.isArray(b)?b:[];renderTab(id);})
+        .withFailureHandler(showErr)
+        .getPaymentBatches({});
+    };
+    var _phLoadCtrs=function(){
+      if(D.contractors){_phLoadBatches();return;}
+      google.script.run
+        .withSuccessHandler(function(ctrs){D.contractors=Array.isArray(ctrs)?ctrs:[];_phLoadBatches();})
+        .withFailureHandler(showErr)
+        .getContractors();
+    };
+    if(D.entry){_phLoadCtrs();}
+    else{
+      google.script.run
+        .withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];_phLoadCtrs();})
+        .withFailureHandler(showErr)
+        .getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
+    }
+  } else if(id==='grid'){
+    if(D.wipGrid){renderTab(id);return;}
+    showLoading();
+    google.script.run.withSuccessHandler(function(g){D.wipGrid=g;renderTab(id);}).withFailureHandler(showErr).getWipGrid();
+  } else if(id==='floor'){
+    showLoading();
+    var _flLoadCards=function(){
+      google.script.run
+        .withSuccessHandler(function(jcs){D.jobCards=Array.isArray(jcs)?jcs:[];renderTab(id);})
+        .withFailureHandler(showErr)
+        .getJobCards({});
+    };
+    var _flLoadContractors=function(){
+      if(D.contractors){_flLoadCards();return;}
+      google.script.run
+        .withSuccessHandler(function(ctrs){D.contractors=Array.isArray(ctrs)?ctrs:[];_flLoadCards();})
+        .withFailureHandler(showErr)
+        .getContractors();
+    };
+    if(D.entry){_flLoadContractors();}
+    else{
+      google.script.run
+        .withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];_flLoadContractors();})
+        .withFailureHandler(showErr)
+        .getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
+    }
   }
 }
 
@@ -507,7 +611,7 @@ function showLoading(){
 
 // Refresh: force reload from server (pull to refresh equivalent)
 function refreshTab(){
-  D.dash=null; D.entry=null; D.wip=null; D.reqs=null; D.subs=null; PS_DATA=null; ENTRY_PERIOD=null; D.ctrs=null; D.myreqs=null;
+  D.dash=null; D.entry=null; D.wip=null; D.reqs=null; D.subs=null; ENTRY_PERIOD=null; D.ctrs=null; D.myreqs=null; D.contractors=null; D.enrollments=null; D.wipGrid=null; D.jobCards=null; D.orderSizes=null; D.completedJobCards=null; D.payBatches=null;
   loadTab(TAB);
 }
 
@@ -520,14 +624,16 @@ function renderTab(id){
   } else if(id==='orders'){renderOrders(c);}
   else if(id==='approve'){renderApprove(c);}
   else if(id==='requests'){renderRequests(c);}
-  else if(id==='entry'){renderEntry(c,false);}
-  else if(id==='review'){renderEntry(c,true);}
   else if(id==='neworder'){renderNewOrder(c);}
   else if(id==='payment'){renderPayment(c);}
+  else if(id==='payhistory'){renderPayHistory(c);}
   else if(id==='wip'){renderWIP(c);}
+  else if(id==='jobcards'){renderJobCards(c);}
   else if(id==='contractors'){renderContractors(c);}
   else if(id==='activities'){renderActivities(c);}
   else if(id==='alerts'){renderAlerts(c);}
+  else if(id==='grid'){renderGrid(c);}
+  else if(id==='floor'){renderFloor(c);}
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
@@ -564,17 +670,43 @@ function kpiEl(label,value,sub,colorClass){
   return d;
 }
 
+function renderStageBreakdown(result){
+  var ctr=el('div',{style:'padding:0.75rem;background:var(--fos-bg);border-radius:6px;margin-top:0.5rem'});
+  if(!result||result.error){
+    ctr.appendChild(el('div',{style:'font-size:0.8rem;color:var(--fos-ink-secondary)',text:result&&result.error?result.error:'Unknown error'}));
+    return ctr;
+  }
+  var lot=result.lotSize||0;
+  (result.stages||[]).forEach(function(s){
+    var paid=s.paidQty||0;
+    var pct=lot>0?Math.min(100,paid/lot*100):0;
+    var full=lot>0&&paid>=lot;
+    var sr=el('div',{style:'margin-bottom:0.5rem'});
+    var top=el('div',{style:'display:flex;justify-content:space-between;align-items:center'});
+    var lbl=el('span',{style:'font-size:0.85rem;color:'+(full?'var(--fos-success)':'var(--fos-ink)'),text:s.label+(full?' ✓':'')});
+    var qty=el('span',{style:'font-family:var(--fos-font-mono);font-size:0.8rem;color:var(--fos-ink-secondary)',text:paid+' / '+lot});
+    top.appendChild(lbl);top.appendChild(qty);sr.appendChild(top);
+    var track=el('div',{style:'background:var(--fos-border);border-radius:2px;height:3px;margin-top:3px'});
+    if(pct>0){var barFill=el('div',{style:'background:var(--fos-accent);border-radius:2px;height:3px;width:'+pct+'%'});track.appendChild(barFill);}
+    sr.appendChild(track);ctr.appendChild(sr);
+  });
+  return ctr;
+}
+
+// Work Order number is the primary order identifier. Always display alongside article name.
 function orderRowEl(o){
   var pct=o.orderQty>0?Math.min(100,Math.round(o.cumul/o.orderQty*100)):0;
   var over=o.orderQty>0&&o.cumul>o.orderQty;
   var done=!over&&o.orderQty>0&&o.cumul>=o.orderQty;
   var bClass=over?'red':done?'green':o.remaining>0?'blue':'grey';
-  var bText=over?'OVER':done?'DONE':o.remaining>0?(o.remaining+' left'):'NO LOT';
+  var bText=over?'COMPLETE':done?'DONE':o.remaining>0?(o.remaining+' left'):'NO LOT';
 
-  var row=el('div',{cls:'order-row',style:'padding:11px 16px'});
+  var wrap=el('div',{style:'border-bottom:0.5px solid var(--fos-border)'});
+  var row=el('div',{cls:'order-row',style:'padding:11px 16px;border-bottom:none'});
   var info=el('div',{cls:'order-info'});
   info.appendChild(el('div',{cls:'order-art',text:o.article||o.sheet}));
   info.appendChild(el('div',{cls:'order-cust',text:o.customer||''}));
+  if(o.bom){var _oBomS=el('span',{style:'font-family:var(--fos-font-mono);font-size:0.72rem;color:var(--fos-ink-secondary)',text:o.bom});info.appendChild(_oBomS);}
   var bar=el('div',{cls:'progress-bar'});
   var fill=el('div',{cls:'progress-fill '+(over?'over':done?'done':'')});
   fill.style.width=pct+'%';
@@ -586,7 +718,25 @@ function orderRowEl(o){
   info.appendChild(nums);
   row.appendChild(info);
   row.appendChild(el('span',{cls:'badge '+bClass,text:bText}));
-  return row;
+  wrap.appendChild(row);
+  var _arvProg={loaded:false};
+  var arvTgl=el('div',{style:'font-size:0.8rem;color:var(--fos-accent);cursor:pointer;user-select:none;padding:4px 16px 6px'});
+  arvTgl.textContent='▶ Stage Progress';
+  var arvPanel=el('div',{style:'display:none;padding:0 16px 8px'});
+  arvTgl.onclick=function(){
+    var open=arvPanel.style.display!=='none';
+    arvPanel.style.display=open?'none':'block';
+    arvTgl.textContent=open?'▶ Stage Progress':'▼ Stage Progress';
+    if(!open&&!_arvProg.loaded){
+      arvPanel.innerHTML='<div style="font-size:0.8rem;color:var(--fos-ink-secondary);padding:0.5rem 0">Loading...</div>';
+      google.script.run
+        .withSuccessHandler(function(r){_arvProg.loaded=true;arvPanel.innerHTML='';arvPanel.appendChild(renderStageBreakdown(r));})
+        .withFailureHandler(function(){arvPanel.innerHTML='<div style="font-size:0.8rem;color:var(--fos-ink-secondary);padding:0.5rem 0">Error loading</div>';})
+        .getOrderProgress(o.sheet);
+    }
+  };
+  wrap.appendChild(arvTgl);wrap.appendChild(arvPanel);
+  return wrap;
 }
 
 function sectionTitle(text){return el('div',{cls:'section-title',text:text});}
@@ -600,12 +750,14 @@ function fosMetricEl(label,value,sub,colorClass){
 }
 
 // ── ADMIN HOME ────────────────────────────────────────────────────────────────
+// Work Order number is the primary order identifier. Always display alongside article name.
 function buildAdminOrderRow(o){
   var wrap=el('div',{cls:'fos-admin-order'});
   var hdr=el('div',{style:'display:flex;justify-content:space-between;align-items:flex-start;cursor:pointer;gap:8px'});
   var hLeft=el('div',{style:'flex:1;min-width:0'});
   hLeft.appendChild(el('div',{style:'font-size:14px;font-weight:500;color:var(--fos-ink)',text:o.article||o.sheet}));
   if(o.customer)hLeft.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:1px',text:o.customer}));
+  if(o.bom)hLeft.appendChild(el('span',{style:'font-family:var(--fos-font-mono);font-size:0.72rem;color:var(--fos-ink-secondary)',text:o.bom}));
   hLeft.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:4px',text:(o.totalPaid||0)+' paid / '+(o.orderQty||0)+' lot / '+(o.thisWeekQty||0)+' this week'}));
   var _paid=o.totalPaid||o.cumul||0;
   var _pct=o.orderQty>0?Math.min(100,Math.round(_paid/o.orderQty*100)):0;
@@ -619,7 +771,7 @@ function buildAdminOrderRow(o){
   var done=!over&&o.orderQty>0&&o.cumul>=o.orderQty;
   var rem=o.remaining||0;
   var bClass=over?'red':done?'green':rem>0?'blue':'grey';
-  var bText=over?'OVER':done?'DONE':rem>0?(rem+' left'):'NO LOT';
+  var bText=over?'COMPLETE':done?'DONE':rem>0?(rem+' left'):'NO LOT';
   hdr.appendChild(el('span',{cls:'badge '+bClass,text:bText}));
   var det=el('div',{style:'display:none;padding:8px 0 4px;font-size:12px'});
   if(o.deptBreakdown&&o.deptBreakdown.length){
@@ -638,6 +790,23 @@ function buildAdminOrderRow(o){
   }
   hdr.onclick=function(){det.style.display=det.style.display==='none'?'block':'none';};
   wrap.appendChild(hdr);wrap.appendChild(det);
+  var _admProg={loaded:false};
+  var admTgl=el('div',{style:'font-size:0.8rem;color:var(--fos-accent);cursor:pointer;user-select:none;margin-top:6px'});
+  admTgl.textContent='▶ Stage Progress';
+  var admPanel=el('div',{style:'display:none'});
+  admTgl.onclick=function(ev){ev.stopPropagation();
+    var open=admPanel.style.display!=='none';
+    admPanel.style.display=open?'none':'block';
+    admTgl.textContent=open?'▶ Stage Progress':'▼ Stage Progress';
+    if(!open&&!_admProg.loaded){
+      admPanel.innerHTML='<div style="font-size:0.8rem;color:var(--fos-ink-secondary);padding:0.5rem 0">Loading...</div>';
+      google.script.run
+        .withSuccessHandler(function(r){_admProg.loaded=true;admPanel.innerHTML='';admPanel.appendChild(renderStageBreakdown(r));})
+        .withFailureHandler(function(){admPanel.innerHTML='<div style="font-size:0.8rem;color:var(--fos-ink-secondary);padding:0.5rem 0">Error loading</div>';})
+        .getOrderProgress(o.sheet);
+    }
+  };
+  wrap.appendChild(admTgl);wrap.appendChild(admPanel);
   return wrap;
 }
 
@@ -717,11 +886,44 @@ function renderAdminHome(c){
 }
 
 // ── ORDERS ────────────────────────────────────────────────────────────────────
+var ordersFilter='open',ordersBuyer='';
 function renderOrders(c){
   c.innerHTML='';
   if(!D.dash){c.appendChild(alert_('yellow','Loading...','Tap Refresh'));return;}
   c.appendChild(sectionTitle('All Orders'));
-  var orders=D.dash&&D.dash.orders?D.dash.orders:[];
+  var allOrders=D.dash&&D.dash.orders?D.dash.orders:[];
+
+  // filter bar
+  var filterBar=el('div',{style:'display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px'});
+  function pill(label,val){
+    var p=el('button',{text:label,style:'border:none;border-radius:16px;padding:5px 14px;font-family:var(--fos-font-body);font-size:13px;cursor:pointer;transition:background 0.15s'});
+    function upd(){p.style.background=ordersFilter===val?'var(--fos-accent)':'var(--fos-surface)';p.style.color=ordersFilter===val?'#fff':'var(--fos-ink)';}
+    p.onclick=function(){ordersFilter=val;renderOrders(c);};
+    upd();return p;
+  }
+  filterBar.appendChild(pill('Open','open'));
+  filterBar.appendChild(pill('Closed','closed'));
+  var buyers=[];
+  allOrders.forEach(function(o){if(o.customer&&buyers.indexOf(o.customer)<0)buyers.push(o.customer);});
+  buyers.sort();
+  if(buyers.length>0){
+    var sel=el('select',{style:'border:1px solid var(--fos-border);border-radius:6px;padding:0.4rem 0.75rem;font-family:var(--fos-font-body);font-size:0.85rem;background:var(--fos-surface);color:var(--fos-ink);cursor:pointer'});
+    var optAll=document.createElement('option');optAll.value='';optAll.textContent='All Buyers';sel.appendChild(optAll);
+    buyers.forEach(function(b){var opt=document.createElement('option');opt.value=b;opt.textContent=b;sel.appendChild(opt);});
+    sel.value=ordersBuyer;
+    sel.onchange=function(){ordersBuyer=sel.value;renderOrders(c);};
+    filterBar.appendChild(sel);
+  }
+  c.appendChild(filterBar);
+
+  var orders=allOrders.filter(function(o){
+    var lot=o.orderQty||0,paid=o.totalPaid||o.cumul||0;
+    var isOpen=lot===0||paid<lot;
+    var isMatch=ordersFilter==='open'?isOpen:!isOpen;
+    var buyerMatch=!ordersBuyer||o.customer===ordersBuyer;
+    return isMatch&&buyerMatch;
+  });
+
   orders.forEach(function(o){
     var wrap=buildAdminOrderRow(o);
     var delBtn=el('button',{text:'Delete Order',style:'background:none;border:none;color:var(--fos-danger);font-family:var(--fos-font-body);font-size:12px;padding:6px 0 2px;cursor:pointer;display:block'});
@@ -739,7 +941,7 @@ function renderOrders(c){
     wrap.appendChild(delBtn);
     c.appendChild(wrap);
   });
-  if(!orders.length)c.appendChild(el('div',{style:'color:var(--fos-ink-secondary);padding:20px;text-align:center',text:'No orders'}));
+  if(!orders.length)c.appendChild(el('div',{style:'color:var(--fos-ink-secondary);padding:20px;text-align:center',text:'Is filter mein koi order nahi hai'}));
 }
 
 // ── APPROVE ───────────────────────────────────────────────────────────────────
@@ -759,6 +961,7 @@ function renderApprove(c){
       var tl=el('div');
       tl.appendChild(el('div',{style:'font-size:14px;font-weight:700;color:var(--fos-ink)',text:sub.article}));
       tl.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-top:2px',text:(sub.customer?sub.customer+' · ':'')+sub.periodId+' · by '+sub.submittedBy}));
+      if(sub.bom)tl.appendChild(el('span',{style:'display:block;font-family:var(--fos-font-mono);font-size:0.72rem;color:var(--fos-ink-secondary);margin-top:2px',text:sub.bom}));
       top.appendChild(tl);top.appendChild(el('span',{cls:'badge yellow',text:'PENDING'}));
       card.appendChild(top);
       if(sub.activities&&sub.activities.length){
@@ -872,7 +1075,7 @@ function renderRequests(c){
       try{var pl3=JSON.parse(r.details);det.appendChild(el('div',{text:'Custom Period: '+(pl3.fromDate||'?')+' → '+(pl3.toDate||'?')}));if(pl3.reason)det.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'Reason: '+pl3.reason}));}
       catch(e3){det.appendChild(el('div',{text:r.details}));}
     } else if(r.type==='NEW_ORDER'){
-      try{var plno=JSON.parse(r.details);det.appendChild(el('div',{text:(plno.styleName||'?')+(plno.color?' — '+plno.color:'')+' for '+(plno.buyer||'?')}));det.appendChild(el('div',{cls:'fos-code',style:'font-size:11px;color:var(--fos-ink-secondary)',text:'TS: '+(plno.tsNumber||'?')+' | Lot: '+(plno.lotSize||0)+' pairs | Del: '+(plno.deliveryDate||'?')}));}
+      try{var plno=JSON.parse(r.details);det.appendChild(el('div',{text:(plno.styleName||'?')+(plno.color?' — '+plno.color:'')+' for '+(plno.buyer||'?')}));det.appendChild(el('div',{cls:'fos-code',style:'font-size:11px;color:var(--fos-ink-secondary)',text:'BOM: '+(plno.tsNumber||'?')+' | Lot: '+(plno.lotSize||0)+' pairs | Del: '+(plno.deliveryDate||'?')}));}
       catch(e4){det.appendChild(el('div',{text:r.details}));}
       if(r.ayushNotes)det.appendChild(el('div',{style:'margin-top:6px;padding:4px 8px;background:var(--fos-accent-soft);border-left:3px solid var(--fos-danger);color:var(--fos-danger);font-size:11px;border-radius:0 4px 4px 0',text:r.ayushNotes}));
     } else if(r.type==='PAYMENT'){
@@ -1040,11 +1243,51 @@ function renderArvindHome(c){
   krow.appendChild(kpiEl('Lot Alerts',String(d.redCount),d.redCount>0?'Over cap - check':'All good',d.redCount>0?'red':'green'));
   c.appendChild(krow);
   c.appendChild(sectionTitle('Orders'));
-  var orders=d.orders?d.orders:[];
-  var ordersWrap=el('div',{cls:'fos-card',style:'padding:0'});
-  orders.forEach(function(o){ordersWrap.appendChild(orderRowEl(o));});
-  if(orders.length)c.appendChild(ordersWrap);
-  else c.appendChild(el('div',{style:'color:var(--fos-ink-secondary);padding:20px;text-align:center',text:'No orders'}));
+  var allArvOrders=d.orders?d.orders:[];
+  var arvFilter='open',arvBuyer='';
+  function renderArvOrders(){
+    var existWrap=c.querySelector('.arv-orders-wrap');if(existWrap)existWrap.remove();
+    var wrap=el('div',{cls:'arv-orders-wrap'});
+
+    var filterBar=el('div',{style:'display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px'});
+    function pill(label,val){
+      var p=el('button',{text:label,style:'border:none;border-radius:16px;padding:5px 14px;font-family:var(--fos-font-body);font-size:13px;cursor:pointer;transition:background 0.15s'});
+      function upd(){p.style.background=arvFilter===val?'var(--fos-accent)':'var(--fos-surface)';p.style.color=arvFilter===val?'#fff':'var(--fos-ink)';}
+      p.onclick=function(){arvFilter=val;renderArvOrders();};
+      upd();return p;
+    }
+    filterBar.appendChild(pill('Open','open'));
+    filterBar.appendChild(pill('Closed','closed'));
+    var buyers=[];
+    allArvOrders.forEach(function(o){if(o.customer&&buyers.indexOf(o.customer)<0)buyers.push(o.customer);});
+    buyers.sort();
+    if(buyers.length>0){
+      var sel=el('select',{style:'border:1px solid var(--fos-border);border-radius:6px;padding:0.4rem 0.75rem;font-family:var(--fos-font-body);font-size:0.85rem;background:var(--fos-surface);color:var(--fos-ink);cursor:pointer'});
+      var optAll=document.createElement('option');optAll.value='';optAll.textContent='All Buyers';sel.appendChild(optAll);
+      buyers.forEach(function(b){var opt=document.createElement('option');opt.value=b;opt.textContent=b;sel.appendChild(opt);});
+      sel.value=arvBuyer;
+      sel.onchange=function(){arvBuyer=sel.value;renderArvOrders();};
+      filterBar.appendChild(sel);
+    }
+    wrap.appendChild(filterBar);
+
+    var filtered=allArvOrders.filter(function(o){
+      var lot=o.orderQty||0,paid=o.totalPaid||o.cumul||0;
+      var isOpen=lot===0||paid<lot;
+      var isMatch=arvFilter==='open'?isOpen:!isOpen;
+      var buyerMatch=!arvBuyer||o.customer===arvBuyer;
+      return isMatch&&buyerMatch;
+    });
+    if(filtered.length){
+      var card=el('div',{cls:'fos-card',style:'padding:0'});
+      filtered.forEach(function(o){card.appendChild(orderRowEl(o));});
+      wrap.appendChild(card);
+    } else {
+      wrap.appendChild(el('div',{style:'color:var(--fos-ink-secondary);padding:20px;text-align:center',text:'Is filter mein koi order nahi hai'}));
+    }
+    c.appendChild(wrap);
+  }
+  renderArvOrders();
 }
 
 // ── ALERTS / NOTIFICATIONS TAB ────────────────────────────────────────────────
@@ -1093,7 +1336,8 @@ function renderAlerts(c){
     if(r.type==='RATE_EDIT'){
       sumDiv.appendChild(el('div',{text:'Rate Change: '+(r.activityName||pl.activityName||('Row '+pl.rowIndex))+' → ₹'+(pl.newRate||0)+' rate, ₹'+(pl.newComm||0)+' comm'}));
     } else if(r.type==='ACTIVITY_SETUP'){
-      sumDiv.appendChild(el('div',{text:'Activity Setup: '+(pl.sheet||'?')+(pl.dept?' — '+pl.dept:'')}));
+      sumDiv.appendChild(el('div',{text:'Activity Setup: '+(r.articleLabel||pl.sheet||'?')+(pl.dept?' — '+pl.dept:'')}));
+      if(r.bom)sumDiv.appendChild(el('span',{style:'display:block;font-family:var(--fos-font-mono);font-size:0.72rem;color:var(--fos-ink-secondary);margin-top:2px',text:r.bom}));
     } else if(r.type==='NEW_ORDER'){
       sumDiv.appendChild(el('div',{text:(pl.styleName||'?')+(pl.color?' — '+pl.color:'')+' for '+(pl.buyer||'?')}));
     } else if(r.type==='CUSTOM_PERIOD_REQUEST'){
@@ -1102,6 +1346,7 @@ function renderAlerts(c){
       sumDiv.appendChild(el('div',{text:'Payment: '+(pl.periodId||pl.weekLabel||'?')}));
     } else if(r.type==='SETUP_EDIT_REQUEST'){
       sumDiv.appendChild(el('div',{text:'Setup Edit: '+(pl.dept||'?')+' dept — '+(r.articleLabel||pl.sheet||'?')}));
+      if(r.bom)sumDiv.appendChild(el('span',{style:'display:block;font-family:var(--fos-font-mono);font-size:0.72rem;color:var(--fos-ink-secondary);margin-top:2px',text:r.bom}));
     } else {
       sumDiv.appendChild(el('div',{text:r.details||r.type}));
     }
@@ -1176,512 +1421,75 @@ function renderAlerts(c){
 // ── STORE HOME ────────────────────────────────────────────────────────────────
 function renderStoreHome(c){
   c.innerHTML='';
-  c.appendChild(fosPipelineTracker({cutting:12,prep:8,upper:14,lasting:10,sole:6,finishing:4}));
-  c.appendChild(sectionTitle('WIP Entry'));
-  c.appendChild(alert_('blue','Enter Produced Quantities','Record what was actually made. System compares with payment.'));
-  var card=el('div',{cls:'card',style:'text-align:center;padding:24px'});
-  card.appendChild(el('div',{style:'font-size:15px;font-weight:700;margin-bottom:16px',text:'Tap WIP tab below to enter quantities'}));
-  var btn=el('button',{cls:'primary-btn',text:'Open WIP Entry',style:'max-width:180px;margin:0 auto'});
-  btn.onclick=function(){loadTab('wip');};
-  card.appendChild(btn);
-  c.appendChild(card);
-}
+  // Section 1: Pipeline tracker
+  var pt=fosPipelineTracker({cutting:12,prep:8,upper:14,lasting:10,sole:6,finishing:4});
+  pt.classList.add('fos-light');
+  c.appendChild(pt);
 
-// ── ENTRY ─────────────────────────────────────────────────────────────────────
-function renderEntry(c,reviewOnly){
-  c.innerHTML='';
-  var arts=D.entry&&D.entry.articles?D.entry.articles:[];
-  c.appendChild(sectionTitle(reviewOnly?'Review This Week':'Enter Production Data'));
-  if(reviewOnly){
-    var rBtn=el('button',{cls:'fos-btn-secondary',text:'Print Summary',style:'margin-bottom:8px'});
-    rBtn.onclick=openPrintSummary;
-    c.appendChild(rBtn);
-    var swBtn=el('button',{cls:'primary-btn',text:'Submit Week for Approval',style:'margin-bottom:12px'});
-    (function(btn){btn.onclick=function(){
-      var wk=D.entry&&D.entry.week;
-      btn.disabled=true;btn.textContent='Submitting…';
-      google.script.run
-        .withSuccessHandler(function(r){btn.disabled=false;btn.textContent='Submit Week for Approval';if(r&&r.success)toast('Submitted — Ayush will be notified');else toast((r&&r.error)||'Error',true);})
-        .withFailureHandler(function(){btn.disabled=false;btn.textContent='Submit Week for Approval';toast('Error',true);})
-        .submitRequest('PAYMENT',JSON.stringify({weekLabel:wk?wk.weekLabel:''}));
-    };})(swBtn);
-    c.appendChild(swBtn);
-  }
-  var allPeriods=D.entry&&D.entry.periods?D.entry.periods:[];
-  var openPeriods=allPeriods.filter(function(p){return (p.status||'').toUpperCase()==='OPEN';});
-  if(openPeriods.length>0&&!ENTRY_PERIOD)ENTRY_PERIOD=openPeriods[0];
-  var activePeriod=ENTRY_PERIOD||(D.entry&&D.entry.week)||null;
-  var periodClosed=!reviewOnly&&ENTRY_PERIOD&&(ENTRY_PERIOD.status||'').toUpperCase()==='CLOSED';
-  if(allPeriods.length>1){
-    var pWrap=el('div',{style:'margin-bottom:10px'});
-    pWrap.appendChild(el('div',{style:'font-size:11px;font-weight:500;color:var(--fos-ink-secondary);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px',text:'Payment Period'}));
-    var pSel=el('select',{cls:'form-select',style:'font-size:14px;font-weight:500'});
-    allPeriods.forEach(function(p){
-      var opt=el('option',{text:fmtPd(p.weekStart)+' – '+fmtPd(p.weekEnd,true)+(p.status==='CLOSED'?' (CLOSED)':''),value:p.periodId});
-      if(activePeriod&&p.periodId===activePeriod.periodId)opt.selected=true;
-      pSel.appendChild(opt);
-    });
-    (function(sel,rv,periods){
-      sel.onchange=function(){
-        for(var i=0;i<periods.length;i++){if(periods[i].periodId===sel.value){ENTRY_PERIOD=periods[i];break;}}
-        D.entry=null;
-        var mc=document.getElementById('mainContent');
-        mc.innerHTML='<div style="display:flex;justify-content:center;padding:50px"><div class="loader"></div></div>';
-        google.script.run
-          .withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];renderEntry(mc,rv);})
-          .withFailureHandler(showErr)
-          .getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
-      };
-    })(pSel,reviewOnly,allPeriods);
-    pWrap.appendChild(pSel);
-    c.appendChild(pWrap);
-  }
-  if(activePeriod&&activePeriod.weekLabel){
-    var wb=el('div',{style:'background:var(--fos-accent-soft);border-left:3px solid var(--fos-accent);padding:12px 16px;border-radius:8px;margin-bottom:12px'});
-    wb.appendChild(el('span',{style:'font-family:var(--fos-font-mono);font-size:13px;font-weight:500;color:var(--fos-accent)',text:fmtPd(activePeriod.weekStart)+' – '+fmtPd(activePeriod.weekEnd,true)}));
-    c.appendChild(wb);
-  } else {
-    c.appendChild(alert_('yellow','No active period','Week not configured — tap Refresh or contact admin'));
-  }
-  var cpWrap=el('div',{style:'margin-bottom:12px'});
-  var cpLink=el('a',{style:'font-size:12px;color:var(--fos-ink-secondary);cursor:pointer;text-decoration:underline',text:'+ Request Custom Period'});
-  var cpForm=el('div',{style:'display:none;background:var(--fos-surface);border:0.5px solid var(--fos-border);border-radius:8px;padding:12px;margin-top:8px'});
-  cpForm.innerHTML='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">'
-    +'<div><div style="font-size:11px;color:var(--fos-ink-secondary);margin-bottom:4px">FROM DATE</div>'
-    +'<input id="cpFrom" type="date" style="width:100%;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:6px 8px;color:var(--fos-ink);font-size:13px"></div>'
-    +'<div><div style="font-size:11px;color:var(--fos-ink-secondary);margin-bottom:4px">TO DATE</div>'
-    +'<input id="cpTo" type="date" style="width:100%;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:6px 8px;color:var(--fos-ink);font-size:13px"></div>'
-    +'</div>'
-    +'<div style="margin-bottom:8px"><div style="font-size:11px;color:var(--fos-ink-secondary);margin-bottom:4px">REASON *</div>'
-    +'<input id="cpReason" type="text" placeholder="e.g. holiday adjustment" style="width:100%;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:6px 8px;color:var(--fos-ink);font-size:13px;box-sizing:border-box"></div>';
-  var cpBtnRow=el('div',{style:'display:flex;gap:8px;align-items:center'});
-  var cpSubmit=el('button',{cls:'primary-btn',text:'Submit Request',style:'padding:7px 14px;font-size:13px'});
-  var cpCancel=el('a',{style:'font-size:12px;color:var(--fos-ink-secondary);cursor:pointer;text-decoration:underline',text:'Cancel'});
-  cpSubmit.onclick=function(){
-    var from=document.getElementById('cpFrom').value;
-    var to=document.getElementById('cpTo').value;
-    var reason=document.getElementById('cpReason').value.trim();
-    if(!reason){toast('Reason is required',true);return;}
-    cpSubmit.disabled=true;cpSubmit.textContent='Submitting…';
-    google.script.run
-      .withSuccessHandler(function(){toast('Request submitted');cpForm.style.display='none';cpLink.style.display='';cpSubmit.disabled=false;cpSubmit.textContent='Submit Request';})
-      .withFailureHandler(function(){toast('Error submitting request',true);cpSubmit.disabled=false;cpSubmit.textContent='Submit Request';})
-      .submitRequest('CUSTOM_PERIOD_REQUEST',JSON.stringify({fromDate:from,toDate:to,reason:reason}));
-  };
-  cpCancel.onclick=function(){cpForm.style.display='none';cpLink.style.display='';};
-  cpBtnRow.appendChild(cpSubmit);
-  cpBtnRow.appendChild(cpCancel);
-  cpForm.appendChild(cpBtnRow);
-  cpLink.onclick=function(){cpForm.style.display='block';cpLink.style.display='none';};
-  cpWrap.appendChild(cpLink);
-  cpWrap.appendChild(cpForm);
-  c.appendChild(cpWrap);
-  if(!arts.length){c.appendChild(el('div',{style:'color:var(--fos-ink-secondary);padding:40px;text-align:center',text:'No articles found'}));return;}
-  arts.forEach(function(a){
-    var over=a.status&&a.status.indexOf('OVER')>-1;
-    var complete=a.status&&a.status.indexOf('COMPLETE')>-1;
-    var hasData=a.activities&&a.activities.some(function(ac){return ac.qty>0;});
-    var bClass=over?'red':complete?'green':hasData?'blue':'grey';
-    var bText=over?'OVER LOT':complete?'LOT COMPLETE':hasData?'HAS ENTRIES':'EMPTY';
-
-    var item=el('div',{cls:'art-item'});
-    var hdr=el('div',{cls:'art-header'});
-    var info=el('div');
-    info.appendChild(el('div',{cls:'art-title',text:a.article||a.sheet}));
-    info.appendChild(el('div',{cls:'art-sub',text:(a.customer||'')+' '+(a.orderQty?('Lot: '+a.orderQty):'')+(a.thisWeek?(' | This wk: '+a.thisWeek):'')}));
-    hdr.appendChild(info);
-    hdr.appendChild(el('span',{cls:'badge '+bClass,text:bText}));
-    var bodyId='b-'+a.sheet.replace('-','_');
-    (function(bid){hdr.onclick=function(){
-      var b=document.getElementById(bid);
-      if(!b)return;
-      var opening=b.style.display!=='block';
-      var all=document.querySelectorAll('.art-body');
-      for(var i=0;i<all.length;i++)all[i].style.display='none';
-      if(opening)b.style.display='block';
-    };})(bodyId);
-    item.appendChild(hdr);
-
-    var body=el('div',{cls:'art-body',id:bodyId});
-    var DEPT_SEQ=['Cutting','Preparation','Fitter','Lasting','Finishing','Dispatch'];
-    var DEPT_KEY={'Cutting':'cutting','Preparation':'prep','Fitter':'fitter','Lasting':'lasting','Finishing':'finish','Dispatch':'dispatch'};
-    var deptStatus=a.deptStatus||{};
-    var allActs=a.activities||[];
-    var actsByDeptKey={};
-    allActs.forEach(function(ac){var k=ac.section||'other';if(!actsByDeptKey[k])actsByDeptKey[k]=[];actsByDeptKey[k].push(ac);});
-
-    if(reviewOnly){
-      var hasAny=false;
-      DEPT_SEQ.forEach(function(dept){
-        var dk=DEPT_KEY[dept];
-        var dActs=(actsByDeptKey[dk]||[]).filter(function(ac){return ac.qty>0;});
-        if(!dActs.length)return;
-        hasAny=true;
-        body.appendChild(el('div',{style:'padding:5px 16px 3px;background:var(--fos-bg);font-size:10px;font-weight:500;color:var(--fos-ink-secondary);text-transform:uppercase;letter-spacing:1px',text:dept.toUpperCase()}));
-        dActs.forEach(function(ac){
-          var row=el('div',{cls:'act-row'});
-          var ai=el('div',{cls:'act-info'});
-          ai.appendChild(el('div',{cls:'act-name',text:ac.activity}));
-          var dispRate=ac.rate,dispComm=ac.comm;
-          if(!dispRate){MASTER_ACTS.forEach(function(ma){if(ma.name===ac.activity&&!dispRate){dispRate=ma.stdRate;if(!dispComm)dispComm=ma.comm;}});}
-          ai.appendChild(el('div',{cls:'act-meta',text:'₹'+(dispRate||0)+'/pr'+(dispComm?' + ₹'+dispComm+' comm':'')}));
-          row.appendChild(ai);
-          row.appendChild(el('span',{cls:'badge '+(ac.qty>0?'green':'grey'),text:ac.qty>0?(ac.qty+' pairs'):'--'}));
-          body.appendChild(row);
-        });
-      });
-      if(!hasAny)body.appendChild(el('div',{style:'color:var(--fos-ink-secondary);padding:14px 16px;font-size:12px',text:'No entries this week'}));
-    } else {
-      var hasDraft=!periodClosed&&allActs.some(function(ac){var s=(ac.entryStatus||'').toUpperCase();return s==='DRAFT'||(ac.qty>0&&s!=='SUBMITTED'&&s!=='APPROVED');});
-      var submitBtnWrap=null;
-      var draftRowRefs=[];
-      if(!periodClosed){
-        submitBtnWrap=el('div',{style:'padding:12px 16px;border-top:0.5px solid var(--fos-border);'+(hasDraft?'':'display:none')});
-        var subBtn=el('button',{cls:'primary-btn',text:'Submit for Payment',style:'font-size:13px;font-weight:700;padding:12px;border-radius:10px'});
-        (function(sname,btn,wrap,refs,dSt,aActs){
-          btn.onclick=function(){
-            btn.disabled=true;btn.textContent='Checking…';
-            var pid=ENTRY_PERIOD?ENTRY_PERIOD.periodId:'';
-            checkDeptSequenceAndSubmit(sname,dSt,aActs,function(){
-              btn.textContent='Submitting…';
-              google.script.run
-                .withSuccessHandler(function(r){
-                  if(r&&r.success){
-                    toast('Submitted '+r.count+' entr'+(r.count===1?'y':'ies')+' for payment');
-                    wrap.style.display='none';D.entry=null;
-                    refs.forEach(function(ref){
-                      if(!ref.sel||!ref.qInp)return;
-                      ref.sel.disabled=true;ref.qInp.disabled=true;
-                      if(ref.convInp)ref.convInp.disabled=true;if(ref.remInp)ref.remInp.disabled=true;
-                      ref.stWrap.innerHTML='';
-                      ref.stWrap.appendChild(el('span',{cls:'badge blue',text:'SUBMITTED'}));
-                      var reb=el('button',{text:'Request Edit',style:'background:#1e2540;color:#f59e0b;font-size:10px;font-weight:700;padding:4px 8px;border-radius:6px;margin-top:2px'});
-                      (function(s,rn,an,b){b.onclick=function(){b.disabled=true;b.textContent='Edit Requested';google.script.run.withSuccessHandler(function(res){if(!res||!res.success)toast((res&&res.error)||'Error',true);}).withFailureHandler(function(){toast('Error',true);b.disabled=false;b.textContent='Request Edit';}).submitRequest('EDIT_REQUEST',JSON.stringify({sheet:s,rowNum:rn,activityName:an}));};})(sname,ref.rowNum,ref.actName,reb);
-                      ref.stWrap.appendChild(reb);
-                    });
-                  }
-                  else{toast((r&&r.error)||'Error',true);btn.disabled=false;btn.textContent='Submit for Payment';}
-                })
-                .withFailureHandler(function(){toast('Error',true);btn.disabled=false;btn.textContent='Submit for Payment';})
-                .submitArticleEntries(sname,pid);
-            });
-          };
-        })(a.sheet,subBtn,submitBtnWrap,draftRowRefs,deptStatus,allActs);
-        submitBtnWrap.appendChild(subBtn);
-      }
-
-      var actCounts={},actSeen={};allActs.forEach(function(ac){actCounts[ac.activity]=(actCounts[ac.activity]||0)+1;});
-
-      var allNotSet=DEPT_SEQ.every(function(d){return (deptStatus[d]||'NOT_SET')==='NOT_SET';});
-      if(allNotSet){
-        renderArticleLevelSetupCard(body,a.sheet);
-      } else {
-      DEPT_SEQ.forEach(function(dept){
-        var dk=DEPT_KEY[dept];
-        var ds=deptStatus[dept]||'NOT_SET';
-        var dActs=actsByDeptKey[dk]||[];
-
-        var dHdr=el('div',{style:'padding:6px 16px;background:var(--fos-bg);display:flex;align-items:center;justify-content:space-between'});
-        dHdr.appendChild(el('div',{style:'font-size:10px;font-weight:500;color:var(--fos-ink-secondary);text-transform:uppercase;letter-spacing:1px',text:dept.toUpperCase()}));
-
-        if(ds==='CAP_REACHED'){
-          dHdr.appendChild(el('span',{cls:'badge green',text:'COMPLETE'}));
-          body.appendChild(dHdr);
-          return;
-        }
-        if(ds==='SKIPPED'){
-          dHdr.appendChild(el('span',{cls:'badge grey',text:'SKIPPED'}));
-          body.appendChild(dHdr);
-          return;
-        }
-        if(ds==='PENDING'){
-          dHdr.appendChild(el('span',{cls:'badge yellow',text:'APPROVAL PENDING'}));
-          body.appendChild(dHdr);
-          return;
-        }
-        if(ds==='NOT_SET'){
-          body.appendChild(dHdr);
-          var setupWrap=el('div',{style:'padding:8px 16px 10px;background:var(--fos-bg)'});
-          var setupBtn=el('button',{text:'Set up '+dept,style:'background:var(--fos-surface);color:var(--fos-ink-secondary);font-size:12px;font-weight:500;padding:7px 14px;border-radius:8px;border:1px solid var(--fos-border)'});
-          var setupArea=el('div',{style:'display:none;margin-top:8px'});
-          (function(sn,d,dkk,sa,sb){sb.onclick=function(){sa.style.display='block';sb.style.display='none';renderDeptSetupManual(sa,sn,d,dkk);};})(a.sheet,dept,dk,setupArea,setupBtn);
-          setupWrap.appendChild(setupBtn);setupWrap.appendChild(setupArea);
-          body.appendChild(setupWrap);
-          return;
-        }
-        if(ds==='EDIT_UNLOCKED'){
-          dHdr.appendChild(el('span',{style:'font-size:10px;color:#f59e0b;font-weight:600',text:'EDIT UNLOCKED'}));
-          body.appendChild(dHdr);
-          var editWrap=el('div',{style:'padding:8px 16px 10px;background:var(--fos-bg)'});
-          (function(sn,d,dkk,existing,ew){renderDeptSetupEdit(ew,sn,d,dkk,existing);})(a.sheet,dept,dk,dActs,editWrap);
-          body.appendChild(editWrap);
-          return;
-        }
-        if(ds==='EDIT_PENDING'){
-          dHdr.appendChild(el('span',{cls:'badge yellow',text:'APPROVAL PENDING'}));
-          body.appendChild(dHdr);
-          return;
-        }
-
-        // APPROVED — show activity rows
-        if((USER.role==='accounts'||USER.role==='admin')&&ds==='APPROVED'){
-          var deptIdx=DEPT_SEQ.indexOf(dept);
-          var hasPaymentFromHere=DEPT_SEQ.slice(deptIdx).some(function(d2){
-            return a.deptHasPayment&&a.deptHasPayment[DEPT_KEY[d2]];
-          });
-          if(!hasPaymentFromHere){
-            if(a.pendingSetupEdits&&a.pendingSetupEdits[dept]){
-              dHdr.appendChild(el('span',{style:'font-size:10px;color:#9ca3af;font-weight:600',text:'Edit Requested'}));
-            } else {
-              var seBtn=el('button',{text:'Edit',style:'background:#1e2540;color:#f59e0b;font-size:10px;font-weight:700;padding:4px 8px;border-radius:6px'});
-              (function(sn,deptName,btn){btn.onclick=function(){
-                btn.disabled=true;btn.textContent='Requesting…';
-                google.script.run
-                  .withSuccessHandler(function(r){
-                    if(r&&r.success){btn.textContent='Edit Requested';D.entry=null;}
-                    else{toast((r&&r.error)||'Error',true);btn.disabled=false;btn.textContent='Edit';}
-                  })
-                  .withFailureHandler(function(){toast('Error',true);btn.disabled=false;btn.textContent='Edit';})
-                  .submitRequest('SETUP_EDIT_REQUEST',JSON.stringify({sheet:sn,dept:deptName}));
-              };})(a.sheet,dept,seBtn);
-              dHdr.appendChild(seBtn);
-            }
-          }
-        }
-        body.appendChild(dHdr);
-        if(!dActs.length){
-          body.appendChild(el('div',{style:'padding:8px 16px;font-size:11px;color:var(--fos-ink-secondary)',text:'No activities for '+dept}));
-          return;
-        }
-        dActs.forEach(function(ac){
-          actSeen[ac.activity]=(actSeen[ac.activity]||0)+1;
-          var isCont=actSeen[ac.activity]>1,isLast=actSeen[ac.activity]===actCounts[ac.activity];
-          var isDeptLocked=!periodClosed&&(ac.deptLocked===true);
-          var row=el('div',{cls:'act-row'});
-          var ai=el('div',{cls:'act-info'});
-          ai.appendChild(el('div',{cls:'act-name',text:(isCont?'↳ ':'')+ac.activity}));
-          var dispRate=ac.rate,dispComm=ac.comm;
-          if(!dispRate){MASTER_ACTS.forEach(function(ma){if(ma.name===ac.activity&&!dispRate){dispRate=ma.stdRate;if(!dispComm)dispComm=ma.comm;}});}
-          ai.appendChild(el('div',{cls:'act-meta',text:'₹'+(dispRate||0)+'/pr'+(dispComm?' + ₹'+dispComm+' comm':'')}));
-          row.appendChild(ai);
-          if(periodClosed){
-            var pcs=(ac.entryStatus||'').toUpperCase();
-            if(pcs==='APPROVED')row.appendChild(el('span',{cls:'badge green',text:'APPROVED'}));
-            else if(pcs==='SUBMITTED')row.appendChild(el('span',{cls:'badge blue',text:'SUBMITTED'}));
-            else if(ac.qty>0)row.appendChild(el('span',{cls:'badge grey',text:ac.qty+' pairs'}));
-            else row.appendChild(el('span',{cls:'badge grey',text:'—'}));
-          } else {
-            var entSt=(ac.entryStatus||'').toUpperCase();
-            var isApproved=entSt==='APPROVED';
-            var isSubmitted=entSt==='SUBMITTED';
-            var isSaved=!isApproved&&(entSt==='DRAFT'||(ac.qty>0&&!isSubmitted));
-            row.style.flexWrap='wrap';
-            var sel=el('select',{cls:'act-contractor'});
-            sel.appendChild(el('option',{text:'Select contractor',value:''}));
-            CONTRACTORS.forEach(function(cn){var opt=el('option',{text:cn,value:cn});if(cn===ac.contractor)opt.selected=true;sel.appendChild(opt);});
-            var qInp=el('input',{cls:'act-qty '+(ac.qty>0?'saved':''),type:'number',value:ac.qty||'',placeholder:'QTY'});
-            qInp.min=0;
-            var convInp=el('input',{type:'number',placeholder:'Conv ₹',value:ac.conveyance||'',style:'width:72px;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:6px 8px;color:var(--fos-ink);font-size:12px;text-align:center'});
-            var remInp=el('input',{type:'text',placeholder:'Remarks',value:ac.remarks||'',style:'flex:1;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:6px 8px;color:var(--fos-ink);font-size:12px'});
-            var sn=a.sheet,rowNum=ac.row;
-            sel.onchange=function(){qInp.classList.remove('saved');};
-            var stWrap=el('div',{style:'display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0'});
-            if(isDeptLocked){
-              sel.disabled=true;qInp.disabled=true;convInp.disabled=true;remInp.disabled=true;
-              stWrap.appendChild(el('span',{cls:'badge yellow',text:'DEPT FULL'}));
-            } else if(isApproved){
-              sel.disabled=true;qInp.disabled=true;convInp.disabled=true;remInp.disabled=true;
-              stWrap.appendChild(el('span',{cls:'badge green',text:'APPROVED'}));
-            } else if(isSubmitted){
-              sel.disabled=true;qInp.disabled=true;convInp.disabled=true;remInp.disabled=true;
-              stWrap.appendChild(el('span',{cls:'badge blue',text:'SUBMITTED'}));
-              var reb=el('button',{text:'Request Edit',style:'background:var(--fos-bg);color:var(--fos-warning);border:1px solid var(--fos-border);font-size:10px;font-weight:700;padding:4px 8px;border-radius:6px;margin-top:2px'});
-              (function(s,rn,an,b){b.onclick=function(){b.disabled=true;b.textContent='Edit Requested';google.script.run.withSuccessHandler(function(res){if(!res||!res.success)toast((res&&res.error)||'Error',true);}).withFailureHandler(function(){toast('Error',true);b.disabled=false;b.textContent='Request Edit';}).submitRequest('EDIT_REQUEST',JSON.stringify({sheet:s,rowNum:rn,activityName:an}));};})(sn,rowNum,ac.activity,reb);
-              stWrap.appendChild(reb);
-            } else if(isSaved){
-              sel.disabled=true;qInp.disabled=true;convInp.disabled=true;remInp.disabled=true;
-              var sc=el('span',{cls:'badge green',text:'SAVED'});
-              var eB=el('button',{text:'Edit',style:'background:var(--fos-bg);color:var(--fos-accent);border:1px solid var(--fos-border);font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});
-              var clrB=el('button',{text:'Clear',style:'background:var(--fos-bg);color:var(--fos-danger);border:1px solid var(--fos-border);font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px;margin-top:2px'});
-              (function(s,q,cinp,rinp,chip,eb,sw,subw,sname,rn){
-                eb.onclick=function(){s.disabled=false;q.disabled=false;cinp.disabled=false;rinp.disabled=false;chip.style.display='none';eb.style.display='none';var sb=el('button',{text:'Save',style:'background:var(--fos-success);color:#fff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});sb.onclick=function(){saveRow(sname,rn,s,q,sb,sw,subw,cinp,rinp);};sw.appendChild(sb);};
-              })(sel,qInp,convInp,remInp,sc,eB,stWrap,submitBtnWrap,sn,rowNum);
-              (function(sname,rn,aname,btn){
-                btn.onclick=function(){
-                  if(!confirm('Clear this entry? This cannot be undone.'))return;
-                  btn.disabled=true;btn.textContent='Clearing…';
-                  google.script.run
-                    .withSuccessHandler(function(r){
-                      if(r&&r.success){toast('Entry cleared');D.entry=null;setTimeout(function(){loadTab('entry');},600);}
-                      else{btn.disabled=false;btn.textContent='Clear';toast((r&&r.error)||'Error',true);}
-                    })
-                    .withFailureHandler(function(){btn.disabled=false;btn.textContent='Clear';toast('Error',true);})
-                    .clearEntry(sname,rn,aname);
-                };
-              })(sn,rowNum,ac.activity,clrB);
-              stWrap.appendChild(sc);stWrap.appendChild(eB);stWrap.appendChild(clrB);
-              draftRowRefs.push({stWrap:stWrap,sel:sel,qInp:qInp,convInp:convInp,remInp:remInp,rowNum:rowNum,actName:ac.activity,deptKey:dk});
-            } else {
-              var saveB=el('button',{text:'Save',style:'background:var(--fos-success);color:#fff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});
-              if(rowNum===0){
-                (function(s,q,sb,sw,subw,sname,aname,dr,dc,cinp,rinp){
-                  sb.onclick=function(){
-                    var qty=parseInt(q.value)||0;var contractor=s.value;
-                    if(!contractor){toast('Select a contractor',true);return;}
-                    if(!qty){toast('Enter quantity',true);return;}
-                    var conveyance=parseFloat(cinp.value)||null;var remarks=rinp.value.trim()||null;
-                    var pid=ENTRY_PERIOD?ENTRY_PERIOD.periodId:null;
-                    sb.disabled=true;sb.textContent='Saving…';q.style.borderColor='#f59e0b';
-                    google.script.run
-                      .withSuccessHandler(function(r){
-                        if(r.success){
-                          var newRn=r.row;q.classList.add('saved');q.style.borderColor='#4F7A52';
-                          s.disabled=true;q.disabled=true;cinp.disabled=true;rinp.disabled=true;
-                          sw.innerHTML='';
-                          var sc=el('span',{cls:'badge green',text:'SAVED'});
-                          var eB=el('button',{text:'Edit',style:'background:var(--fos-bg);color:var(--fos-accent);border:1px solid var(--fos-border);font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});
-                          (function(ss2,qq,ci,ri,chip,eb,sww,subww){eb.onclick=function(){ss2.disabled=false;qq.disabled=false;ci.disabled=false;ri.disabled=false;chip.style.display='none';eb.style.display='none';var sb2=el('button',{text:'Save',style:'background:var(--fos-success);color:#fff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});sb2.onclick=function(){saveRow(sname,newRn,ss2,qq,sb2,sww,subww,ci,ri);};sww.appendChild(sb2);};})(s,q,cinp,rinp,sc,eB,sw,subw);
-                          sw.appendChild(sc);sw.appendChild(eB);
-                          if(subw)subw.style.display='';
-                          if(r.lotStatus&&r.lotStatus.indexOf('OVER')>-1)toast('Over lot cap!',true);else toast('Saved');
-                        } else {sb.disabled=false;sb.textContent='Save';q.style.borderColor='#ef4444';toast(r.error||'Error',true);}
-                      })
-                      .withFailureHandler(function(){sb.disabled=false;sb.textContent='Save';q.style.borderColor='#ef4444';toast('Save failed',true);})
-                      .addContinuationRow(sname,aname,dr,dc,contractor,qty,conveyance,remarks,pid);
-                  };
-                })(sel,qInp,saveB,stWrap,submitBtnWrap,sn,ac.activity,ac.rate||0,ac.comm||0,convInp,remInp);
-              } else {
-                (function(s,q,sb,sw,subw,sname,rn,cinp,rinp){sb.onclick=function(){saveRow(sname,rn,s,q,sb,sw,subw,cinp,rinp);};})(sel,qInp,saveB,stWrap,submitBtnWrap,sn,rowNum,convInp,remInp);
-              }
-              stWrap.appendChild(saveB);
-            }
-            row.appendChild(sel);row.appendChild(qInp);row.appendChild(stWrap);
-            var subRow=el('div',{style:'flex-basis:100%;display:flex;gap:6px;margin-top:4px'});
-            subRow.appendChild(convInp);subRow.appendChild(remInp);
-            row.appendChild(subRow);
-          }
-          body.appendChild(row);
-          if(!periodClosed&&isLast&&!isApproved&&!isDeptLocked){
-            var contWrap=el('div',{style:'padding:2px 16px 6px 24px'});
-            var newRowsCont=el('div');
-            var addLink=el('a',{text:'+ Add Contractor',style:'font-size:11px;color:var(--fos-accent);cursor:pointer;text-decoration:underline'});
-            (function(sname,aname,dr,dc,nrc,subw){addLink.onclick=function(){nrc.appendChild(buildContRow(sname,aname,dr,dc,subw));};})(a.sheet,ac.activity,dispRate||0,dispComm||0,newRowsCont,submitBtnWrap);
-            contWrap.appendChild(newRowsCont);contWrap.appendChild(addLink);
-            body.appendChild(contWrap);
-          }
-        });
-      });
-      }
-      if(submitBtnWrap)body.appendChild(submitBtnWrap);
-    }
-    item.appendChild(body);
-    c.appendChild(item);
-    if(ENTRY_AUTO_OPEN_SHEET&&a.sheet===ENTRY_AUTO_OPEN_SHEET){
-      ENTRY_AUTO_OPEN_SHEET=null;ENTRY_REVISION_REMARK=null;
-      body.style.display='block';
-      setTimeout(function(){item.scrollIntoView({behavior:'smooth',block:'start'});},100);
-    }
+  var STAGES_WIP=['Cutting','Preparation','Fitter','Lasting/Pasting','Finishing/Packing','Dispatch'];
+  var todayStr=(new Date()).toISOString().slice(0,10);
+  var stageTotals={};STAGES_WIP.forEach(function(s){stageTotals[s]=0;});
+  var entries=D.wip&&Array.isArray(D.wip)?D.wip:[];
+  entries.forEach(function(e){
+    var eDate='';try{eDate=new Date(e.submittedAt).toISOString().slice(0,10);}catch(err){}
+    if(eDate!==todayStr)return;
+    if(stageTotals.hasOwnProperty(e.stage))stageTotals[e.stage]+=(e.pairsCompleted||0);
   });
-}
 
-function buildContRow(sname,actName,rate,comm,subWrap){
-  var row=el('div',{cls:'act-row',style:'flex-wrap:wrap;border-left:2px solid var(--fos-border)'});
-  var ai=el('div',{cls:'act-info'});
-  ai.appendChild(el('div',{cls:'act-name',text:'↳ '+actName}));
-  ai.appendChild(el('div',{cls:'act-meta',text:'₹'+(rate||0)+'/pr'+(comm?' + ₹'+comm+' comm':'')}));
-  row.appendChild(ai);
-  var sel=el('select',{cls:'act-contractor'});
-  sel.appendChild(el('option',{text:'Select contractor',value:''}));
-  CONTRACTORS.forEach(function(cn){sel.appendChild(el('option',{text:cn,value:cn}));});
-  var qInp=el('input',{cls:'act-qty',type:'number',placeholder:'QTY'});qInp.min=0;
-  var convInp=el('input',{type:'number',placeholder:'Conv ₹',style:'width:72px;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:6px 8px;color:var(--fos-ink);font-size:12px;text-align:center'});
-  var remInp=el('input',{type:'text',placeholder:'Remarks',style:'flex:1;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:6px 8px;color:var(--fos-ink);font-size:12px'});
-  var stWrap=el('div',{style:'display:flex;flex-direction:column;align-items:center;gap:4px;flex-shrink:0'});
-  var saveB=el('button',{text:'Save',style:'background:var(--fos-success);color:#fff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});
-  var delB=el('button',{text:'✕',style:'background:var(--fos-bg);color:var(--fos-danger);border:1px solid var(--fos-border);border-radius:4px;padding:4px 8px;cursor:pointer;font-size:12px'});
-  delB.onclick=function(){row.remove();};
-  (function(s,q,sb,sw,subw,cinp,rinp,db){
-    sb.onclick=function(){
-      var qty=parseInt(q.value)||0;
-      var contractor=s.value;
-      if(!contractor){toast('Select a contractor',true);return;}
-      if(!qty){toast('Enter quantity',true);return;}
-      var conveyance=parseFloat(cinp.value)||null;
-      var remarks=rinp.value.trim()||null;
-      var pid=ENTRY_PERIOD?ENTRY_PERIOD.periodId:null;
-      sb.disabled=true;sb.textContent='Saving…';q.style.borderColor='#f59e0b';
-      google.script.run
-        .withSuccessHandler(function(r){
-          if(r.success){
-            var rowNum=r.row;
-            q.classList.add('saved');q.style.borderColor='#4F7A52';
-            s.disabled=true;q.disabled=true;cinp.disabled=true;rinp.disabled=true;
-            sw.innerHTML='';
-            db.style.display='none';
-            var sc=el('span',{cls:'badge green',text:'SAVED'});
-            var eB=el('button',{text:'Edit',style:'background:var(--fos-bg);color:var(--fos-accent);border:1px solid var(--fos-border);font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});
-            (function(ss2,qq,c,ri,chip,eb,sww,subww){
-              eb.onclick=function(){ss2.disabled=false;qq.disabled=false;c.disabled=false;ri.disabled=false;chip.style.display='none';eb.style.display='none';var sb2=el('button',{text:'Save',style:'background:var(--fos-success);color:#fff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});sb2.onclick=function(){saveRow(sname,rowNum,ss2,qq,sb2,sww,subww,c,ri);};sww.appendChild(sb2);};
-            })(s,q,cinp,rinp,sc,eB,sw,subw);
-            sw.appendChild(sc);sw.appendChild(eB);
-            if(subw)subw.style.display='';
-            if(r.lotStatus&&r.lotStatus.indexOf('OVER')>-1)toast('Over lot cap!',true);
-            else toast('Saved');
-          } else {sb.disabled=false;sb.textContent='Save';q.style.borderColor='#ef4444';toast(r.error||'Error',true);}
-        })
-        .withFailureHandler(function(){sb.disabled=false;sb.textContent='Save';q.style.borderColor='#ef4444';toast('Save failed',true);})
-        .addContinuationRow(sname,actName,rate,comm,contractor,qty,conveyance,remarks,pid);
-    };
-  })(sel,qInp,saveB,stWrap,subWrap,convInp,remInp,delB);
-  stWrap.appendChild(saveB);
-  row.appendChild(sel);row.appendChild(qInp);row.appendChild(stWrap);row.appendChild(delB);
-  var subRow=el('div',{style:'flex-basis:100%;display:flex;gap:6px;margin-top:4px'});
-  subRow.appendChild(convInp);subRow.appendChild(remInp);
-  row.appendChild(subRow);
-  return row;
-}
+  // Section 2: Aaj Ka Report
+  var now=new Date();
+  var _MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var _DAYS=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  var todayLabel=now.getDate()+' '+_MONTHS[now.getMonth()]+', '+_DAYS[now.getDay()];
+  var sumCard=el('div',{style:'background:var(--fos-surface);border-radius:12px;padding:20px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,0.06)'});
+  sumCard.appendChild(el('div',{style:'font-family:var(--fos-font-display);font-size:18px;font-weight:600;color:var(--fos-accent);margin-bottom:2px',text:'Aaj Ka Report'}));
+  sumCard.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-bottom:14px',text:todayLabel}));
+  STAGES_WIP.forEach(function(stage){
+    var qty=stageTotals[stage];
+    var row=el('div',{style:'display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--fos-border)'});
+    row.appendChild(el('span',{style:'font-size:14px;color:var(--fos-ink)',text:stage}));
+    row.appendChild(qty>0?el('span',{style:'font-size:14px;font-weight:700;color:var(--fos-ink)',text:qty+' pairs'}):el('span',{style:'font-size:14px;color:var(--fos-ink-secondary)',text:'—'}));
+    sumCard.appendChild(row);
+  });
+  c.appendChild(sumCard);
 
-function saveRow(sn,rowNum,sel,qInp,saveBtn,stWrap,subWrap,convInp,remInp){
-  var qty=parseInt(qInp.value)||0;
-  var contractor=sel?sel.value:'';
-  if(!contractor){toast('Select a contractor',true);return;}
-  if(!qty){toast('Enter quantity',true);return;}
-  var conveyance=convInp?parseFloat(convInp.value)||null:null;
-  var remarks=remInp?remInp.value.trim()||null:null;
-  if(saveBtn){saveBtn.disabled=true;saveBtn.textContent='Saving…';}
-  qInp.style.borderColor=getComputedStyle(document.documentElement).getPropertyValue('--fos-warning').trim()||'#C28E2C';
-  google.script.run
-    .withSuccessHandler(function(r){
-      if(r.success){
-        qInp.classList.add('saved');
-        qInp.style.borderColor='#4F7A52';
-        sel.disabled=true;qInp.disabled=true;
-        if(convInp)convInp.disabled=true;
-        if(remInp)remInp.disabled=true;
-        if(stWrap){
-          stWrap.innerHTML='';
-          var sc=el('span',{cls:'badge green',text:'SAVED'});
-          var eB=el('button',{text:'Edit',style:'background:var(--fos-bg);color:var(--fos-accent);border:1px solid var(--fos-border);font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});
-          (function(s,q,cinp,rinp,chip,eb,sw,subw){
-            eb.onclick=function(){s.disabled=false;q.disabled=false;if(cinp)cinp.disabled=false;if(rinp)rinp.disabled=false;chip.style.display='none';eb.style.display='none';var sb=el('button',{text:'Save',style:'background:var(--fos-success);color:#fff;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px'});sb.onclick=function(){saveRow(sn,rowNum,s,q,sb,sw,subw,cinp,rinp);};sw.appendChild(sb);};
-          })(sel,qInp,convInp,remInp,sc,eB,stWrap,subWrap);
-          stWrap.appendChild(sc);stWrap.appendChild(eB);
-        }
-        if(subWrap)subWrap.style.display='';
-        if(r.lotStatus&&r.lotStatus.indexOf('OVER')>-1)toast('Over lot cap!',true);
-        else toast('Saved');
-      } else {
-        if(saveBtn){saveBtn.disabled=false;saveBtn.textContent='Save';}
-        qInp.style.borderColor='#A32D2D';
-        toast(r.error||'Error',true);
-      }
-    })
-    .withFailureHandler(function(){
-      if(saveBtn){saveBtn.disabled=false;saveBtn.textContent='Save';}
-      qInp.style.borderColor='#A32D2D';
-      toast('Save failed',true);
-    })
-    .saveEntry(sn,rowNum,contractor||null,qty,conveyance,remarks,null,null,ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
+  // Section 3: Quick Entry
+  var quickBtn=el('button',{cls:'primary-btn',text:'New WIP Entry',style:'margin-bottom:16px'});
+  quickBtn.onclick=function(){loadTab('wip');};
+  c.appendChild(quickBtn);
+
+  // Section 4: Recent Activity (last 5)
+  c.appendChild(el('div',{style:'font-size:11px;font-weight:600;color:var(--fos-ink-secondary);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px',text:'Recent Activity'}));
+  var recent=entries.slice().reverse().slice(0,5);
+  var actCard=el('div',{style:'background:var(--fos-surface);border-radius:12px;padding:0 16px;box-shadow:0 1px 4px rgba(0,0,0,0.06)'});
+  if(!recent.length){
+    actCard.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);padding:20px 0;text-align:center',text:'No entries yet'}));
+  } else {
+    var todayMid=new Date();todayMid.setHours(0,0,0,0);
+    var _MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    recent.forEach(function(e,i){
+      var arts=D.entry&&D.entry.articles?D.entry.articles:[];
+      var artM=arts.find?arts.find(function(a){return a.sheet===e.orderRef;}):null;
+      var dispRef=artM?artM.article:e.orderRef;
+      var stLbl=e.stage+(e.subDept?' / '+e.subDept:'');
+      var tsStr='—';
+      try{if(e.submittedAt){var d=new Date(e.submittedAt);tsStr=d>=todayMid?(String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')):(d.getDate()+' '+_MON[d.getMonth()]);}}catch(err){}
+      var sCls=e.status==='LINKED'?'badge green':e.status==='VOID'?'badge grey':'badge yellow';
+      var borderStyle=i<recent.length-1?'border-bottom:1px solid var(--fos-border)':'';
+      var row=el('div',{style:'display:flex;align-items:flex-start;justify-content:space-between;padding:12px 0;'+borderStyle});
+      var left=el('div',{style:'flex:1;min-width:0;margin-right:12px'});
+      left.appendChild(el('div',{style:'font-size:14px;font-weight:600;color:var(--fos-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap',text:dispRef}));
+      left.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:stLbl}));
+      row.appendChild(left);
+      var right=el('div',{style:'text-align:right;flex-shrink:0'});
+      right.appendChild(el('div',{style:'font-size:13px;font-weight:700;color:var(--fos-ink)',text:e.pairsCompleted+' pairs'}));
+      right.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-bottom:4px',text:tsStr}));
+      right.appendChild(el('span',{cls:sCls,text:e.status||'PENDING'}));
+      row.appendChild(right);
+      actCard.appendChild(row);
+    });
+  }
+  c.appendChild(actCard);
 }
 
 // ── NEW ORDER ─────────────────────────────────────────────────────────────────
@@ -1692,7 +1500,7 @@ function renderNewOrder(c){
 }
 
 function renderNO_Step1(c){
-  c.appendChild(sectionTitle('Find Technical Spec'));
+  c.appendChild(sectionTitle('Find BOM'));
   var sc=el('div',{cls:'fos-card'});
   var sr=el('div',{style:'display:flex;gap:8px;margin-bottom:10px'});
   var sI=el('input',{cls:'form-input',placeholder:'Search style name…',type:'text',style:'flex:1;padding:10px 12px'});
@@ -1700,8 +1508,8 @@ function renderNO_Step1(c){
   sr.appendChild(sI);sr.appendChild(sB);sc.appendChild(sr);
   var rL=el('div');sc.appendChild(rL);c.appendChild(sc);
   var nc=el('div',{cls:'fos-card'});
-  nc.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-bottom:10px',text:'No matching TS? Create one:'}));
-  var nB=el('button',{cls:'fos-btn-secondary',text:'+ Create New TS'});
+  nc.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-bottom:10px',text:'No matching BOM? Create one:'}));
+  var nB=el('button',{cls:'fos-btn-secondary',text:'+ Create New BOM'});
   nB.onclick=function(){renderNO_CreateTS(c);};nc.appendChild(nB);c.appendChild(nc);
   function doSearch(){
     var q=sI.value.trim();
@@ -1709,7 +1517,7 @@ function renderNO_Step1(c){
     google.script.run
       .withSuccessHandler(function(res){
         rL.innerHTML='';
-        if(!res||!res.length){rL.appendChild(el('div',{style:'color:var(--fos-ink-secondary);font-size:12px;padding:6px 0',text:q?'No results for "'+q+'"':'No TS records yet'}));return;}
+        if(!res||!res.length){rL.appendChild(el('div',{style:'color:var(--fos-ink-secondary);font-size:12px;padding:6px 0',text:q?'No results for "'+q+'"':'No BOM records yet'}));return;}
         res.forEach(function(ts){
           var row=el('div',{style:'padding:10px 0;border-bottom:0.5px solid var(--fos-border);cursor:pointer;display:flex;align-items:center;justify-content:space-between'});
           var inf=el('div');
@@ -1728,7 +1536,7 @@ function renderNO_Step1(c){
 
 function renderNO_CreateTS(c){
   c.innerHTML='';
-  c.appendChild(sectionTitle('Create New TS'));
+  c.appendChild(sectionTitle('Create New BOM'));
   var bk=el('button',{style:'background:var(--fos-bg);color:var(--fos-ink-secondary);border:1px solid var(--fos-border);font-size:12px;padding:8px 14px;border-radius:8px;margin-bottom:12px',text:'← Back'});
   bk.onclick=function(){renderTab('neworder');};c.appendChild(bk);
   var card=el('div',{cls:'fos-card'});
@@ -1769,7 +1577,7 @@ function renderNO_CreateTS(c){
   });
   c.appendChild(acCard);
   var sbC=el('div',{cls:'fos-card'});
-  var sbB=el('button',{cls:'primary-btn',text:'Create TS & Continue'});
+  var sbB=el('button',{cls:'primary-btn',text:'Create BOM & Continue'});
   sbB.onclick=function(){
     var sty=stI.value.trim();if(!sty){toast('Enter style name',true);return;}
     var acts=[];DEPTS.forEach(function(d){tsAD[d].forEach(function(e){if(e.chk.checked)acts.push({department:e.department,activityName:e.activityName,rate:e.rate,comm:e.comm});});});
@@ -1777,9 +1585,9 @@ function renderNO_CreateTS(c){
     google.script.run
       .withSuccessHandler(function(r){
         if(r&&r.success){NO_TS={tsNumber:r.tsNumber,styleName:sty,category:ctI.value.trim(),season:snS.value,activities:acts};NO_STEP=2;renderTab('neworder');}
-        else{toast((r&&r.error)||'Error',true);sbB.disabled=false;sbB.textContent='Create TS & Continue';}
+        else{toast((r&&r.error)||'Error',true);sbB.disabled=false;sbB.textContent='Create BOM & Continue';}
       })
-      .withFailureHandler(function(){toast('Error',true);sbB.disabled=false;sbB.textContent='Create TS & Continue';})
+      .withFailureHandler(function(){toast('Error',true);sbB.disabled=false;sbB.textContent='Create BOM & Continue';})
       .createTS(sty,ctI.value.trim(),snS.value,acts);
   };
   sbC.appendChild(sbB);c.appendChild(sbC);
@@ -1788,13 +1596,13 @@ function renderNO_CreateTS(c){
 function renderNO_Step2(c){
   c.appendChild(sectionTitle('Order Details'));
   var pill=el('div',{style:'display:flex;align-items:center;gap:8px;margin-bottom:12px;background:var(--fos-accent-soft);border-radius:8px;padding:8px 14px'});
-  pill.appendChild(el('span',{style:'font-size:11px;font-weight:700;color:var(--fos-accent)',text:'TS'}));
+  pill.appendChild(el('span',{style:'font-size:11px;font-weight:700;color:var(--fos-accent)',text:'BOM'}));
   pill.appendChild(el('span',{cls:'fos-code',style:'font-size:12px;color:var(--fos-ink)',text:NO_TS.tsNumber+' — '+NO_TS.styleName}));
   var xb=el('button',{style:'background:none;color:var(--fos-ink-secondary);font-size:18px;padding:0 4px;margin-left:auto',text:'×'});
   xb.onclick=function(){NO_STEP=1;NO_TS=null;renderTab('neworder');};
   pill.appendChild(xb);c.appendChild(pill);
   var card=el('div',{cls:'fos-card'});
-  var bmG=el('div',{cls:'form-group'});bmG.appendChild(el('label',{cls:'form-label',text:'BOM Number'}));
+  var bmG=el('div',{cls:'form-group'});bmG.appendChild(el('label',{cls:'form-label',text:'Work Order No.'}));
   bmG.appendChild(el('div',{style:'padding:12px 14px;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:10px;color:var(--fos-ink-secondary);font-size:13px',text:'Auto-assigned on approval'}));card.appendChild(bmG);
   var aG=el('div',{cls:'form-group'});aG.appendChild(el('label',{cls:'form-label',text:'Article Number *'}));
   var aI=el('input',{cls:'form-input',type:'text',placeholder:'e.g. 203090',value:NO_TS.styleName||''});aG.appendChild(aI);card.appendChild(aG);
@@ -1811,22 +1619,79 @@ function renderNO_Step2(c){
   var ddG=el('div',{cls:'form-group'});ddG.appendChild(el('label',{cls:'form-label',text:'Delivery Date *'}));
   var ddI=el('input',{cls:'form-input',type:'date'});ddG.appendChild(ddI);card.appendChild(ddG);
   c.appendChild(card);
-  var srCard=el('div',{cls:'fos-card'});srCard.appendChild(el('div',{cls:'section-title',text:'Size Run'}));
-  var srG=el('div',{style:'display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-bottom:10px'});
-  var sIs={};
-  [6,7,8,9,10,11].forEach(function(sz){
-    var col=el('div',{style:'text-align:center'});
-    col.appendChild(el('div',{style:'font-size:10px;font-weight:500;color:var(--fos-ink-secondary);margin-bottom:4px',text:'UK '+sz}));
-    var si=el('input',{type:'number',min:0,placeholder:'0',style:'width:100%;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:6px 4px;color:var(--fos-ink);font-family:var(--fos-font-mono);font-size:14px;font-weight:700;text-align:center'});
-    sIs[sz]=si;col.appendChild(si);srG.appendChild(col);
+  // ── GRADING ──────────────────────────────────────────────────────────────────
+  var GRADING_DEFAULTS={'Men_UK':['UK 6','UK 7','UK 8','UK 9','UK 10','UK 11'],'Men_EU':['EU 39','EU 40','EU 41','EU 42','EU 43','EU 44'],'Ladies_UK':['UK 3','UK 4','UK 5','UK 6','UK 7','UK 8'],'Ladies_EU':['EU 35','EU 36','EU 37','EU 38','EU 39','EU 40'],'Kids_UK':['UK 1','UK 2','UK 3','UK 4','UK 5','UK 6'],'Kids_EU':['EU 28','EU 29','EU 30','EU 31','EU 32','EU 33'],'Toddler_UK':['UK 5T','UK 6T','UK 7T','UK 8T','UK 9T','UK 10T'],'Toddler_EU':['EU 20','EU 21','EU 22','EU 23','EU 24','EU 25']};
+  var grSel=null,grCat=null,grBtns={};
+  var grCard=el('div',{cls:'fos-card'});
+  var catG=el('div',{cls:'form-group'});catG.appendChild(el('label',{cls:'form-label',text:'CATEGORY *'}));
+  var catS=el('select',{cls:'form-select'});
+  catS.appendChild(el('option',{text:'Select category...',value:''}));
+  ['Men','Ladies','Kids','Toddler'].forEach(function(cv){catS.appendChild(el('option',{text:cv,value:cv}));});
+  catG.appendChild(catS);grCard.appendChild(catG);
+  grCard.appendChild(el('label',{cls:'form-label',style:'margin-top:12px;display:block',text:'GRADING *'}));
+  var grRow=el('div',{style:'display:flex;gap:8px;flex-wrap:wrap;margin-top:4px'});
+  ['UK','EU'].forEach(function(g){
+    var gb=el('button',{text:g,style:'padding:8px 20px;border-radius:20px;border:1px solid var(--fos-border);background:var(--fos-surface);color:var(--fos-ink);font-size:13px;font-weight:500;cursor:pointer'});
+    grBtns[g]=gb;
+    gb.onclick=function(){
+      grSel=g;
+      ['UK','EU'].forEach(function(k){
+        grBtns[k].style.background=k===g?'var(--fos-accent)':'var(--fos-surface)';
+        grBtns[k].style.color=k===g?'#fff':'var(--fos-ink)';
+        grBtns[k].style.borderColor=k===g?'var(--fos-accent)':'var(--fos-border)';
+      });
+      if(grCat)renderSizeGrid(grCat+'_'+g);
+    };
+    grRow.appendChild(gb);
   });
-  srCard.appendChild(srG);
-  var ltRow=el('div',{style:'display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:0.5px solid var(--fos-border)'});
+  catS.onchange=function(){grCat=catS.value||null;if(grCat&&grSel)renderSizeGrid(grCat+'_'+grSel);};
+  grCard.appendChild(grRow);c.appendChild(grCard);
+
+  // ── SIZE RUN (dynamic) ────────────────────────────────────────────────────────
+  var srCard=el('div',{cls:'fos-card'});
+  srCard.appendChild(el('div',{cls:'section-title',text:'Size Run'}));
+  var srWrap=el('div',{style:'overflow-x:auto'});
+  var srG=el('div',{style:'display:flex;gap:6px;min-width:min-content;margin-bottom:10px'});
+  srWrap.appendChild(srG);srCard.appendChild(srWrap);
+  var ltRow=el('div',{style:'display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:0.5px solid var(--fos-border);margin-bottom:8px'});
   ltRow.appendChild(el('span',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:'Total Lot'}));
   var ltV=el('span',{style:'font-family:var(--fos-font-mono);font-size:18px;font-weight:700;color:var(--fos-accent)',text:'0'});
-  ltRow.appendChild(ltV);srCard.appendChild(ltRow);c.appendChild(srCard);
-  function recalc(){var t=0;[6,7,8,9,10,11].forEach(function(sz){t+=parseInt(sIs[sz].value)||0;});ltV.textContent=String(t);}
-  [6,7,8,9,10,11].forEach(function(sz){sIs[sz].oninput=recalc;});
+  ltRow.appendChild(ltV);srCard.appendChild(ltRow);
+  var ctrlRow=el('div',{style:'display:flex;gap:8px'});
+  var addSzBtn=el('button',{text:'＋ Add Size',style:'padding:6px 12px;border:1px solid var(--fos-accent);border-radius:8px;background:transparent;color:var(--fos-accent);font-size:12px;font-weight:700;cursor:pointer'});
+  var rmSzBtn=el('button',{text:'－ Remove Last',style:'padding:6px 12px;border:1px solid var(--fos-danger);border-radius:8px;background:transparent;color:var(--fos-danger);font-size:12px;font-weight:700;cursor:pointer'});
+  rmSzBtn.disabled=true;
+  ctrlRow.appendChild(addSzBtn);ctrlRow.appendChild(rmSzBtn);srCard.appendChild(ctrlRow);
+  c.appendChild(srCard);
+
+  function recalc(){var t=0;Array.from(srG.children).forEach(function(c2){t+=parseInt(c2._qI.value)||0;});ltV.textContent=String(t);}
+  function makeSizeCol(label){
+    var col=el('div',{style:'text-align:center;min-width:52px'});
+    var lI=el('input',{type:'text',value:label,style:'width:52px;font-size:0.7rem;color:var(--fos-ink-secondary);text-align:center;background:transparent;border-bottom:1.5px solid var(--fos-ink-secondary);border-top:none;border-left:none;border-right:none;border-radius:0;padding:2px 0;margin-bottom:4px;outline:none;font-family:var(--fos-font-body);display:block'});
+    lI.onfocus=function(){this.style.borderBottomColor='var(--fos-accent)';};
+    lI.onblur=function(){this.style.borderBottomColor='var(--fos-ink-secondary)';};
+    var qI=el('input',{type:'number',min:0,placeholder:'0',style:'width:52px;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:6px 4px;color:var(--fos-ink);font-family:var(--fos-font-mono);font-size:14px;font-weight:700;text-align:center'});
+    qI.oninput=recalc;
+    col._lI=lI;col._qI=qI;
+    col.appendChild(lI);col.appendChild(qI);
+    srG.appendChild(col);
+    return col;
+  }
+  function renderSizeGrid(grading){
+    srG.innerHTML='';
+    (GRADING_DEFAULTS[grading]||[]).forEach(function(s){makeSizeCol(s);});
+    recalc();
+    rmSzBtn.disabled=srG.children.length<=1;
+  }
+  addSzBtn.onclick=function(){makeSizeCol('');recalc();rmSzBtn.disabled=srG.children.length<=1;};
+  rmSzBtn.onclick=function(){
+    if(srG.children.length<=1)return;
+    var last=srG.children[srG.children.length-1];
+    var qty=parseInt(last._qI.value)||0;
+    if(qty>0&&!confirm('Is kha ko hatana chahte ho? (Qty: '+qty+')'))return;
+    srG.removeChild(last);recalc();rmSzBtn.disabled=srG.children.length<=1;
+  };
+
   if(NO_RESUBMIT&&NO_RESUBMIT.type==='NEW_ORDER'){
     var nrp=NO_RESUBMIT.payload;
     if(nrp.styleName)aI.value=nrp.styleName;
@@ -1836,7 +1701,14 @@ function renderNO_Step2(c){
     if(nrp.poNumber)poI.value=nrp.poNumber;
     if(nrp.poReceiveDate)prI.value=nrp.poReceiveDate;
     if(nrp.deliveryDate)ddI.value=nrp.deliveryDate;
-    if(nrp.sizeRun)Object.keys(nrp.sizeRun).forEach(function(sz){if(sIs[sz])sIs[sz].value=nrp.sizeRun[sz];});
+    if(nrp.category){catS.value=nrp.category;grCat=nrp.category;}
+    if(nrp.grading){
+      if(grBtns[nrp.grading]){grBtns[nrp.grading].onclick();}
+      else{var _lgp=nrp.grading.split(' ');if(_lgp[0]&&grBtns[_lgp[0]]){if(_lgp[1]&&!grCat){catS.value=_lgp[1];grCat=_lgp[1];}grBtns[_lgp[0]].onclick();}}
+    }
+    if(nrp.sizeBreakdown){
+      try{var sbR=JSON.parse(nrp.sizeBreakdown);srG.innerHTML='';Object.keys(sbR).forEach(function(k){var col=makeSizeCol(k);col._qI.value=sbR[k]||0;});recalc();rmSzBtn.disabled=srG.children.length<=1;}catch(e2){}
+    }
     recalc();
     c.appendChild(el('div',{style:'margin-bottom:8px;padding:6px 10px;background:var(--fos-accent-soft);border-left:3px solid var(--fos-warning);border-radius:0 6px 6px 0;color:var(--fos-warning);font-size:12px',text:'Revising: '+NO_RESUBMIT.revisionRemark}));
   }
@@ -1845,17 +1717,21 @@ function renderNO_Step2(c){
   sbB.onclick=function(){
     var art=aI.value.trim(),col=clI.value.trim(),buyer=byS.value,dd=ddI.value;
     if(!art||!col||!buyer||!dd){toast('Fill all required fields (*)',true);return;}
-    var sr={};[6,7,8,9,10,11].forEach(function(sz){var v=parseInt(sIs[sz].value)||0;if(v)sr[sz]=v;});
-    var lot=0;Object.keys(sr).forEach(function(k){lot+=parseFloat(sr[k])||0;});
+    if(!grCat){toast('Category select karo pehle',true);return;}
+    if(!grSel){toast('Grading select karo pehle (UK ya EU)',true);return;}
+    var szCols=Array.from(srG.children);
+    for(var ci=0;ci<szCols.length;ci++){if(!szCols[ci]._lI.value.trim()){toast('Size label blank nahi honi chahiye',true);return;}}
+    var sizeBreakdown={},lot=0;
+    szCols.forEach(function(c2){var v=parseInt(c2._qI.value)||0;sizeBreakdown[c2._lI.value.trim()]=v;lot+=v;});
     if(lot<=0){toast('Please enter at least one size quantity',true);return;}
     sbB.disabled=true;sbB.textContent='Submitting…';
     google.script.run
       .withSuccessHandler(function(r){
-        if(r&&r.success){toast('Submitted — waiting for Ayush approval');NO_STEP=1;NO_TS=null;NO_RESUBMIT=null;setTimeout(function(){loadTab('home');},800);}
+        if(r&&r.success){toast('Submitted — waiting for Ayush approval');NO_STEP=1;NO_TS=null;NO_RESUBMIT=null;grSel=null;setTimeout(function(){loadTab('home');},800);}
         else{toast((r&&r.error)||'Error',true);sbB.disabled=false;sbB.textContent='Submit for Approval';}
       })
       .withFailureHandler(function(){toast('Error',true);sbB.disabled=false;sbB.textContent='Submit for Approval';})
-      .submitRequest('NEW_ORDER',(function(){var p={tsNumber:NO_TS.tsNumber,styleName:art,color:col,buyer:buyer,brand:brI.value.trim(),poNumber:poI.value.trim(),poReceiveDate:prI.value,deliveryDate:dd,sizeRun:sr,lotSize:lot};if(NO_RESUBMIT&&NO_RESUBMIT.revisionRemark)p.revisionRemark=NO_RESUBMIT.revisionRemark;return JSON.stringify(p);})());
+      .submitRequest('NEW_ORDER',(function(){var p={tsNumber:NO_TS.tsNumber,styleName:art,color:col,buyer:buyer,brand:brI.value.trim(),poNumber:poI.value.trim(),poReceiveDate:prI.value,deliveryDate:dd,category:grCat,grading:grSel,sizeBreakdown:JSON.stringify(sizeBreakdown),lotSize:lot};if(NO_RESUBMIT&&NO_RESUBMIT.revisionRemark)p.revisionRemark=NO_RESUBMIT.revisionRemark;return JSON.stringify(p);})());
   };
   sbC.appendChild(sbB);c.appendChild(sbC);
 }
@@ -1863,111 +1739,1051 @@ function renderNO_Step2(c){
 // ── PAYMENT LIST ─────────────────────────────────────────────────────────────
 function renderPayment(c){
   c.innerHTML='';
-  var d=D.payment;
-  if(!d||!d.success){c.appendChild(alert_('yellow','Loading...','Tap Refresh'));return;}
-  c.appendChild(sectionTitle('Payment History'));
-  var pBtn=el('button',{text:'Print Summary',style:'width:100%;background:transparent;border:1.5px solid var(--fos-border);color:var(--fos-ink-secondary);font-family:var(--fos-font-body);font-size:14px;border-radius:8px;padding:12px;margin-bottom:12px;cursor:pointer'});
-  pBtn.onclick=openPrintSummary;
-  c.appendChild(pBtn);
-  var records=d.records||[];
-  if(!records.length){c.appendChild(alert_('blue','No payment history','No approved payments yet'));return;}
-  var periodMap={},periodOrder=[];
-  records.forEach(function(r){
-    if(!periodMap[r.periodId]){periodMap[r.periodId]={periodId:r.periodId,records:[]};periodOrder.push(r.periodId);}
-    periodMap[r.periodId].records.push(r);
+
+  // Header
+  var hdr=el('div',{style:'margin-bottom:16px'});
+  hdr.appendChild(el('div',{style:'font-family:var(--fos-font-display);font-size:22px;font-weight:700;color:var(--fos-accent)',text:'Process Payment'}));
+  hdr.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-top:2px',text:'Select completed job cards to submit for payment'}));
+  c.appendChild(hdr);
+
+  var jcs=D.completedJobCards;
+  if(!Array.isArray(jcs)){c.appendChild(alert_('yellow','Loading...','Tap Refresh'));return;}
+
+  var arts=D.entry&&D.entry.articles?D.entry.articles:[];
+  var contractors=D.contractors||[];
+  var artByRef={};arts.forEach(function(a){artByRef[a.sheet]=a;});
+  var ctrById={};contractors.forEach(function(ct){ctrById[ct.ctrId]=ct;});
+
+  if(!jcs.length){
+    var emptyWrap=el('div',{style:'text-align:center;padding:60px 20px'});
+    emptyWrap.appendChild(el('div',{style:'font-size:36px;color:var(--fos-success);margin-bottom:12px',text:'✓'}));
+    emptyWrap.appendChild(el('div',{style:'font-size:15px;font-weight:600;color:var(--fos-ink)',text:'No completed job cards pending payment'}));
+    emptyWrap.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-top:4px',text:'All paid up!'}));
+    c.appendChild(emptyWrap);
+    return;
+  }
+
+  // Group by contractor
+  var groupMap={},groupOrder=[];
+  jcs.forEach(function(jc){
+    var cid=jc.contractorId;
+    if(!groupMap[cid]){groupMap[cid]={contractorId:cid,cards:[]};groupOrder.push(cid);}
+    groupMap[cid].cards.push(jc);
   });
-  periodOrder.slice().reverse().forEach(function(pid){
-    var pg=periodMap[pid];
-    var card=el('div',{cls:'fos-card',style:'margin-bottom:10px'});
-    card.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary);margin-bottom:8px',text:pid}));
-    var total=0;
-    pg.records.forEach(function(r){
-      var row=el('div',{style:'display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:0.5px solid var(--fos-border)'});
-      var left=el('div');
-      left.appendChild(el('div',{style:'font-size:14px;font-weight:500;color:var(--fos-ink)',text:r.sheet||'—'}));
-      left.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:1px',text:(r.qty||0)+' pairs'+(r.date?' · '+r.date:'')}));
-      row.appendChild(left);
-      row.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:13px;font-weight:600;color:var(--fos-ink)',text:fmt(r.amount)}));
-      card.appendChild(row);
-      total+=r.amount;
+
+  groupOrder.forEach(function(cid){
+    var group=groupMap[cid];
+    var cards=group.cards;
+    var ctr=ctrById[cid];
+    var ctrName=ctr?ctr.name:cid;
+    var totalPairs=cards.reduce(function(s,jc){return s+(jc.pairsReceived||jc.pairsIssued||0);},0);
+
+    var selected={};cards.forEach(function(jc){selected[jc.jobCardId]=false;});
+    var rowEls={};
+
+    // Contractor card
+    var cCard=el('div',{cls:'fos-card',style:'margin-bottom:16px;padding:0;overflow:hidden'});
+
+    // Contractor header row
+    var cHdr=el('div',{style:'display:flex;align-items:center;gap:10px;padding:14px 16px;background:var(--fos-bg);border-bottom:1px solid var(--fos-border)'});
+    var allChk=el('input');allChk.type='checkbox';allChk.style.cssText='width:18px;height:18px;flex-shrink:0;cursor:pointer';
+    cHdr.appendChild(allChk);
+    var cNameWrap=el('div',{style:'flex:1;min-width:0'});
+    cNameWrap.appendChild(el('div',{style:'font-size:16px;font-weight:700;color:var(--fos-ink)',text:ctrName}));
+    cNameWrap.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:cid}));
+    cHdr.appendChild(cNameWrap);
+    cHdr.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);text-align:right;flex-shrink:0',text:cards.length+' job card'+(cards.length!==1?'s':'')+' · '+totalPairs+' pairs total'}));
+    cCard.appendChild(cHdr);
+
+    // Job card rows
+    var rowsWrap=el('div');
+    cards.forEach(function(jc){
+      var art=artByRef[jc.orderRef];
+      var artName=art?(art.article||jc.orderRef):jc.orderRef;
+      var artColor=art?(art.color||art.colour||''):'';
+      var pairs=jc.pairsReceived||jc.pairsIssued||0;
+      var rate=typeof jc.ratePerPair==='number'?jc.ratePerPair:0;
+      var amount=pairs*rate;
+
+      var row=el('div',{style:'display:flex;align-items:flex-start;gap:10px;padding:12px 16px;border-bottom:0.5px solid var(--fos-border)'});
+      var chk=el('input');chk.type='checkbox';chk.style.cssText='width:18px;height:18px;flex-shrink:0;cursor:pointer;margin-top:2px';
+      row.appendChild(chk);
+
+      var info=el('div',{style:'flex:1;min-width:0'});
+      info.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:12px;color:var(--fos-ink-secondary);margin-bottom:2px',text:jc.jobCardId}));
+      info.appendChild(el('div',{style:'font-size:14px;font-weight:500;color:var(--fos-ink);margin-bottom:2px',text:artName+(artColor?' · '+artColor:'')}));
+      info.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-bottom:2px',text:(jc.store||'')+(jc.movement?' · '+jc.movement:'')}));
+      info.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:'Pairs: '+pairs+'  ·  Rate: ₹'+(rate>0?rate.toFixed(2):'—')+'/pair'}));
+      row.appendChild(info);
+
+      var amtWrap=el('div',{style:'text-align:right;flex-shrink:0;padding-top:2px'});
+      if(rate===0){
+        amtWrap.appendChild(el('div',{style:'font-size:11px;color:var(--fos-warning);max-width:90px;text-align:right;line-height:1.4',text:'Rate not set — check activity setup'}));
+      } else {
+        amtWrap.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:14px;font-weight:700;color:var(--fos-accent)',text:'₹'+amount.toFixed(2)}));
+      }
+      row.appendChild(amtWrap);
+      rowsWrap.appendChild(row);
+
+      rowEls[jc.jobCardId]={chk:chk,pairs:pairs,rate:rate,amount:amount,row:row};
+      chk.onchange=function(){selected[jc.jobCardId]=chk.checked;updateSubtotal();};
     });
-    var footer=el('div',{style:'display:flex;justify-content:space-between;align-items:center;padding-top:8px'});
-    footer.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:pg.records[0]&&pg.records[0].approvedBy?'Approved by: '+pg.records[0].approvedBy:''}));
-    footer.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:14px;font-weight:600;color:var(--fos-ink)',text:fmt(total)}));
-    card.appendChild(footer);
-    c.appendChild(card);
+    cCard.appendChild(rowsWrap);
+
+    // Contractor subtotal row
+    var subRow=el('div',{style:'display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--fos-bg);border-top:1px solid var(--fos-border);flex-wrap:wrap'});
+    var selCountEl=el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);flex:1;min-width:100px'});
+    var subAmtEl=el('div',{style:'font-family:var(--fos-font-mono);font-size:15px;font-weight:700;color:var(--fos-ink)'});
+    var submitBtn=el('button',{cls:'primary-btn',text:'Submit Payment',style:'width:auto;padding:10px 16px;font-size:13px;border-radius:10px;flex-shrink:0'});
+    submitBtn.disabled=true;
+    subRow.appendChild(selCountEl);
+    subRow.appendChild(subAmtEl);
+    subRow.appendChild(submitBtn);
+    cCard.appendChild(subRow);
+
+    function updateSubtotal(){
+      var selIds=Object.keys(selected).filter(function(id){return selected[id];});
+      var selCount=selIds.length;
+      var subTotal=selIds.reduce(function(s,id){var r=rowEls[id];return s+(r?r.amount:0);},0);
+      var allRateOk=selIds.every(function(id){var r=rowEls[id];return r&&r.rate>0;});
+      selCountEl.textContent='Selected: '+selCount+' of '+cards.length+' cards';
+      subAmtEl.textContent=selCount>0?'₹'+subTotal.toFixed(2):'';
+      submitBtn.disabled=!(selCount>0&&allRateOk);
+      allChk.checked=selCount>0&&selCount===cards.length;
+      allChk.indeterminate=selCount>0&&selCount<cards.length;
+    }
+    updateSubtotal();
+
+    allChk.onchange=function(){
+      cards.forEach(function(jc){
+        selected[jc.jobCardId]=allChk.checked;
+        rowEls[jc.jobCardId].chk.checked=allChk.checked;
+      });
+      updateSubtotal();
+    };
+
+    // Submit handler — one per contractor group
+    (function(grpCid,grpCards,grpCtrName,grpSelected,grpRowEls,grpSubmitBtn){
+      grpSubmitBtn.onclick=function(){
+        var selIds=Object.keys(grpSelected).filter(function(id){return grpSelected[id];});
+        if(!selIds.length){toast('Select at least one job card',true);return;}
+        var allRateOk=selIds.every(function(id){var r=grpRowEls[id];return r&&r.rate>0;});
+        if(!allRateOk){toast('Some selected cards have no rate set — check activity setup',true);return;}
+        var selPairs=selIds.reduce(function(s,id){var r=grpRowEls[id];return s+(r?r.pairs:0);},0);
+        var selTotal=selIds.reduce(function(s,id){var r=grpRowEls[id];return s+(r?r.amount:0);},0);
+        var msg='Submit payment for '+grpCtrName+'?\n'+selIds.length+' job card'+(selIds.length!==1?'s':'')+' · '+selPairs+' pairs · ₹'+selTotal.toFixed(2)+' total';
+        if(!confirm(msg))return;
+        var payload={
+          contractorId:grpCid,
+          jobCardIds:selIds,
+          periodId:ENTRY_PERIOD?ENTRY_PERIOD.periodId:'PAY-'+new Date().toISOString().slice(0,10),
+          notes:''
+        };
+        grpSubmitBtn.disabled=true;
+        grpSubmitBtn.textContent='Submitting...';
+        google.script.run
+          .withSuccessHandler(function(r){
+            if(r&&r.success){
+              var payRef=r.paymentId||r.periodId||'';
+              toast('Payment submitted'+(payRef?' — '+payRef:'')+' · '+selIds.length+' job card'+(selIds.length!==1?'s':'')+' · ₹'+selTotal.toFixed(2));
+              D.completedJobCards=(D.completedJobCards||[]).filter(function(jc){return selIds.indexOf(jc.jobCardId)===-1;});
+              renderPayment(c);
+            } else {
+              grpSubmitBtn.disabled=false;
+              grpSubmitBtn.textContent='Submit Payment';
+              toast((r&&r.error)?r.error:'Payment submission failed',true);
+            }
+          })
+          .withFailureHandler(function(e){
+            grpSubmitBtn.disabled=false;
+            grpSubmitBtn.textContent='Submit Payment';
+            toast((e&&e.message)?e.message:'Error submitting payment',true);
+          })
+          .submitJobCardPayment(payload);
+      };
+    })(cid,cards,ctrName,selected,rowEls,submitBtn);
+
+    c.appendChild(cCard);
   });
+}
+
+// ── PAYMENT HISTORY ───────────────────────────────────────────────────────────
+function renderPayHistory(c){
+  c.innerHTML='';
+  var batches=D.payBatches||[];
+  var artMap={};
+  if(D.entry&&D.entry.articles){D.entry.articles.forEach(function(a){artMap[a.sheet]=a.article||a.sheet;});}
+  var ctrMap={};
+  if(D.contractors){D.contractors.forEach(function(ct){var cid=ct.contractorId||ct.id||'';if(cid)ctrMap[cid]=ct.name||cid;});}
+
+  var hdr=el('div',{style:'margin-bottom:16px'});
+  hdr.appendChild(el('div',{style:'font-family:var(--fos-font-display);font-size:22px;font-weight:700;color:var(--fos-accent)',text:'Payment History'}));
+  hdr.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-top:2px',text:'All payment batches submitted and approved'}));
+  c.appendChild(hdr);
+
+  if(!batches.length){
+    c.appendChild(alert_('yellow','No payment batches found','No payments have been submitted yet'));
+    return;
+  }
+
+  // Build filter option sets
+  var periods=[],periodSet={},articles=[],artSet={},ctrs=[],ctrSet={};
+  batches.forEach(function(b){
+    if(b.periodId&&!periodSet[b.periodId]){periodSet[b.periodId]=1;periods.push(b.periodId);}
+    var cid=b.contractorId||'';
+    if(cid&&!ctrSet[cid]){ctrSet[cid]=1;ctrs.push(cid);}
+    (b.jobCards||[]).forEach(function(jc){
+      var ref=jc.orderRef||jc.articleId||'';
+      if(ref&&!artSet[ref]){artSet[ref]=1;articles.push(ref);}
+    });
+  });
+  periods.sort(function(a,b){return b.localeCompare(a);});
+
+  var filterRow=el('div',{style:'display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap'});
+  var selPeriod=el('select',{style:'flex:1;min-width:110px;padding:6px 8px;border:1px solid var(--fos-border);border-radius:6px;background:var(--fos-surface);color:var(--fos-ink);font-size:13px'});
+  selPeriod.appendChild(el('option',{value:'',text:'All Periods'}));
+  periods.forEach(function(p){selPeriod.appendChild(el('option',{value:p,text:p}));});
+  var selArt=el('select',{style:'flex:1;min-width:110px;padding:6px 8px;border:1px solid var(--fos-border);border-radius:6px;background:var(--fos-surface);color:var(--fos-ink);font-size:13px'});
+  selArt.appendChild(el('option',{value:'',text:'All Articles'}));
+  articles.forEach(function(a){selArt.appendChild(el('option',{value:a,text:artMap[a]||a}));});
+  var selCtr=el('select',{style:'flex:1;min-width:110px;padding:6px 8px;border:1px solid var(--fos-border);border-radius:6px;background:var(--fos-surface);color:var(--fos-ink);font-size:13px'});
+  selCtr.appendChild(el('option',{value:'',text:'All Contractors'}));
+  ctrs.forEach(function(cid){selCtr.appendChild(el('option',{value:cid,text:ctrMap[cid]||cid}));});
+  filterRow.appendChild(selPeriod);filterRow.appendChild(selArt);filterRow.appendChild(selCtr);
+  c.appendChild(filterRow);
+
+  var listWrap=el('div',{});
+  c.appendChild(listWrap);
+
+  function rebuildList(){
+    listWrap.innerHTML='';
+    var fp=selPeriod.value,fa=selArt.value,fc=selCtr.value;
+    var filtered=batches.filter(function(b){
+      if(fp&&b.periodId!==fp)return false;
+      if(fc&&(b.contractorId||'')!==fc)return false;
+      if(fa){var has=(b.jobCards||[]).some(function(jc){return (jc.orderRef||jc.articleId||'')===fa;});if(!has)return false;}
+      return true;
+    });
+    var periodGroups={},periodOrder=[];
+    filtered.forEach(function(b){
+      var p=b.periodId||'Unknown';
+      if(!periodGroups[p]){periodGroups[p]=[];periodOrder.push(p);}
+      periodGroups[p].push(b);
+    });
+    periodOrder.sort(function(a,b){return b.localeCompare(a);});
+    if(!periodOrder.length){listWrap.appendChild(alert_('yellow','No results','No batches match the selected filters'));return;}
+
+    periodOrder.forEach(function(pid,pidx){
+      var grpBatches=periodGroups[pid];
+      var totPairs=0,totAmt=0,anyPending=false,allApproved=true;
+      grpBatches.forEach(function(b){
+        (b.jobCards||[]).forEach(function(jc){totPairs+=Number(jc.pairs||0);totAmt+=Number(jc.amount||0);});
+        if(b.status==='PENDING')anyPending=true;
+        if(b.status!=='APPROVED')allApproved=false;
+      });
+      var statusChip=anyPending
+        ?el('span',{style:'font-size:11px;font-weight:600;color:#b45309;background:#fef3c7;border-radius:4px;padding:2px 7px',text:'Pending Approval'})
+        :el('span',{style:'font-size:11px;font-weight:600;color:#15803d;background:#dcfce7;border-radius:4px;padding:2px 7px',text:'All Approved'});
+      var isExp=pidx===0;
+      var chev=el('span',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-left:auto',html:isExp?'&#9650;':'&#9660;'});
+      var phdr=el('div',{style:'display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--fos-surface);border:1px solid var(--fos-border);border-radius:10px;cursor:pointer;margin-bottom:4px;flex-wrap:wrap'});
+      phdr.appendChild(el('span',{style:'font-family:var(--fos-font-mono,monospace);font-size:12px;color:var(--fos-ink-secondary)',text:pid}));
+      phdr.appendChild(el('span',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:grpBatches.length+' batch'+(grpBatches.length!==1?'es':'')+' · '+totPairs+' pairs · ₹'+totAmt.toFixed(2)}));
+      phdr.appendChild(statusChip);
+      phdr.appendChild(chev);
+      var pbody=el('div',{style:'margin-bottom:12px;display:'+(isExp?'block':'none')});
+      phdr.onclick=function(){isExp=!isExp;pbody.style.display=isExp?'block':'none';chev.innerHTML=isExp?'&#9650;':'&#9660;';};
+
+      grpBatches.forEach(function(b){
+        var bCard=el('div',{style:'border:1px solid var(--fos-border);border-radius:8px;margin-bottom:8px;overflow:hidden'});
+        var ctrName=ctrMap[b.contractorId||'']||(b.contractorId||'Unknown');
+        var stStyle=b.status==='APPROVED'
+          ?'font-size:11px;font-weight:600;color:#15803d;background:#dcfce7;border-radius:4px;padding:2px 7px'
+          :b.status==='REJECTED'
+          ?'font-size:11px;font-weight:600;color:#dc2626;background:#fee2e2;border-radius:4px;padding:2px 7px'
+          :'font-size:11px;font-weight:600;color:#b45309;background:#fef3c7;border-radius:4px;padding:2px 7px';
+        var bhdRow=el('div',{style:'display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--fos-bg);flex-wrap:wrap'});
+        bhdRow.appendChild(el('span',{style:'font-family:var(--fos-font-mono,monospace);font-size:11px;color:var(--fos-ink-secondary)',text:b.paymentId||'—'}));
+        bhdRow.appendChild(el('span',{style:'font-size:13px;font-weight:600;color:var(--fos-ink);flex:1',text:ctrName+(b.contractorId?' ('+b.contractorId+')':'')}));
+        bhdRow.appendChild(el('span',{style:stStyle,text:b.status||'PENDING'}));
+        var subDate=b.submittedDate?(new Date(b.submittedDate)).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'2-digit'}):'';
+        if(subDate)bhdRow.appendChild(el('span',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:subDate}));
+        bCard.appendChild(bhdRow);
+
+        var jcs=b.jobCards||[];
+        var linesTog=el('div',{style:'display:flex;align-items:center;gap:6px;padding:6px 12px;font-size:12px;color:var(--fos-ink-secondary);cursor:pointer;border-top:1px solid var(--fos-border)'});
+        var lChev=el('span',{html:'&#9660;'});
+        linesTog.appendChild(el('span',{text:jcs.length+' job card'+(jcs.length!==1?'s':'')+' — tap to expand'}));
+        linesTog.appendChild(lChev);
+        var linesBody=el('div',{style:'display:none'});
+        var lOpen=false;
+        linesTog.onclick=function(){lOpen=!lOpen;linesBody.style.display=lOpen?'block':'none';lChev.innerHTML=lOpen?'&#9650;':'&#9660;';};
+        var bPairs=0,bAmt=0;
+        jcs.forEach(function(jc){
+          bPairs+=Number(jc.pairs||0);bAmt+=Number(jc.amount||0);
+          var artName=artMap[jc.orderRef||jc.articleId||'']||(jc.orderRef||jc.articleId||'—');
+          var jcRow=el('div',{style:'display:flex;align-items:center;gap:8px;padding:6px 12px;border-top:1px solid var(--fos-border);flex-wrap:wrap'});
+          jcRow.appendChild(el('span',{style:'font-family:var(--fos-font-mono,monospace);font-size:11px;color:var(--fos-ink-secondary);min-width:90px',text:jc.jobCardId||'—'}));
+          jcRow.appendChild(el('span',{style:'font-size:12px;color:var(--fos-ink);flex:1',text:artName+(jc.department?' · '+jc.department:'')}));
+          jcRow.appendChild(el('span',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:(jc.pairs||0)+' pairs · ₹'+Number(jc.amount||0).toFixed(2)}));
+          linesBody.appendChild(jcRow);
+        });
+        bCard.appendChild(linesTog);
+        bCard.appendChild(linesBody);
+
+        var bftr=el('div',{style:'display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--fos-border);flex-wrap:wrap'});
+        bftr.appendChild(el('span',{style:'font-size:13px;font-weight:700;color:var(--fos-ink)',text:'Total: '+bPairs+' pairs · ₹'+bAmt.toFixed(2)}));
+        if(b.status==='APPROVED'&&b.approvedBy){
+          var apDate=b.approvedDate?(new Date(b.approvedDate)).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'2-digit'}):'';
+          bftr.appendChild(el('span',{style:'font-size:11px;color:#15803d;margin-left:auto',text:'Approved by '+b.approvedBy+(apDate?' on '+apDate:'')}));
+        } else if(b.status==='REJECTED'&&b.rejectionReason){
+          bftr.appendChild(el('span',{style:'font-size:11px;color:#dc2626;margin-left:auto',text:'Rejected: '+b.rejectionReason}));
+        } else if(b.status==='PENDING'){
+          if(USER.role==='admin'){
+            var approveBtn=el('button',{style:'margin-left:auto;padding:5px 14px;background:#15803d;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer',text:'Approve'});
+            var rejectBtn=el('button',{style:'padding:5px 14px;background:none;color:#dc2626;border:1.5px solid #dc2626;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer',text:'Reject'});
+            (function(batch,aBtn,rBtn){
+              aBtn.onclick=function(){
+                if(!confirm('Approve payment '+batch.paymentId+'?'))return;
+                aBtn.disabled=true;aBtn.textContent='Approving…';
+                google.script.run
+                  .withSuccessHandler(function(r){
+                    if(r&&r.success){toast('Approved — '+batch.paymentId);D.payBatches=null;loadTab('payhistory');}
+                    else{aBtn.disabled=false;aBtn.textContent='Approve';toast((r&&r.error)?r.error:'Approval failed',true);}
+                  })
+                  .withFailureHandler(function(e){aBtn.disabled=false;aBtn.textContent='Approve';toast((e&&e.message)?e.message:'Error',true);})
+                  .approvePaymentBatch(batch.paymentId);
+              };
+              rBtn.onclick=function(){
+                var reason=prompt('Reason for rejecting '+batch.paymentId+':');
+                if(!reason||!reason.trim())return;
+                rBtn.disabled=true;rBtn.textContent='Rejecting…';
+                google.script.run
+                  .withSuccessHandler(function(r){
+                    if(r&&r.success){toast('Rejected — '+batch.paymentId);D.payBatches=null;loadTab('payhistory');}
+                    else{rBtn.disabled=false;rBtn.textContent='Reject';toast((r&&r.error)?r.error:'Rejection failed',true);}
+                  })
+                  .withFailureHandler(function(e){rBtn.disabled=false;rBtn.textContent='Reject';toast((e&&e.message)?e.message:'Error',true);})
+                  .rejectPaymentBatch(batch.paymentId,reason.trim());
+              };
+            })(b,approveBtn,rejectBtn);
+            bftr.appendChild(approveBtn);
+            bftr.appendChild(rejectBtn);
+          } else {
+            bftr.appendChild(el('span',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-left:auto',text:'Awaiting approval'}));
+          }
+        }
+        bCard.appendChild(bftr);
+        pbody.appendChild(bCard);
+      });
+
+      var grpWrap=el('div',{style:'margin-bottom:8px'});
+      grpWrap.appendChild(phdr);
+      grpWrap.appendChild(pbody);
+      listWrap.appendChild(grpWrap);
+    });
+  }
+
+  selPeriod.onchange=rebuildList;
+  selArt.onchange=rebuildList;
+  selCtr.onchange=rebuildList;
+  rebuildList();
 }
 
 // ── WIP ───────────────────────────────────────────────────────────────────────
 function renderWIP(c){
   c.innerHTML='';
-  var rows=D.wip&&D.wip.rows?D.wip.rows:[];
-  c.appendChild(sectionTitle('Produced vs Paid'));
-  if(!rows.length){c.appendChild(el('div',{style:'color:#4a5578;padding:40px;text-align:center',text:'No WIP data yet'}));return;}
-  var card=el('div',{cls:'card'});
-  rows.forEach(function(r){
-    var match=r.status&&r.status.indexOf('MATCH')>-1;
-    var over=r.status&&r.status.indexOf('PAID > MADE')>-1;
-    var row=el('div',{cls:'wip-row'});
-    row.appendChild(el('div',{cls:'wip-art',text:r.article}));
-    row.appendChild(el('div',{cls:'wip-act',text:r.activity||''}));
-    var cols=el('div',{cls:'wip-cols'});
-    var c1=el('div',{cls:'wip-col'});
-    c1.appendChild(el('div',{cls:'wip-col-label',text:'Produced'}));
-    var inp=el('input',{cls:'wip-input',type:'number',value:r.produced||'',placeholder:'0',id:'w-'+r.rowNum});
-    c1.appendChild(inp);
-    var c2=el('div',{cls:'wip-col'});
-    c2.appendChild(el('div',{cls:'wip-col-label',text:'Paid'}));
-    var pv=el('div',{cls:'wip-col-val',text:String(r.paid||0)});
-    pv.style.color='#4f8ef7';
-    c2.appendChild(pv);
-    var c3=el('div',{cls:'wip-col'});
-    c3.appendChild(el('div',{cls:'wip-col-label',text:'Diff'}));
-    var dv=el('div',{cls:'wip-col-val',text:String(r.difference||'--')});
-    dv.style.color=over?'#ef4444':match?'#10b981':'#7986a3';
-    c3.appendChild(dv);
-    var sb=el('button',{cls:'wip-save-btn',text:'Save',id:'ws-'+r.rowNum});
-    (function(rowNum,sinp,sbtn){sinp.onblur=function(){
-      sbtn.textContent='...';sbtn.disabled=true;
-      var val=parseInt(sinp.value)||0;
+
+  var STORE_MOVEMENTS={
+    'Upper Store':             ['Cutting IN','Preparation IN','Fitter IN'],
+    'Lasting & Packing Store': ['Upper IN','Lasting IN','Packing IN'],
+    'Dispatch Store':          ['Dispatch IN']
+  };
+  var MOVEMENT_DEPT={
+    'Cutting IN':     'Cutting',
+    'Preparation IN': 'Preparation',
+    'Fitter IN':      'Fitter',
+    'Upper IN':       'Lasting/Pasting',
+    'Lasting IN':     'Lasting/Pasting',
+    'Packing IN':     'Finishing/Packing',
+    'Dispatch IN':    'Dispatch'
+  };
+
+  var arts=D.entry&&D.entry.articles?D.entry.articles:[];
+  var enrollments=D.enrollments||[];
+  var contractors=D.contractors||[];
+
+  var selectedOrderRef='';
+  var selectedWorkOrder='';
+  var selectedOrderQty=0;
+  var selectedStore='';
+  var selectedMovement='';
+  var selectedContractorId='';
+  var activityCache={};
+
+  // ── Section 1: Issue Job Card Form ────────────────────────────────────────
+  var formCard=el('div',{cls:'art-item',style:'padding:16px;margin-bottom:16px'});
+
+  // 1. Order
+  var orderGrp=el('div',{cls:'form-group'});
+  orderGrp.appendChild(el('label',{cls:'form-label',text:'Order'}));
+  var orderSel=el('select',{cls:'form-select'});
+  orderSel.appendChild(el('option',{value:'',text:'— Select Order —'}));
+  arts.forEach(function(a){
+    var label='['+a.sheet+'] '+(a.bom||'')+(a.article?' · '+a.article:'')+(a.customer?' — '+a.customer:'');
+    orderSel.appendChild(el('option',{value:a.sheet,text:label}));
+  });
+  orderGrp.appendChild(orderSel);
+  formCard.appendChild(orderGrp);
+
+  // 2. Store
+  var storeGrp=el('div',{cls:'form-group'});
+  storeGrp.appendChild(el('label',{cls:'form-label',text:'Store'}));
+  var storeSel=el('select',{cls:'form-select'});
+  storeSel.appendChild(el('option',{value:'',text:'— Select Store —'}));
+  ['Upper Store','Lasting & Packing Store','Dispatch Store'].forEach(function(s){
+    storeSel.appendChild(el('option',{value:s,text:s}));
+  });
+  storeGrp.appendChild(storeSel);
+  formCard.appendChild(storeGrp);
+
+  // 3. Movement
+  var movGrp=el('div',{cls:'form-group'});
+  movGrp.appendChild(el('label',{cls:'form-label',text:'Movement'}));
+  var movSel=el('select',{cls:'form-select'});
+  movSel.disabled=true;
+  movSel.appendChild(el('option',{value:'',text:'— Select Movement —'}));
+  movGrp.appendChild(movSel);
+  formCard.appendChild(movGrp);
+  var actWarnDiv=el('div',{style:'display:none;font-size:12px;margin-top:2px;margin-bottom:8px'});
+  actWarnDiv.id='wip-act-warning';
+  formCard.appendChild(actWarnDiv);
+
+  // 4. Contractor
+  var ctrGrp=el('div',{cls:'form-group'});
+  ctrGrp.appendChild(el('label',{cls:'form-label',text:'Contractor'}));
+  var ctrSel=el('select',{cls:'form-select'});
+  ctrSel.disabled=true;
+  ctrSel.appendChild(el('option',{value:'',text:'— Select Contractor —'}));
+  var noEnrollMsg=el('div',{style:'display:none;font-size:12px;color:var(--fos-danger);margin-top:6px',text:'No contractors enrolled for this department. Enroll via Accounts > Contractors.'});
+  ctrGrp.appendChild(ctrSel);
+  ctrGrp.appendChild(noEnrollMsg);
+  formCard.appendChild(ctrGrp);
+
+  // 5. Pairs to Issue
+  var pairsGrp=el('div',{cls:'form-group'});
+  pairsGrp.appendChild(el('label',{cls:'form-label',text:'Pairs to Issue'}));
+  var pairsInput=el('input',{cls:'form-input',type:'number',min:'1',step:'1',placeholder:'0'});
+  var balanceEl=el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:4px',text:'Order balance: — pairs'});
+  pairsGrp.appendChild(pairsInput);
+  pairsGrp.appendChild(balanceEl);
+  formCard.appendChild(pairsGrp);
+
+  // 6. Size Breakdown
+  var sizeGrp=el('div',{cls:'form-group'});
+  sizeGrp.appendChild(el('label',{cls:'form-label',text:'Size Breakdown'}));
+  var sizeContainer=el('div');
+  sizeContainer.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'Select an order to load size breakdown'}));
+  sizeGrp.appendChild(sizeContainer);
+  formCard.appendChild(sizeGrp);
+
+  // 7. Expected Return Date
+  var dateGrp=el('div',{cls:'form-group'});
+  dateGrp.appendChild(el('label',{cls:'form-label',text:'Expected Return Date'}));
+  var dateInput=el('input',{cls:'form-input',type:'date'});
+  var d7=new Date();d7.setDate(d7.getDate()+7);
+  dateInput.value=d7.toISOString().slice(0,10);
+  dateGrp.appendChild(dateInput);
+  formCard.appendChild(dateGrp);
+
+  // 8. Notes
+  var notesGrp=el('div',{cls:'form-group'});
+  notesGrp.appendChild(el('label',{cls:'form-label',text:'Notes (optional)'}));
+  var notesInput=el('textarea',{cls:'form-input'});
+  notesInput.rows=2;
+  notesGrp.appendChild(notesInput);
+  formCard.appendChild(notesGrp);
+
+  // 9. Issue Job Card button
+  var issueBtn=el('button',{cls:'primary-btn',text:'Issue Job Card'});
+  issueBtn.disabled=true;
+  formCard.appendChild(issueBtn);
+  c.appendChild(formCard);
+
+  // ── Section 2: Recently Issued Today ─────────────────────────────────────
+  var recentWrap=el('div',{style:'margin-bottom:16px'});
+  recentWrap.appendChild(el('div',{
+    style:'font-size:11px;font-weight:600;letter-spacing:0.08em;color:var(--fos-ink-secondary);text-transform:uppercase;padding:12px 0 6px 0;border-bottom:1px solid var(--fos-border);margin-bottom:8px',
+    text:'RECENTLY ISSUED TODAY'
+  }));
+  var recentList=el('div');
+  recentWrap.appendChild(recentList);
+  c.appendChild(recentWrap);
+
+  function todayDateStr(){var n=new Date();return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');}
+
+  function renderRecentlyIssued(){
+    recentList.innerHTML='';
+    var jcs=Array.isArray(D.jobCards)?D.jobCards:[];
+    var today=todayDateStr();
+    var todayCards=jcs.filter(function(jc){return (jc.issuedAt||'').slice(0,10)===today;}).slice(0,5);
+    if(!todayCards.length){
+      recentList.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);padding:12px 0;text-align:center',text:'No job cards issued yet today'}));
+      return;
+    }
+    var artByRef={};arts.forEach(function(a){artByRef[a.sheet]=a;});
+    var ctrById={};contractors.forEach(function(ct){ctrById[ct.ctrId]=ct;});
+    todayCards.forEach(function(jc){
+      var art=artByRef[jc.orderRef];
+      var artName=art?(art.article||jc.orderRef):jc.orderRef;
+      var ctr=ctrById[jc.contractorId];
+      var ctrName=ctr?ctr.name:jc.contractorId;
+      var card=el('div',{style:'background:var(--fos-surface);border:0.5px solid var(--fos-border);border-radius:10px;padding:12px;margin-bottom:8px'});
+      var row1=el('div',{style:'display:flex;align-items:center;justify-content:space-between;margin-bottom:4px'});
+      row1.appendChild(el('span',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:jc.jobCardId}));
+      row1.appendChild(el('span',{cls:'badge yellow',text:'ISSUED'}));
+      card.appendChild(row1);
+      card.appendChild(el('div',{style:'font-size:14px;font-weight:600;color:var(--fos-ink);margin-bottom:2px',text:artName}));
+      card.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:jc.store+' · '+jc.movement}));
+      card.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:ctrName+' — '+jc.pairsIssued+' pairs'}));
+      recentList.appendChild(card);
+    });
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function populateMovements(){
+    movSel.innerHTML='';
+    movSel.appendChild(el('option',{value:'',text:'— Select Movement —'}));
+    (STORE_MOVEMENTS[selectedStore]||[]).forEach(function(mv){movSel.appendChild(el('option',{value:mv,text:mv}));});
+    movSel.disabled=!selectedStore;
+    selectedMovement='';
+    populateContractors();
+  }
+
+  function populateContractors(){
+    ctrSel.innerHTML='';
+    ctrSel.appendChild(el('option',{value:'',text:'— Select Contractor —'}));
+    ctrSel.disabled=true;
+    noEnrollMsg.style.display='none';
+    issueBtn.disabled=false;
+    selectedContractorId='';
+    if(!selectedMovement)return;
+    var dept=MOVEMENT_DEPT[selectedMovement]||'';
+    var enrolled=enrollments.filter(function(e){return e.department===dept&&(e.status||'').toUpperCase()==='ACTIVE';});
+    if(!enrolled.length){noEnrollMsg.style.display='block';issueBtn.disabled=true;return;}
+    var enrolledIds={};enrolled.forEach(function(e){enrolledIds[e.contractorId]=e.contractorName||e.contractorId;});
+    var found=contractors.filter(function(ct){return !!enrolledIds[ct.ctrId];});
+    if(found.length){
+      found.forEach(function(ct){ctrSel.appendChild(el('option',{value:ct.ctrId,text:ct.ctrId+' — '+ct.name}));});
+    } else {
+      enrolled.forEach(function(e){ctrSel.appendChild(el('option',{value:e.contractorId,text:e.contractorId+' — '+(e.contractorName||e.contractorId)}));});
+    }
+    ctrSel.disabled=false;
+  }
+
+  function loadSizeBreakdown(orderRef){
+    sizeContainer.innerHTML='';
+    if(!orderRef){sizeContainer.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'Select an order to load size breakdown'}));return;}
+    if(D.orderSizes&&D.orderSizes[orderRef]){renderSizeInputs(D.orderSizes[orderRef]);return;}
+    sizeContainer.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'Loading sizes...'}));
+    google.script.run
+      .withSuccessHandler(function(result){
+        if(!D.orderSizes)D.orderSizes={};
+        D.orderSizes[orderRef]=result;
+        if(selectedOrderRef===orderRef)renderSizeInputs(result);
+      })
+      .withFailureHandler(function(){
+        if(selectedOrderRef===orderRef){sizeContainer.innerHTML='';sizeContainer.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'Could not load size breakdown'}));}
+      })
+      .getOrderSizes(orderRef);
+  }
+
+  function renderSizeInputs(result){
+    sizeContainer.innerHTML='';
+    if(!result||result.error||!result.sizes||!Object.keys(result.sizes).length){
+      sizeContainer.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'No size breakdown available for this order'}));
+      return;
+    }
+    var sizes=result.sizes;
+    var keys=Object.keys(sizes).sort(function(a,b){return parseFloat(a)-parseFloat(b);});
+    var scroll=el('div',{style:'overflow-x:auto;-webkit-overflow-scrolling:touch'});
+    var row=el('div',{style:'display:inline-flex;gap:6px;min-width:min-content'});
+    keys.forEach(function(k){
+      var col=el('div',{style:'display:flex;flex-direction:column;align-items:center;gap:4px'});
+      col.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);font-weight:500',text:k}));
+      var inp=el('input');
+      inp.type='number';inp.min='0';inp.step='1';inp.value=String(sizes[k]||0);
+      inp.dataset.size=k;
+      inp.style.cssText='width:50px;padding:5px 4px;border:1px solid var(--fos-border);border-radius:8px;font-size:13px;text-align:center;background:var(--fos-surface);color:var(--fos-ink)';
+      col.appendChild(inp);
+      row.appendChild(col);
+    });
+    scroll.appendChild(row);
+    sizeContainer.appendChild(scroll);
+  }
+
+  function getSizeBreakdown(){
+    var result={};
+    sizeContainer.querySelectorAll('input[data-size]').forEach(function(inp){
+      var v=parseInt(inp.value,10);
+      if(v>0)result[inp.dataset.size]=v;
+    });
+    return result;
+  }
+
+  function checkDeptActivities(){
+    actWarnDiv.innerHTML='';
+    actWarnDiv.style.display='none';
+    if(!selectedOrderRef||!selectedMovement)return;
+    var DEPT_KEY_MAP={
+      'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter',
+      'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finishing','Dispatch IN':'dispatch'
+    };
+    var deptKey=DEPT_KEY_MAP[selectedMovement]||'';
+    if(!deptKey)return;
+    issueBtn.disabled=true;
+    if(activityCache[selectedOrderRef]){
+      applyActivityCheck(activityCache[selectedOrderRef],deptKey);
+    } else {
       google.script.run
         .withSuccessHandler(function(res){
-          sbtn.disabled=false;
-          if(res.success){sbtn.textContent='Saved';if(res.status&&res.status.indexOf('PAID > MADE')>-1)toast('Paid more than produced!',true);else toast('Saved');}
-          else{sbtn.textContent='Save';toast(res.error||'Error',true);}
+          activityCache[selectedOrderRef]=res;
+          var curKey=DEPT_KEY_MAP[selectedMovement]||'';
+          if(curKey===deptKey)applyActivityCheck(res,deptKey);
         })
-        .withFailureHandler(function(){sbtn.disabled=false;sbtn.textContent='Save';toast('Error',true);})
-        .saveWIP(rowNum,val);
-    };})(r.rowNum,inp,sb);
-    cols.appendChild(c1);cols.appendChild(c2);cols.appendChild(c3);cols.appendChild(sb);
-    row.appendChild(cols);
-    card.appendChild(row);
+        .withFailureHandler(function(){
+          actWarnDiv.innerHTML='';actWarnDiv.style.display='none';
+          issueBtn.disabled=ctrSel.disabled;
+        })
+        .getApprovedActivitiesForArticle(selectedOrderRef);
+    }
+  }
+
+  function applyActivityCheck(res,deptKey){
+    actWarnDiv.innerHTML='';
+    var deptActs=[];
+    if(res&&res.success&&Array.isArray(res.activities)){
+      deptActs=res.activities.filter(function(a){return (a.dept||'').toLowerCase().indexOf(deptKey)===0;});
+    }
+    if(deptActs.length===0){
+      actWarnDiv.innerHTML='<span style="color:var(--fos-danger)">⚠ No approved activities for '+(MOVEMENT_DEPT[selectedMovement]||selectedMovement)+' on this order. Contact Arvind to set up activities.</span>';
+      actWarnDiv.style.display='block';
+      issueBtn.disabled=true;
+    } else {
+      var totalRate=deptActs.reduce(function(s,a){return s+(a.rate||0);},0);
+      actWarnDiv.innerHTML='<span style="color:var(--fos-success)">✓ '+deptActs.length+' activit'+(deptActs.length===1?'y':'ies')+' set up · Rate: ₹'+totalRate.toFixed(2)+'/pair</span>';
+      actWarnDiv.style.display='block';
+      issueBtn.disabled=ctrSel.disabled;
+    }
+  }
+
+  // ── Event handlers ────────────────────────────────────────────────────────
+  orderSel.onchange=function(){
+    selectedOrderRef=orderSel.value;
+    var art=arts.filter(function(a){return a.sheet===selectedOrderRef;})[0];
+    selectedWorkOrder=art?(art.bom||''):'';
+    selectedOrderQty=art?(parseInt(art.orderQty,10)||0):0;
+    balanceEl.textContent=selectedOrderQty>0?'Order balance: '+selectedOrderQty+' pairs':'Order balance: — pairs';
+    loadSizeBreakdown(selectedOrderRef);
+  };
+
+  storeSel.onchange=function(){selectedStore=storeSel.value;populateMovements();};
+  movSel.onchange=function(){selectedMovement=movSel.value;populateContractors();checkDeptActivities();};
+  ctrSel.onchange=function(){selectedContractorId=ctrSel.value;};
+
+  issueBtn.onclick=function(){
+    selectedContractorId=ctrSel.value;
+    if(!selectedOrderRef){toast('Select an order',true);return;}
+    if(!selectedStore){toast('Select a store',true);return;}
+    if(!selectedMovement){toast('Select a movement',true);return;}
+    if(!selectedContractorId){toast('Select a contractor',true);return;}
+    var pv=parseInt(pairsInput.value,10);
+    if(!pv||pv<=0){toast('Enter pairs to issue',true);return;}
+    if(!dateInput.value){toast('Enter expected return date',true);return;}
+    var payload={
+      orderRef:selectedOrderRef,
+      workOrder:selectedWorkOrder,
+      store:selectedStore,
+      movement:selectedMovement,
+      contractorId:selectedContractorId,
+      pairsIssued:pv,
+      sizeBreakdown:getSizeBreakdown(),
+      expectedReturn:dateInput.value,
+      notes:notesInput.value.trim()
+    };
+    issueBtn.disabled=true;issueBtn.textContent='Issuing...';
+    google.script.run
+      .withSuccessHandler(function(r){
+        issueBtn.disabled=false;issueBtn.textContent='Issue Job Card';
+        if(r&&r.success){
+          toast('Issued — '+(r.jobCardId||'OK'));
+          if(r.warning)toast(r.warning,true);
+          storeSel.value='';selectedStore='';
+          populateMovements();
+          pairsInput.value='';
+          notesInput.value='';
+          var d7n=new Date();d7n.setDate(d7n.getDate()+7);dateInput.value=d7n.toISOString().slice(0,10);
+          google.script.run
+            .withSuccessHandler(function(jcs){D.jobCards=Array.isArray(jcs)?jcs:[];renderRecentlyIssued();})
+            .withFailureHandler(function(){})
+            .getJobCards({});
+        } else {
+          toast((r&&r.error)||'Error issuing job card',true);
+        }
+      })
+      .withFailureHandler(function(){
+        issueBtn.disabled=false;issueBtn.textContent='Issue Job Card';
+        toast('Error issuing job card',true);
+      })
+      .issueJobCard(payload);
+  };
+
+  renderRecentlyIssued();
+}
+
+// ── JOB CARDS — Phase 5.4c ───────────────────────────────────────────────────
+function renderJobCards(c){
+  c.innerHTML='';
+
+  var arts=D.entry&&D.entry.articles?D.entry.articles:[];
+  var contractors=D.contractors||[];
+
+  var artByRef={};arts.forEach(function(a){artByRef[a.sheet]=a;});
+  var ctrById={};contractors.forEach(function(ct){ctrById[ct.ctrId]=ct;});
+
+  var filterStore='';
+  var filterStatus='open';
+
+  // ── Section 1: Filters ────────────────────────────────────────────────────
+  var filterRow=el('div',{style:'display:flex;gap:8px;margin-bottom:12px'});
+
+  var storeFilt=el('select',{cls:'form-select',style:'flex:1;padding:8px 10px;font-size:13px'});
+  [{v:'',t:'All Stores'},{v:'Upper Store',t:'Upper Store'},{v:'Lasting & Packing Store',t:'L&P Store'},{v:'Dispatch Store',t:'Dispatch Store'}].forEach(function(o){
+    storeFilt.appendChild(el('option',{value:o.v,text:o.t}));
   });
-  c.appendChild(card);
+
+  var statusFilt=el('select',{cls:'form-select',style:'flex:1;padding:8px 10px;font-size:13px'});
+  [{v:'open',t:'Open'},{v:'complete',t:'Complete'},{v:'all',t:'All'}].forEach(function(o){
+    statusFilt.appendChild(el('option',{value:o.v,text:o.t}));
+  });
+
+  filterRow.appendChild(storeFilt);
+  filterRow.appendChild(statusFilt);
+  c.appendChild(filterRow);
+
+  // ── Section 2: Job Card list ──────────────────────────────────────────────
+  var listWrap=el('div');
+  c.appendChild(listWrap);
+
+  function fmtDate(iso){
+    if(!iso)return '—';
+    try{var d=new Date(iso);var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return d.getDate()+' '+months[d.getMonth()];}
+    catch(e){return iso.slice(0,10)||'—';}
+  }
+
+  function renderList(){
+    listWrap.innerHTML='';
+    var all=Array.isArray(D.jobCards)?D.jobCards:[];
+    var filtered=all.filter(function(jc){
+      if(filterStore&&jc.store!==filterStore)return false;
+      var st=(jc.status||'').toUpperCase();
+      if(filterStatus==='open')return st==='ISSUED'||st==='PARTIAL';
+      if(filterStatus==='complete')return st==='COMPLETE';
+      return true;
+    });
+    if(!filtered.length){
+      listWrap.appendChild(el('div',{style:'text-align:center;padding:40px;font-size:14px;color:var(--fos-ink-secondary)',text:'No job cards found'}));
+      return;
+    }
+    filtered.forEach(function(jc){
+      var st=(jc.status||'ISSUED').toUpperCase();
+      var art=artByRef[jc.orderRef];
+      var artName=art?(art.article||jc.orderRef):jc.orderRef;
+      var ctr=ctrById[jc.contractorId];
+      var ctrName=ctr?ctr.name:jc.contractorId;
+      var issued=jc.pairsIssued||0;
+      var received=jc.pairsReceived||0;
+      var balance=issued-received;
+      var pct=issued>0?Math.round((received/issued)*100):0;
+
+      var card=el('div',{style:'background:var(--fos-surface);border:0.5px solid var(--fos-border);border-radius:12px;padding:14px;margin-bottom:10px'});
+
+      // Top row: ID + badge
+      var topRow=el('div',{style:'display:flex;align-items:center;justify-content:space-between;margin-bottom:6px'});
+      topRow.appendChild(el('span',{style:'font-family:var(--fos-font-mono);font-size:12px;color:var(--fos-ink-secondary)',text:jc.jobCardId}));
+      var badgeCls=st==='COMPLETE'?'badge green':st==='PARTIAL'?'badge blue':'badge yellow';
+      topRow.appendChild(el('span',{cls:badgeCls,text:st}));
+      card.appendChild(topRow);
+
+      // Article name
+      card.appendChild(el('div',{style:'font-size:15px;font-weight:600;color:var(--fos-ink);margin-bottom:3px',text:artName}));
+
+      // Store · Movement
+      card.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-bottom:2px',text:jc.store+' · '+jc.movement}));
+
+      // Contractor
+      card.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-bottom:8px',text:ctrName}));
+
+      // Progress
+      var progWrap=el('div',{style:'margin-bottom:6px'});
+      var progHeader=el('div',{style:'display:flex;justify-content:space-between;margin-bottom:4px'});
+      progHeader.appendChild(el('span',{style:'font-size:13px;font-weight:700;color:var(--fos-ink)',text:'Issued: '+issued+' pairs'}));
+      progHeader.appendChild(el('span',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'Received: '+received+' / '+issued}));
+      progWrap.appendChild(progHeader);
+      var barBg=el('div',{style:'height:3px;background:var(--fos-border);border-radius:2px;overflow:hidden;margin-bottom:4px'});
+      var barFill=el('div');barFill.style.cssText='height:100%;width:'+pct+'%;background:var(--fos-accent);border-radius:2px;transition:width 0.3s';
+      barBg.appendChild(barFill);progWrap.appendChild(barBg);
+      progWrap.appendChild(el('span',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:'Balance: '+balance+' pairs'}));
+      card.appendChild(progWrap);
+
+      // Dates
+      var datesRow=el('div',{style:'display:flex;gap:12px;margin-bottom:8px'});
+      datesRow.appendChild(el('span',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'Issued: '+fmtDate(jc.issuedAt)}));
+      datesRow.appendChild(el('span',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'Expected: '+fmtDate(jc.expectedReturn)}));
+      card.appendChild(datesRow);
+
+      // Receive form or complete indicator
+      if(st==='ISSUED'||st==='PARTIAL'){
+        var rcvRow=el('div',{style:'display:flex;gap:8px;align-items:center'});
+        var rcvInput=el('input');
+        rcvInput.type='number';rcvInput.min='1';rcvInput.max=String(balance);rcvInput.placeholder='Pairs received';
+        rcvInput.style.cssText='flex:1;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:10px;padding:10px 12px;color:var(--fos-ink);font-size:14px';
+        var rcvBtn=el('button',{cls:'primary-btn',text:'Receive',style:'width:auto;padding:10px 18px;font-size:14px;border-radius:10px'});
+        rcvRow.appendChild(rcvInput);rcvRow.appendChild(rcvBtn);
+        card.appendChild(rcvRow);
+
+        (function(cardId,bal,btn,inp,cardEl){
+          btn.onclick=function(){
+            var v=parseInt(inp.value,10);
+            if(!v||v<=0||v>bal){toast('Enter a valid quantity (max '+bal+' pairs)',true);return;}
+            btn.disabled=true;btn.textContent='...';
+            google.script.run
+              .withSuccessHandler(function(r){
+                btn.disabled=false;btn.textContent='Receive';
+                if(r&&r.success){
+                  toast('Received — Job Card now '+(r.status||'updated'));
+                  if(r.warning)toast(r.warning,true);
+                  google.script.run
+                    .withSuccessHandler(function(jcs){D.jobCards=Array.isArray(jcs)?jcs:[];renderList();})
+                    .withFailureHandler(function(){})
+                    .getJobCards({});
+                } else {
+                  toast((r&&r.error)||'Error receiving',true);
+                }
+              })
+              .withFailureHandler(function(){btn.disabled=false;btn.textContent='Receive';toast('Error receiving job card',true);})
+              .receiveJobCard({jobCardId:cardId,pairsReceived:v,notes:''});
+          };
+        })(jc.jobCardId,balance,rcvBtn,rcvInput,card);
+
+      } else if(st==='COMPLETE'){
+        var doneRow=el('div',{style:'display:flex;align-items:center;gap:6px;padding:8px 0'});
+        doneRow.appendChild(el('span',{style:'color:var(--fos-success);font-size:16px',text:'✓'}));
+        doneRow.appendChild(el('span',{style:'font-size:13px;color:var(--fos-success)',text:'Completed '+fmtDate(jc.receivedAt)}));
+        card.appendChild(doneRow);
+      }
+
+      listWrap.appendChild(card);
+    });
+  }
+
+  storeFilt.onchange=function(){filterStore=storeFilt.value;renderList();};
+  statusFilt.onchange=function(){filterStatus=statusFilt.value;renderList();};
+
+  renderList();
+}
+
+// ── FLOOR VIEW — Phase 5.5 ────────────────────────────────────────────────────
+function renderFloor(c){
+  c.innerHTML='';
+
+  var arts=D.entry&&D.entry.articles?D.entry.articles:[];
+  var contractors=D.contractors||[];
+  var artByRef={};arts.forEach(function(a){artByRef[a.sheet]=a;});
+  var ctrById={};contractors.forEach(function(ct){ctrById[ct.ctrId]=ct;});
+
+  var filterStore='';
+  var sortMode='oldest';
+
+  // Header
+  var hdr=el('div',{style:'margin-bottom:16px'});
+  hdr.appendChild(el('div',{style:'font-size:20px;font-weight:700;color:var(--fos-accent)',text:'Floor View'}));
+  hdr.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'Outstanding work by contractor'}));
+  c.appendChild(hdr);
+
+  // Filters
+  var filterRow=el('div',{style:'display:flex;gap:8px;margin-bottom:16px'});
+  var storeFilt=el('select',{cls:'form-select',style:'flex:1;padding:8px 10px;font-size:13px'});
+  [{v:'',t:'All Stores'},{v:'Upper Store',t:'Upper Store'},{v:'Lasting & Packing Store',t:'L&P Store'},{v:'Dispatch Store',t:'Dispatch'}].forEach(function(o){
+    storeFilt.appendChild(el('option',{value:o.v,text:o.t}));
+  });
+  var sortFilt=el('select',{cls:'form-select',style:'flex:1;padding:8px 10px;font-size:13px'});
+  [{v:'oldest',t:'Longest Outstanding'},{v:'pairs',t:'Most Pairs'},{v:'name',t:'Contractor Name'}].forEach(function(o){
+    sortFilt.appendChild(el('option',{value:o.v,text:o.t}));
+  });
+  filterRow.appendChild(storeFilt);filterRow.appendChild(sortFilt);
+  c.appendChild(filterRow);
+
+  var listWrap=el('div');
+  c.appendChild(listWrap);
+
+  function daysSince(iso){
+    if(!iso)return 0;
+    try{
+      var d=new Date(iso);d.setHours(0,0,0,0);
+      var now=new Date();now.setHours(0,0,0,0);
+      return Math.max(0,Math.floor((now.getTime()-d.getTime())/(86400000)));
+    }catch(e){return 0;}
+  }
+
+  function fmtDate(iso){
+    if(!iso)return '—';
+    try{var d=new Date(iso);var mo=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return d.getDate()+' '+mo[d.getMonth()];}
+    catch(e){return iso.slice(0,10)||'—';}
+  }
+
+  function isPast(iso){
+    if(!iso)return false;
+    try{var d=new Date(iso);d.setHours(23,59,59,0);return d.getTime()<Date.now();}
+    catch(e){return false;}
+  }
+
+  function renderList(){
+    listWrap.innerHTML='';
+    var all=Array.isArray(D.jobCards)?D.jobCards:[];
+    var open=all.filter(function(jc){
+      var st=(jc.status||'').toUpperCase();
+      if(st!=='ISSUED'&&st!=='PARTIAL')return false;
+      if(filterStore&&jc.store!==filterStore)return false;
+      return true;
+    });
+
+    if(!open.length){
+      var emptyWrap=el('div',{style:'text-align:center;padding:48px 16px'});
+      emptyWrap.appendChild(el('div',{style:'font-size:32px;color:var(--fos-success)',text:'✓'}));
+      emptyWrap.appendChild(el('div',{style:'font-size:14px;color:var(--fos-ink-secondary);margin-top:8px',text:'No outstanding work — all job cards complete'}));
+      listWrap.appendChild(emptyWrap);
+      return;
+    }
+
+    // Group by contractorId
+    var groupMap={};
+    open.forEach(function(jc){
+      var cId=jc.contractorId||'UNKNOWN';
+      if(!groupMap[cId])groupMap[cId]={ctrId:cId,cards:[]};
+      groupMap[cId].cards.push(jc);
+    });
+
+    var groups=Object.keys(groupMap).map(function(cId){
+      var g=groupMap[cId];
+      var ctr=ctrById[cId];
+      g.contractorName=ctr?ctr.name:cId;
+      g.totalOutstanding=0;
+      var oldestMs=Infinity;
+      g.cards.forEach(function(jc){
+        g.totalOutstanding+=(jc.pairsIssued||0)-(jc.pairsReceived||0);
+        if(jc.issuedAt){var t=new Date(jc.issuedAt).getTime();if(t<oldestMs)oldestMs=t;}
+      });
+      g.oldestIssuedIso=oldestMs===Infinity?'':new Date(oldestMs).toISOString();
+      g.daysOutstanding=daysSince(g.oldestIssuedIso);
+      g.jobCardCount=g.cards.length;
+      return g;
+    });
+
+    if(sortMode==='oldest'){groups.sort(function(a,b){return b.daysOutstanding-a.daysOutstanding;});}
+    else if(sortMode==='pairs'){groups.sort(function(a,b){return b.totalOutstanding-a.totalOutstanding;});}
+    else{groups.sort(function(a,b){return a.contractorName.localeCompare(b.contractorName);});}
+
+    groups.forEach(function(g){
+      var card=el('div',{style:'background:var(--fos-surface);border:0.5px solid var(--fos-border);border-radius:12px;padding:14px;margin-bottom:10px'});
+
+      // Top row: name + days badge
+      var topRow=el('div',{style:'display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px'});
+      var nameCol=el('div',{style:'flex:1;min-width:0;margin-right:8px'});
+      nameCol.appendChild(el('div',{style:'font-size:16px;font-weight:700;color:var(--fos-ink)',text:g.contractorName}));
+      if(g.ctrId&&g.ctrId!==g.contractorName){
+        nameCol.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:g.ctrId}));
+      }
+      topRow.appendChild(nameCol);
+      var days=g.daysOutstanding;
+      var badgeCls=days>=8?'badge red':days>=4?'badge yellow':'badge grey';
+      var badgeText=days>=8?(days+'d — DELAYED'):(days+'d');
+      topRow.appendChild(el('span',{cls:badgeCls,text:badgeText}));
+      card.appendChild(topRow);
+
+      // Summary
+      var plural=g.jobCardCount===1?' job card':' job cards';
+      card.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-bottom:10px',
+        text:g.totalOutstanding+' pairs outstanding across '+g.jobCardCount+plural}));
+
+      // Expand toggle
+      var expanded=false;
+      var toggleLabel=g.jobCardCount+plural+' — tap to expand';
+      var toggleBtn=el('div',{style:'font-size:12px;color:var(--fos-accent);cursor:pointer;user-select:none',text:toggleLabel});
+      var detailWrap=el('div',{style:'display:none;margin-top:8px;border-top:0.5px solid var(--fos-border);padding-top:8px'});
+
+      g.cards.forEach(function(jc){
+        var art=artByRef[jc.orderRef];
+        var artName=art?(art.article||jc.orderRef):jc.orderRef;
+        var bal=(jc.pairsIssued||0)-(jc.pairsReceived||0);
+        var overdue=isPast(jc.expectedReturn);
+
+        var jcRow=el('div',{style:'padding:8px 0;border-bottom:0.5px solid var(--fos-border)'});
+
+        var jcTop=el('div',{style:'display:flex;align-items:center;justify-content:space-between;margin-bottom:2px'});
+        jcTop.appendChild(el('span',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:jc.jobCardId}));
+        jcTop.appendChild(el('span',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:jc.store+' · '+jc.movement}));
+        jcRow.appendChild(jcTop);
+
+        jcRow.appendChild(el('div',{style:'font-size:13px;font-weight:600;color:var(--fos-ink);margin-bottom:2px',text:artName}));
+        jcRow.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-bottom:2px',
+          text:'Issued '+(jc.pairsIssued||0)+' · Received '+(jc.pairsReceived||0)+' · Balance '+bal}));
+
+        var datesRow=el('div',{style:'display:flex;flex-wrap:wrap;gap:8px;align-items:center'});
+        datesRow.appendChild(el('span',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'Issued: '+fmtDate(jc.issuedAt)}));
+        datesRow.appendChild(el('span',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'Expected: '+fmtDate(jc.expectedReturn)}));
+        if(overdue){
+          datesRow.appendChild(el('span',{style:'font-size:10px;font-weight:700;color:var(--fos-danger);font-family:var(--fos-font-mono)',text:'OVERDUE'}));
+        }
+        jcRow.appendChild(datesRow);
+        detailWrap.appendChild(jcRow);
+      });
+
+      toggleBtn.onclick=function(){
+        expanded=!expanded;
+        detailWrap.style.display=expanded?'block':'none';
+        toggleBtn.textContent=g.jobCardCount+plural+(expanded?' — tap to collapse':' — tap to expand');
+      };
+      card.appendChild(toggleBtn);
+      card.appendChild(detailWrap);
+      listWrap.appendChild(card);
+    });
+  }
+
+  storeFilt.onchange=function(){filterStore=storeFilt.value;renderList();};
+  sortFilt.onchange=function(){sortMode=sortFilt.value;renderList();};
+  renderList();
 }
 
 // ── CONTRACTORS & ACTIVITIES ──────────────────────────────────────────────────
 function renderContractors(c){
   c.innerHTML='';
   c.appendChild(sectionTitle('Contractors'));
+
+  // ── ADD CONTRACTOR ────────────────────────────────────────────────────────
   var addWrap=el('div',{style:'margin-bottom:12px'});
   var addBtn=el('button',{cls:'primary-btn',text:'+ Add Contractor',style:'border-radius:8px;font-size:14px;font-weight:500;padding:12px;margin-bottom:0'});
   var addForm=el('div',{style:'display:none;background:var(--fos-surface);border:0.5px solid var(--fos-border);border-radius:12px;padding:14px;margin-top:8px'});
   var afNG=el('div',{cls:'form-group'});afNG.appendChild(el('label',{cls:'form-label',text:'Name *'}));
   var afName=el('input',{cls:'form-input',type:'text',placeholder:'e.g. Raju Kumar'});afNG.appendChild(afName);addForm.appendChild(afNG);
-  var afDG=el('div',{cls:'form-group'});afDG.appendChild(el('label',{cls:'form-label',text:'Department'}));
-  var afDept=el('select',{cls:'form-select'});
-  [{v:'cutting',l:'Cutting'},{v:'prep',l:'Prep'},{v:'fitter',l:'Fitter'},{v:'lasting',l:'Lasting'},{v:'finish',l:'Finish'},{v:'dispatch',l:'Dispatch'}].forEach(function(d){afDept.appendChild(el('option',{text:d.l,value:d.v}));});
-  afDG.appendChild(afDept);addForm.appendChild(afDG);
   var afPMG=el('div',{cls:'form-group'});afPMG.appendChild(el('label',{cls:'form-label',text:'Payment Method'}));
   var afPM=el('select',{cls:'form-select'});
-  ['Cash','UPI','Bank Transfer'].forEach(function(m){afPM.appendChild(el('option',{text:m,value:m}));});
+  ['Bank Transfer','Cash','UPI'].forEach(function(m){afPM.appendChild(el('option',{text:m,value:m}));});
   afPMG.appendChild(afPM);addForm.appendChild(afPMG);
   var afPhG=el('div',{cls:'form-group'});afPhG.appendChild(el('label',{cls:'form-label',text:'Phone'}));
   var afPhone=el('input',{cls:'form-input',type:'tel',placeholder:'e.g. 9876543210'});afPhG.appendChild(afPhone);addForm.appendChild(afPhG);
   var afBR=el('div',{style:'display:flex;gap:8px;align-items:center'});
-  var afSub=el('button',{cls:'primary-btn',text:'Save Contractor',style:'flex:1;padding:12px'});
+  var afSub=el('button',{cls:'primary-btn',text:'Add Contractor',style:'flex:1;padding:12px'});
   var afCnl=el('a',{style:'font-size:12px;color:var(--fos-ink-secondary);cursor:pointer;text-decoration:underline',text:'Cancel'});
   afBR.appendChild(afSub);afBR.appendChild(afCnl);addForm.appendChild(afBR);
   addBtn.onclick=function(){addForm.style.display='block';addBtn.style.display='none';};
@@ -1977,38 +2793,101 @@ function renderContractors(c){
     afSub.disabled=true;afSub.textContent='Saving…';
     google.script.run
       .withSuccessHandler(function(r){
-        afSub.disabled=false;afSub.textContent='Save Contractor';
-        if(r&&r.success){toast('Contractor saved');D.ctrs=null;loadTab('contractors');}
+        afSub.disabled=false;afSub.textContent='Add Contractor';
+        if(r&&r.success){toast('Contractor added');D.ctrs=null;D.contractors=null;loadTab('contractors');}
         else toast((r&&r.error)||'Error',true);
       })
-      .withFailureHandler(function(){afSub.disabled=false;afSub.textContent='Save Contractor';toast('Error',true);})
-      .saveContractor({name:nm,dept:afDept.value,paymentMethod:afPM.value,phone:afPhone.value.trim()});
+      .withFailureHandler(function(){afSub.disabled=false;afSub.textContent='Add Contractor';toast('Error',true);})
+      .saveContractor({name:nm,dept:'',paymentMethod:afPM.value,phone:afPhone.value.trim()});
   };
   addWrap.appendChild(addBtn);addWrap.appendChild(addForm);c.appendChild(addWrap);
+
+  // ── CONTRACTOR CARDS ──────────────────────────────────────────────────────
   var ctrs=D.ctrs&&D.ctrs.contractors?D.ctrs.contractors:[];
   if(!ctrs.length){c.appendChild(el('div',{style:'color:var(--fos-ink-secondary);padding:40px;text-align:center',text:'No contractors yet'}));return;}
-  var DEPT_ORDER=['cutting','prep','fitter','lasting','finish','dispatch'];
-  var deptMap={};
-  ctrs.forEach(function(ct){var d=(ct.dept||'other').toLowerCase();if(!deptMap[d])deptMap[d]=[];deptMap[d].push(ct);});
-  var deptKeys=DEPT_ORDER.filter(function(k){return deptMap[k];});
-  Object.keys(deptMap).forEach(function(k){if(DEPT_ORDER.indexOf(k)<0)deptKeys.push(k);});
-  deptKeys.forEach(function(dept){
-    var ctList=deptMap[dept];
-    c.appendChild(el('div',{style:'font-size:10px;font-weight:500;color:var(--fos-ink-secondary);letter-spacing:1px;text-transform:uppercase;margin:10px 2px 6px',text:'● '+dept.toUpperCase()+' ('+ctList.length+')'}));
-    var card=el('div',{cls:'fos-card',style:'margin-bottom:10px;padding:0'});
-    ctList.forEach(function(ct,i){
-      var row=el('div',{style:'padding:11px 14px;'+(i<ctList.length-1?'border-bottom:0.5px solid var(--fos-border)':'')});
-      var top=el('div',{style:'display:flex;align-items:center;justify-content:space-between;gap:8px'});
-      top.appendChild(el('div',{style:'font-size:14px;font-weight:500;color:var(--fos-ink)',text:ct.name}));
-      top.appendChild(el('span',{cls:'badge '+(ct.status&&ct.status.toLowerCase()==='active'?'green':'grey'),text:ct.status||'ACTIVE'}));
-      row.appendChild(top);
-      var meta=[];
-      if(ct.paymentMethod)meta.push(ct.paymentMethod);
-      if(ct.phone)meta.push(ct.phone);
-      if(meta.length)row.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary);margin-top:3px',text:meta.join(' · ')}));
-      card.appendChild(row);
-    });
+
+  var _DEPT_OPT=['Cutting','Preparation','Fitter','Lasting/Pasting','Finishing/Packing','Dispatch'];
+  var ctrIdByName={};
+  (D.contractors||[]).forEach(function(ct){ctrIdByName[ct.name.trim()]=ct.ctrId;});
+
+  ctrs.forEach(function(ct){
+    var ctrId=ctrIdByName[ct.name.trim()]||'';
+    var card=el('div',{style:'background:var(--fos-surface);border-radius:12px;padding:16px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.06)'});
+
+    // Top row: CTR-ID + name + badge
+    var topRow=el('div',{style:'display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px'});
+    var nameCol=el('div');
+    if(ctrId)nameCol.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:ctrId}));
+    nameCol.appendChild(el('div',{style:'font-size:15px;font-weight:600;color:var(--fos-ink)',text:ct.name}));
+    topRow.appendChild(nameCol);
+    topRow.appendChild(el('span',{cls:'badge '+(ct.status&&ct.status.toLowerCase()==='active'?'green':'grey'),text:ct.status||'ACTIVE'}));
+    card.appendChild(topRow);
+
+    // Second row: payment + phone
+    var meta=[];
+    if(ct.paymentMethod)meta.push(ct.paymentMethod);
+    if(ct.phone)meta.push(ct.phone);
+    if(meta.length)card.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-bottom:8px',text:meta.join(' · ')}));
+
+    // Departments section
+    var deptSec=el('div',{style:'margin-top:8px;padding-top:8px;border-top:1px solid var(--fos-border)'});
+    deptSec.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-bottom:6px',text:'Departments:'}));
+    var chipsWrap=el('div',{style:'display:flex;flex-wrap:wrap;gap:6px;min-height:20px;margin-bottom:8px'});
+    deptSec.appendChild(chipsWrap);
+
+    // Enroll row
+    var enrRow=el('div',{style:'display:flex;gap:6px;align-items:center'});
+    var deptDrop=el('select',{style:'flex:1;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:8px;padding:6px 10px;color:var(--fos-ink);font-size:12px'});
+    deptDrop.appendChild(el('option',{value:'',text:'— Add department —'}));
+    _DEPT_OPT.forEach(function(d){deptDrop.appendChild(el('option',{value:d,text:d}));});
+    var addDeptBtn=el('button',{style:'background:var(--fos-accent);color:#fff;border:none;border-radius:8px;padding:6px 14px;font-size:14px;font-weight:700;cursor:pointer;flex-shrink:0',text:'+'});
+    enrRow.appendChild(deptDrop);enrRow.appendChild(addDeptBtn);
+    deptSec.appendChild(enrRow);
+    card.appendChild(deptSec);
     c.appendChild(card);
+
+    // Per-card enrollment closures
+    (function(cId,cName,chWrap,drop,aBtn){
+      var drawChips=function(){
+        chWrap.innerHTML='';
+        var enrs=(D.enrollments&&Array.isArray(D.enrollments)?D.enrollments:[]).filter(function(e){return e.contractorId===cId;});
+        if(!enrs.length){chWrap.appendChild(el('span',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'No departments assigned'}));return;}
+        enrs.forEach(function(e){
+          var chip=el('div',{style:'display:inline-flex;align-items:center;gap:3px;background:var(--fos-accent-soft);color:var(--fos-accent);font-size:11px;padding:2px 8px;border-radius:12px'});
+          chip.appendChild(el('span',{text:e.department}));
+          var xBtn=el('button',{style:'background:none;border:none;color:var(--fos-accent);font-size:13px;line-height:1;cursor:pointer;padding:0 0 1px 2px',text:'×'});
+          (function(eid,dName){
+            xBtn.onclick=function(){
+              if(!confirm('Remove '+cName+' from '+dName+'?'))return;
+              xBtn.disabled=true;
+              google.script.run
+                .withSuccessHandler(function(r){
+                  if(r&&r.success){toast('Removed');google.script.run.withSuccessHandler(function(enrs){D.enrollments=Array.isArray(enrs)?enrs:[];drawChips();}).withFailureHandler(function(){}).getEnrollments({status:'ACTIVE'});}
+                  else{xBtn.disabled=false;toast((r&&r.error)||'Error',true);}
+                })
+                .withFailureHandler(function(){xBtn.disabled=false;toast('Error',true);})
+                .unenrollContractor(eid);
+            };
+          })(e.enrollmentId,e.department);
+          chip.appendChild(xBtn);
+          chWrap.appendChild(chip);
+        });
+      };
+      drawChips();
+      aBtn.onclick=function(){
+        var dept=drop.value.trim();
+        if(!dept){toast('Select a department',true);return;}
+        aBtn.disabled=true;aBtn.textContent='…';
+        google.script.run
+          .withSuccessHandler(function(r){
+            aBtn.disabled=false;aBtn.textContent='+';
+            if(r&&r.success){drop.value='';google.script.run.withSuccessHandler(function(enrs){D.enrollments=Array.isArray(enrs)?enrs:[];drawChips();}).withFailureHandler(function(){}).getEnrollments({status:'ACTIVE'});}
+            else toast((r&&r.error)||'Error',true);
+          })
+          .withFailureHandler(function(){aBtn.disabled=false;aBtn.textContent='+';toast('Error',true);})
+          .enrollContractor({contractorId:cId,department:dept});
+      };
+    })(ctrId,ct.name,chipsWrap,deptDrop,addDeptBtn);
   });
 }
 
@@ -2253,514 +3132,6 @@ function renderActivitySetup(body,article){
   body.appendChild(wrap);
 }
 
-// ── DEPT SEQUENCE CHECK & SKIP MODAL ─────────────────────────────────────────
-function showSkipWarningModal(depts,onConfirm){
-  var modal=el('div',{style:'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'});
-  var box=el('div',{style:'background:var(--fos-surface);border:0.5px solid var(--fos-border);border-radius:14px;padding:20px;max-width:340px;width:100%'});
-  box.appendChild(el('div',{style:'font-family:var(--fos-font-display);font-size:15px;font-weight:600;color:var(--fos-warning);margin-bottom:12px',text:'Warning — Skipping Depts'}));
-  var msg='You have no entries for: '+depts.join(', ')+'. Once submitted, '+(depts.length===1?'this dept':'these depts')+' will be permanently skipped for this article and cannot be filled in any future week. Continue anyway?';
-  box.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink);line-height:1.5;margin-bottom:16px',text:msg}));
-  var btnRow=el('div',{style:'display:flex;gap:8px'});
-  var cancelBtn=el('button',{text:'Cancel',style:'flex:1;background:var(--fos-bg);color:var(--fos-ink);border:1px solid var(--fos-border);font-size:14px;font-weight:500;padding:12px;border-radius:10px'});
-  var confirmBtn=el('button',{text:'Continue & Skip',style:'flex:1;background:var(--fos-warning);color:#fff;font-size:14px;font-weight:700;padding:12px;border-radius:10px'});
-  cancelBtn.onclick=function(){document.body.removeChild(modal);};
-  confirmBtn.onclick=function(){document.body.removeChild(modal);onConfirm();};
-  btnRow.appendChild(cancelBtn);btnRow.appendChild(confirmBtn);
-  box.appendChild(btnRow);modal.appendChild(box);document.body.appendChild(modal);
-}
-
-function checkDeptSequenceAndSubmit(artSheet,dSt,aActs,onProceed){
-  var SEQ=['Cutting','Preparation','Fitter','Lasting','Finishing','Dispatch'];
-  var KMAP={'Cutting':'cutting','Preparation':'prep','Fitter':'fitter','Lasting':'lasting','Finishing':'finish','Dispatch':'dispatch'};
-  var hasEnt={};SEQ.forEach(function(d){hasEnt[d]=false;});
-  aActs.forEach(function(ac){
-    if((ac.qty||0)>0){
-      Object.keys(KMAP).forEach(function(dn){if(KMAP[dn]===(ac.section||''))hasEnt[dn]=true;});
-    }
-  });
-  var fi=-1,li=-1;
-  SEQ.forEach(function(d,i){if(hasEnt[d]){if(fi<0)fi=i;li=i;}});
-  if(fi<0){onProceed([]);return;}
-  var missing=[];
-  for(var i=fi;i<=li;i++){
-    var d=SEQ[i],st=dSt[d]||'NOT_SET';
-    if(!hasEnt[d]&&st!=='SKIPPED'&&st!=='NOT_SET'&&st!=='CAP_REACHED')missing.push(d);
-  }
-  if(!missing.length){onProceed([]);return;}
-  showSkipWarningModal(missing,function(){
-    var todo=missing.slice();
-    function next(){
-      if(!todo.length){onProceed(missing);return;}
-      var d=todo.shift();
-      google.script.run.withSuccessHandler(next).withFailureHandler(next).markDeptSkipped(artSheet,d);
-    }
-    next();
-  });
-}
-
-// ── DEPT SETUP FLOW ───────────────────────────────────────────────────────────
-function renderDeptSetupOptions(container,artSheet,dept,deptKey){
-  var wrap=el('div',{style:'padding:10px 0'});
-  wrap.appendChild(el('div',{style:'font-size:11px;font-weight:500;color:var(--fos-ink-secondary);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px',text:'Set up '+dept}));
-  var btnRow=el('div',{style:'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px'});
-  var subArea=el('div');
-  var tsBtn=el('button',{text:'Import from TS',style:'background:var(--fos-bg);border:1px solid var(--fos-border);color:var(--fos-accent);font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px'});
-  var cpBtn=el('button',{text:'Copy from Article',style:'background:var(--fos-bg);border:1px solid var(--fos-border);color:var(--fos-accent);font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px'});
-  var mnBtn=el('button',{text:'Add Manually',style:'background:var(--fos-bg);border:1px solid var(--fos-border);color:var(--fos-accent);font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px'});
-  tsBtn.onclick=function(){renderDeptSetupTS(subArea,artSheet,dept,deptKey);};
-  cpBtn.onclick=function(){renderDeptSetupCopy(subArea,artSheet,dept,deptKey);};
-  mnBtn.onclick=function(){renderDeptSetupManual(subArea,artSheet,dept,deptKey);};
-  btnRow.appendChild(tsBtn);btnRow.appendChild(cpBtn);btnRow.appendChild(mnBtn);
-  wrap.appendChild(btnRow);wrap.appendChild(subArea);container.appendChild(wrap);
-}
-
-function renderDeptSetupTS(container,artSheet,dept,deptKey){
-  container.innerHTML='<div style="color:var(--fos-ink-secondary);font-size:12px;padding:8px 0">Loading TS activities…</div>';
-  google.script.run
-    .withSuccessHandler(function(r){
-      container.innerHTML='';
-      if(!r||!r.success){container.appendChild(el('div',{style:'color:#ef4444;font-size:12px',text:(r&&r.error)||'No TS linked to this article'}));return;}
-      var acts=(r.activities||[]).filter(function(a){
-        var ma=MASTER_ACTS.filter(function(m){return m.name===(a.activityName||a.name);})[0];
-        return ma&&ma.section===deptKey;
-      });
-      if(!acts.length){container.appendChild(el('div',{style:'color:var(--fos-ink-secondary);font-size:12px',text:'No '+dept+' activities found in TS'}));return;}
-      renderDeptSetupConfirm(container,artSheet,dept,acts);
-    })
-    .withFailureHandler(function(){container.innerHTML='<div style="color:#ef4444;font-size:12px">Failed to load TS</div>';})
-    .getActivitiesFromTS(artSheet);
-}
-
-function renderDeptSetupCopy(container,artSheet,dept,deptKey){
-  container.innerHTML='';
-  var arts=D.entry&&D.entry.articles?D.entry.articles.filter(function(a){return a.sheet!==artSheet&&a.deptStatus&&a.deptStatus[dept]==='APPROVED';}):[];
-  if(!arts.length){container.appendChild(el('div',{style:'color:var(--fos-ink-secondary);font-size:12px',text:'No other articles have '+dept+' set up'}));return;}
-  var sel=el('select',{style:'width:100%;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:8px;padding:8px 10px;color:var(--fos-ink);font-size:13px;margin-bottom:8px'});
-  sel.appendChild(el('option',{text:'Select article…',value:''}));
-  arts.forEach(function(a){sel.appendChild(el('option',{text:a.article||a.sheet,value:a.sheet}));});
-  var loadBtn=el('button',{text:'Load Activities',style:'background:var(--fos-bg);color:var(--fos-accent);border:1px solid var(--fos-border);font-size:12px;font-weight:700;padding:8px 14px;border-radius:8px'});
-  var copyArea=el('div');
-  loadBtn.onclick=function(){
-    var sn=sel.value;if(!sn){toast('Select an article',true);return;}
-    loadBtn.disabled=true;loadBtn.textContent='Loading…';
-    google.script.run
-      .withSuccessHandler(function(r){
-        loadBtn.disabled=false;loadBtn.textContent='Load Activities';copyArea.innerHTML='';
-        if(!r||!r.success){toast((r&&r.error)||'Error',true);return;}
-        var acts=(r.activities||[]).filter(function(a){
-          var ma=MASTER_ACTS.filter(function(m){return m.name.trim().toLowerCase()===(a.activityName||'').trim().toLowerCase();})[0];
-          var sec=ma?ma.section:(a.dept||'').trim().toLowerCase();
-          if(sec==='preparation')sec='prep';if(sec==='finishing')sec='finish';
-          return sec===deptKey;
-        });
-        if(!acts.length){copyArea.appendChild(el('div',{style:'color:var(--fos-ink-secondary);font-size:12px',text:'No '+dept+' activities in that article'}));return;}
-        renderDeptSetupConfirm(copyArea,artSheet,dept,acts);
-      })
-      .withFailureHandler(function(){loadBtn.disabled=false;loadBtn.textContent='Load Activities';toast('Error',true);})
-      .getApprovedActivitiesForArticle(sn);
-  };
-  container.appendChild(sel);container.appendChild(loadBtn);container.appendChild(copyArea);
-}
-
-function renderDeptSetupEdit(container,artSheet,dept,deptKey,existingActs){
-  container.innerHTML='';
-  var deptActs=MASTER_ACTS.filter(function(ma){return ma.section===deptKey;});
-  var selected=existingActs.map(function(ac){return {activityName:ac.activity,rate:ac.rate,comm:ac.comm};});
-  var listDiv=el('div',{style:'margin-bottom:8px'});
-  function rebuildList(){
-    listDiv.innerHTML='';
-    selected.forEach(function(item,idx){
-      var rowEl=el('div',{style:'display:flex;align-items:center;gap:8px;padding:4px 0;border-top:0.5px solid var(--fos-border)'});
-      rowEl.appendChild(el('div',{style:'flex:1;font-size:12px;color:var(--fos-ink)',text:item.activityName}));
-      rowEl.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:'₹'+item.rate+'/pr'}));
-      var rmBtn=el('button',{text:'×',style:'background:none;border:none;color:#ef4444;font-size:16px;line-height:1;padding:0 4px;cursor:pointer'});
-      (function(i){rmBtn.onclick=function(){selected.splice(i,1);rebuildList();};})(idx);
-      rowEl.appendChild(rmBtn);
-      listDiv.appendChild(rowEl);
-    });
-  }
-  rebuildList();
-  var actSel=el('select',{style:'width:100%;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:8px;padding:8px 10px;color:var(--fos-ink);font-size:13px;margin-bottom:6px'});
-  actSel.appendChild(el('option',{text:'Add activity…',value:''}));
-  deptActs.forEach(function(ma){actSel.appendChild(el('option',{text:ma.name,value:ma.name}));});
-  var addBtn=el('button',{text:'+ Add',style:'background:var(--fos-bg);color:var(--fos-accent);border:1px solid var(--fos-border);font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px;margin-bottom:6px'});
-  addBtn.onclick=function(){
-    var nm=actSel.value;if(!nm){toast('Select an activity',true);return;}
-    if(selected.some(function(s){return s.activityName===nm;})){toast('Already in list',true);return;}
-    var ma=deptActs.filter(function(m){return m.name===nm;})[0]||{};
-    selected.push({activityName:nm,rate:ma.stdRate||0,comm:ma.comm||0});
-    rebuildList();actSel.value='';
-  };
-  var subBtn=el('button',{cls:'primary-btn',text:'Submit for Approval',style:'margin-top:8px'});
-  subBtn.onclick=function(){
-    if(!selected.length){toast('Add at least one activity',true);return;}
-    var _rmk=ENTRY_REVISION_REMARK||'';
-    subBtn.disabled=true;subBtn.textContent='Submitting…';
-    google.script.run
-      .withSuccessHandler(function(r){
-        subBtn.disabled=false;subBtn.textContent='Submit for Approval';
-        if(r&&r.success){ENTRY_REVISION_REMARK=null;toast('Submitted for approval');D.entry=null;setTimeout(function(){loadTab('entry');},600);}
-        else toast((r&&r.error)||'Error',true);
-      })
-      .withFailureHandler(function(){subBtn.disabled=false;subBtn.textContent='Submit for Approval';toast('Error',true);})
-      .requestActivitySetup({sheet:artSheet,dept:dept,activities:selected},_rmk);
-  };
-  container.appendChild(listDiv);
-  if(deptActs.length){container.appendChild(actSel);container.appendChild(addBtn);}
-  container.appendChild(subBtn);
-}
-
-function renderDeptSetupManual(container,artSheet,dept,deptKey){
-  container.innerHTML='';
-  var deptActs=MASTER_ACTS.filter(function(ma){return ma.section===deptKey;});
-  if(!deptActs.length){container.appendChild(el('div',{style:'color:var(--fos-ink-secondary);font-size:12px',text:'No master activities for '+dept+'. Add them in Activities tab first.'}));return;}
-  var selected=[];
-  var listDiv=el('div',{style:'margin-bottom:8px'});
-  var actSel=el('select',{style:'width:100%;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:8px;padding:8px 10px;color:var(--fos-ink);font-size:13px;margin-bottom:6px'});
-  actSel.appendChild(el('option',{text:'Select activity…',value:''}));
-  deptActs.forEach(function(ma){actSel.appendChild(el('option',{text:ma.name,value:ma.name}));});
-  var addBtn=el('button',{text:'+ Add',style:'background:var(--fos-bg);color:var(--fos-accent);border:1px solid var(--fos-border);font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px;margin-bottom:6px'});
-  addBtn.onclick=function(){
-    var nm=actSel.value;if(!nm){toast('Select an activity',true);return;}
-    var ma=deptActs.filter(function(m){return m.name===nm;})[0]||{};
-    selected.push({activityName:nm,rate:ma.stdRate||0,comm:ma.comm||0});
-    var rowEl=el('div',{style:'display:flex;align-items:center;gap:8px;padding:4px 0;border-top:0.5px solid var(--fos-border)'});
-    rowEl.appendChild(el('div',{style:'flex:1;font-size:12px;color:var(--fos-ink)',text:nm}));
-    rowEl.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:'₹'+(ma.stdRate||0)+'/pr'}));
-    listDiv.appendChild(rowEl);actSel.value='';
-  };
-  var subBtn=el('button',{cls:'primary-btn',text:'Submit for Approval',style:'margin-top:8px'});
-  subBtn.onclick=function(){
-    if(!selected.length){toast('Add at least one activity',true);return;}
-    var _rmk=ENTRY_REVISION_REMARK||'';
-    subBtn.disabled=true;subBtn.textContent='Submitting…';
-    google.script.run
-      .withSuccessHandler(function(r){
-        subBtn.disabled=false;subBtn.textContent='Submit for Approval';
-        if(r&&r.success){ENTRY_REVISION_REMARK=null;toast('Submitted for approval');D.entry=null;setTimeout(function(){loadTab('entry');},600);}
-        else toast((r&&r.error)||'Error',true);
-      })
-      .withFailureHandler(function(){subBtn.disabled=false;subBtn.textContent='Submit for Approval';toast('Error',true);})
-      .requestActivitySetup({sheet:artSheet,dept:dept,activities:selected},_rmk);
-  };
-  container.appendChild(actSel);container.appendChild(addBtn);container.appendChild(listDiv);container.appendChild(subBtn);
-}
-
-function renderDeptSetupConfirm(container,artSheet,dept,acts){
-  container.innerHTML='';
-  var listDiv=el('div',{style:'margin-bottom:8px'});
-  acts.forEach(function(a){
-    var rowEl=el('div',{style:'display:flex;align-items:center;gap:8px;padding:4px 0;border-top:0.5px solid var(--fos-border)'});
-    rowEl.appendChild(el('div',{style:'flex:1;font-size:12px;color:var(--fos-ink)',text:a.activityName||a.name||'?'}));
-    rowEl.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:'₹'+(a.rate||0)+'/pr'}));
-    listDiv.appendChild(rowEl);
-  });
-  var subBtn=el('button',{cls:'primary-btn',text:'Submit for Approval'});
-  subBtn.onclick=function(){
-    var sel=acts.map(function(a){return {activityName:a.activityName||a.name,rate:a.rate||0,comm:a.comm||0};});
-    var _rmk=ENTRY_REVISION_REMARK||'';
-    subBtn.disabled=true;subBtn.textContent='Submitting…';
-    google.script.run
-      .withSuccessHandler(function(r){
-        subBtn.disabled=false;subBtn.textContent='Submit for Approval';
-        if(r&&r.success){ENTRY_REVISION_REMARK=null;toast('Submitted for approval');D.entry=null;setTimeout(function(){loadTab('entry');},600);}
-        else toast((r&&r.error)||'Error',true);
-      })
-      .withFailureHandler(function(){subBtn.disabled=false;subBtn.textContent='Submit for Approval';toast('Error',true);})
-      .requestActivitySetup({sheet:artSheet,dept:dept,activities:sel},_rmk);
-  };
-  container.appendChild(listDiv);container.appendChild(subBtn);
-}
-
-// ── ARTICLE-LEVEL ACTIVITY SETUP ──────────────────────────────────────────────
-function renderArticleLevelSetupCard(container,artSheet){
-  var DEPTS_L=['Cutting','Preparation','Fitter','Lasting','Finishing','Dispatch'];
-  var DKEY_L={'Cutting':'cutting','Preparation':'prep','Fitter':'fitter','Lasting':'lasting','Finishing':'finish','Dispatch':'dispatch'};
-  var card=el('div',{style:'margin:10px 16px;background:var(--fos-surface);border:0.5px solid var(--fos-border);border-radius:10px;padding:14px'});
-  var formDiv=el('div',{style:'display:none'});
-  var titleDiv=el('div',{style:'font-size:12px;font-weight:500;color:var(--fos-accent);margin-bottom:6px',text:'Set up activities for this article'});
-  var subDiv=el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-bottom:12px',text:'No activities set up yet. Choose how to get started:'});
-  var btnRow=el('div',{style:'display:flex;gap:8px;flex-wrap:wrap'});
-  var tsBtn=el('button',{text:'Import from TS',style:'background:var(--fos-bg);border:1px solid var(--fos-border);color:var(--fos-accent);font-size:12px;font-weight:700;padding:9px 14px;border-radius:8px'});
-  var cpBtn=el('button',{text:'Copy from Article',style:'background:var(--fos-bg);border:1px solid var(--fos-border);color:var(--fos-accent);font-size:12px;font-weight:700;padding:9px 14px;border-radius:8px'});
-  var mnBtn=el('button',{text:'Add Manually',style:'background:var(--fos-bg);border:1px solid var(--fos-border);color:var(--fos-accent);font-size:12px;font-weight:700;padding:9px 14px;border-radius:8px'});
-  function showForm(byDept,isManual){
-    card.style.display='none';
-    formDiv.innerHTML='';
-    renderArticleLevelForm(formDiv,artSheet,byDept,isManual,DEPTS_L,DKEY_L);
-    formDiv.style.display='';
-  }
-  tsBtn.onclick=function(){
-    card.innerHTML='<div style="color:var(--fos-ink-secondary);font-size:12px;padding:4px 0">Loading TS activities…</div>';
-    google.script.run
-      .withSuccessHandler(function(r){
-        if(!r||!r.success){
-          card.innerHTML='';
-          card.appendChild(el('div',{style:'color:#ef4444;font-size:12px;margin-bottom:10px',text:(r&&r.error)||'No TS linked to this article'}));
-          card.appendChild(btnRow);return;
-        }
-        var byDept={};
-        (r.activities||[]).forEach(function(a){
-          var nm=a.activityName||a.name;
-          var ma=MASTER_ACTS.filter(function(m){return m.name===nm;})[0];
-          if(!ma)return;
-          if(!byDept[ma.section])byDept[ma.section]=[];
-          byDept[ma.section].push({activityName:nm,rate:a.rate||0,comm:a.comm||0});
-        });
-        showForm(byDept,false);
-      })
-      .withFailureHandler(function(){
-        card.innerHTML='';
-        card.appendChild(el('div',{style:'color:#ef4444;font-size:12px;margin-bottom:10px',text:'Failed to load TS'}));
-        card.appendChild(btnRow);
-      })
-      .getActivitiesFromTS(artSheet);
-  };
-  cpBtn.onclick=function(){
-    var arts=D.entry&&D.entry.articles?D.entry.articles.filter(function(a){
-      return a.sheet!==artSheet&&a.deptStatus&&Object.keys(a.deptStatus).some(function(d){return a.deptStatus[d]==='APPROVED';});
-    }):[];
-    if(!arts.length){toast('No other articles have approved activities',true);return;}
-    card.innerHTML='';
-    card.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-bottom:6px',text:'Select article to copy from:'}));
-    var artSel=el('select',{style:'width:100%;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:8px;padding:7px 10px;color:var(--fos-ink);font-size:13px;margin-bottom:8px'});
-    artSel.appendChild(el('option',{text:'Select article…',value:''}));
-    arts.forEach(function(a){artSel.appendChild(el('option',{text:a.article||a.sheet,value:a.sheet}));});
-    var loadBtn=el('button',{text:'Load Activities',style:'background:var(--fos-bg);color:var(--fos-accent);border:1px solid var(--fos-border);font-size:12px;font-weight:700;padding:8px 14px;border-radius:8px'});
-    loadBtn.onclick=function(){
-      var sn=artSel.value;if(!sn){toast('Select an article',true);return;}
-      loadBtn.disabled=true;loadBtn.textContent='Loading…';
-      google.script.run
-        .withSuccessHandler(function(r){
-          loadBtn.disabled=false;loadBtn.textContent='Load Activities';
-          if(!r||!r.success){toast((r&&r.error)||'Error',true);return;}
-          var byDept={};
-          (r.activities||[]).forEach(function(a){
-            var ma=MASTER_ACTS.filter(function(m){return m.name.trim().toLowerCase()===(a.activityName||'').trim().toLowerCase();})[0];
-            var sec=ma?ma.section:(a.dept||'').trim().toLowerCase();
-            if(sec==='preparation')sec='prep';if(sec==='finishing')sec='finish';
-            if(!sec)return;
-            if(!byDept[sec])byDept[sec]=[];
-            byDept[sec].push({activityName:a.activityName,rate:a.rate||0,comm:a.comm||0});
-          });
-          showForm(byDept,false);
-        })
-        .withFailureHandler(function(){loadBtn.disabled=false;loadBtn.textContent='Load Activities';toast('Error',true);})
-        .getApprovedActivitiesForArticle(sn);
-    };
-    card.appendChild(artSel);card.appendChild(loadBtn);
-  };
-  mnBtn.onclick=function(){showForm({},true);};
-  btnRow.appendChild(tsBtn);btnRow.appendChild(cpBtn);btnRow.appendChild(mnBtn);
-  card.appendChild(titleDiv);card.appendChild(subDiv);card.appendChild(btnRow);
-  container.appendChild(card);
-  container.appendChild(formDiv);
-}
-
-function renderArticleLevelForm(container,artSheet,importedByDept,isManual,DEPTS_SEQ,DEPT_KEY){
-  var deptCheckboxes={};
-  var deptRowsContainers={};
-  DEPTS_SEQ.forEach(function(dept){
-    var dk=DEPT_KEY[dept];
-    var importedActs=importedByDept[dk]||[];
-    var deptSec=el('div',{style:'border-bottom:0.5px solid var(--fos-border)'});
-    var dHdr=el('div',{style:'padding:6px 16px;background:var(--fos-bg);display:flex;align-items:center;gap:8px'});
-    var cb=el('input',{type:'checkbox',style:'accent-color:var(--fos-accent);width:14px;height:14px;cursor:pointer;flex-shrink:0'});
-    dHdr.appendChild(cb);
-    dHdr.appendChild(el('div',{style:'font-size:10px;font-weight:500;color:var(--fos-ink-secondary);text-transform:uppercase;letter-spacing:1px',text:dept.toUpperCase()}));
-    deptSec.appendChild(dHdr);
-    deptCheckboxes[dept]=cb;
-    var rowsDiv=el('div',{style:'padding:0 16px'});
-    deptRowsContainers[dept]=rowsDiv;
-    deptSec.appendChild(rowsDiv);
-    importedActs.forEach(function(act){
-      rowsDiv.appendChild(buildArticleSetupRow(act.activityName,act.rate,act.comm,false,dk));
-    });
-    var addWrap=el('div',{style:'padding:6px 16px 8px'});
-    var addLink=el('a',{text:'+ Add Activity',style:'font-size:11px;color:var(--fos-accent);cursor:pointer;text-decoration:underline'});
-    (function(rd,dkk){addLink.onclick=function(){rd.appendChild(buildArticleSetupRow(null,0,0,true,dkk));};})(rowsDiv,dk);
-    addWrap.appendChild(addLink);
-    deptSec.appendChild(addWrap);
-    container.appendChild(deptSec);
-  });
-  var submitWrap=el('div',{style:'padding:12px 16px'});
-  var submitBtn=el('button',{cls:'primary-btn',text:'Submit Selected for Approval',style:'font-size:13px;font-weight:700;padding:12px;border-radius:10px'});
-  submitBtn.onclick=function(){
-    var toSubmit=[];
-    DEPTS_SEQ.forEach(function(dept){
-      if(!deptCheckboxes[dept].checked)return;
-      var acts=[];
-      deptRowsContainers[dept].querySelectorAll('.art-setup-row').forEach(function(row){
-        var nameEl=row.querySelector('.art-setup-name');
-        var nm=nameEl.tagName==='SELECT'?nameEl.value:nameEl.getAttribute('data-name');
-        var rt=parseFloat(row.querySelector('.art-setup-rate').value)||0;
-        var cm=parseFloat(row.querySelector('.art-setup-comm').value)||0;
-        if(nm)acts.push({activityName:nm,rate:rt,comm:cm});
-      });
-      if(acts.length)toSubmit.push({dept:dept,activities:acts});
-    });
-    if(!toSubmit.length){toast('Tick at least one dept and add activities',true);return;}
-    submitBtn.disabled=true;submitBtn.textContent='Submitting…';
-    var _rmk=ENTRY_REVISION_REMARK||'';
-    var done=0,errors=[];
-    toSubmit.forEach(function(item){
-      google.script.run
-        .withSuccessHandler(function(r){
-          done++;if(!r||!r.success)errors.push((r&&r.error)||'Error');
-          if(done===toSubmit.length){
-            submitBtn.disabled=false;submitBtn.textContent='Submit Selected for Approval';
-            if(errors.length)toast(errors[0],true);
-            else{ENTRY_REVISION_REMARK=null;toast('Submitted '+toSubmit.length+' dept'+(toSubmit.length>1?'s':'')+' for approval');D.entry=null;setTimeout(function(){loadTab('entry');},600);}
-          }
-        })
-        .withFailureHandler(function(){
-          done++;errors.push('Network error');
-          if(done===toSubmit.length){submitBtn.disabled=false;submitBtn.textContent='Submit Selected for Approval';toast(errors[0],true);}
-        })
-        .requestActivitySetup({sheet:artSheet,dept:item.dept,activities:item.activities},_rmk);
-    });
-  };
-  submitWrap.appendChild(submitBtn);
-  container.appendChild(submitWrap);
-}
-
-function buildArticleSetupRow(activityName,rate,comm,isManual,deptKey){
-  var row=el('div',{cls:'art-setup-row',style:'display:flex;align-items:center;gap:6px;padding:5px 0;border-top:0.5px solid var(--fos-border)'});
-  if(isManual){
-    var deptActs=MASTER_ACTS.filter(function(ma){return ma.section===deptKey;});
-    var sel=el('select',{cls:'art-setup-name',style:'flex:1;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:5px 8px;color:var(--fos-ink);font-size:12px'});
-    sel.appendChild(el('option',{text:'Select activity…',value:''}));
-    deptActs.forEach(function(ma){sel.appendChild(el('option',{text:ma.name,value:ma.name}));});
-    row.appendChild(sel);
-  } else {
-    var nameDiv=el('div',{cls:'art-setup-name',style:'flex:1;font-size:12px;color:var(--fos-ink)',text:activityName||'?'});
-    nameDiv.setAttribute('data-name',activityName||'');
-    row.appendChild(nameDiv);
-  }
-  var rateInp=el('input',{cls:'art-setup-rate',type:'number',placeholder:'Rate',style:'width:68px;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:5px 8px;color:var(--fos-ink);font-family:var(--fos-font-mono);font-size:12px;text-align:center'});
-  if(rate)rateInp.value=rate;
-  var commInp=el('input',{cls:'art-setup-comm',type:'number',placeholder:'Comm',style:'width:58px;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:5px 8px;color:var(--fos-ink);font-family:var(--fos-font-mono);font-size:12px;text-align:center'});
-  if(comm)commInp.value=comm;
-  var delBtn=el('button',{text:'✕',style:'background:var(--fos-bg);color:var(--fos-danger);border:1px solid var(--fos-border);border-radius:4px;padding:4px 8px;cursor:pointer;font-size:12px'});
-  delBtn.onclick=function(){row.remove();};
-  row.appendChild(rateInp);row.appendChild(commInp);row.appendChild(delBtn);
-  return row;
-}
-
-// ── PRINT SUMMARY ─────────────────────────────────────────────────────────────
-var PS_DATA=null, PS_VIEW='contractor';
-
-function openPrintSummary(){
-  document.getElementById('pso').style.display='block';
-  document.getElementById('psoPrintDate').textContent=
-    new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
-  if(PS_DATA){renderPrintSummary();return;}
-  document.getElementById('psoContent').innerHTML=
-    '<div style="text-align:center;padding:60px;color:#888;font-size:14px">Loading payment records...</div>';
-  google.script.run
-    .withSuccessHandler(function(data){PS_DATA=data;renderPrintSummary();})
-    .withFailureHandler(function(){
-      document.getElementById('psoContent').innerHTML=
-        '<div style="color:red;padding:20px">Failed to load payment data.</div>';
-    })
-    .getPrintSummary();
-}
-
-function closePrintSummary(){document.getElementById('pso').style.display='none';}
-
-function setPSView(v){
-  PS_VIEW=v;
-  ['contractor','article','period'].forEach(function(k){
-    var b=document.getElementById('psBtn-'+k);
-    if(b)b.className='pso-vbtn'+(v===k?' active':'');
-  });
-  if(PS_DATA)renderPrintSummary();
-}
-
-function fmtPS(n){return '₹'+Number(n).toLocaleString('en-IN',{maximumFractionDigits:0});}
-
-function renderPrintSummary(){
-  var c=document.getElementById('psoContent');
-  if(!PS_DATA||!PS_DATA.length){
-    c.innerHTML='<div style="text-align:center;padding:60px;color:#888;font-size:14px">No approved payment records found in history.</div>';
-    return;
-  }
-  if(PS_VIEW==='contractor')renderPSByContractor(c);
-  else if(PS_VIEW==='article')renderPSByArticle(c);
-  else renderPSByPeriod(c);
-}
-
-function psGroup(data,keyFn,cols,rowFn,noSort){
-  var order=[],groups={};
-  data.forEach(function(r){
-    var k=keyFn(r);
-    if(!groups[k]){groups[k]=[];order.push(k);}
-    groups[k].push(r);
-  });
-  var html='',grand=0;
-  (noSort?order:order.sort()).forEach(function(k){
-    var rows=groups[k];
-    var sub=rows.reduce(function(s,r){return s+r.amount;},0);
-    grand+=sub;
-    html+='<div class="pso-group"><div class="pso-ghdr">'+k+'</div>';
-    html+='<table class="ps-tbl"><thead><tr>';
-    cols.forEach(function(col){html+='<th>'+col+'</th>';});
-    html+='</tr></thead><tbody>';
-    rows.forEach(function(r){
-      html+='<tr>';
-      rowFn(r).forEach(function(cell){html+='<td>'+cell+'</td>';});
-      html+='</tr>';
-    });
-    html+='<tr class="ps-sub"><td colspan="'+(cols.length-1)+
-      '" style="text-align:right">Subtotal</td><td>'+fmtPS(sub)+'</td></tr>';
-    html+='</tbody></table></div>';
-  });
-  html+='<div class="pso-grand">Grand Total: '+fmtPS(grand)+'</div>';
-  return html;
-}
-
-function psVal(v){return v?fmtPS(v):'—';}
-
-function renderPSByContractor(c){
-  c.innerHTML=psGroup(
-    PS_DATA,
-    function(r){return r.contractor||'Unknown';},
-    ['Article','Activity','Qty','Rate','Comm','Conv','Total'],
-    function(r){return [
-      (r.article||'—')+(r.customer?' ('+r.customer+')':''),
-      r.activityName||'—', r.qty,
-      psVal(r.rate), psVal(r.comm), psVal(r.conv), fmtPS(r.amount)
-    ];}
-  );
-}
-
-function renderPSByArticle(c){
-  c.innerHTML=psGroup(
-    PS_DATA,
-    function(r){return (r.article||'Unknown')+(r.customer?' — '+r.customer:'');},
-    ['Contractor','Activity','Qty','Rate','Comm','Conv','Total'],
-    function(r){return [
-      r.contractor||'—', r.activityName||'—', r.qty,
-      psVal(r.rate), psVal(r.comm), psVal(r.conv), fmtPS(r.amount)
-    ];}
-  );
-}
-
-function renderPSByPeriod(c){
-  c.innerHTML=psGroup(
-    PS_DATA,
-    function(r){return r.periodLabel||r.periodId||'Unknown Period';},
-    ['Contractor','Article','Activity','Qty','Rate','Comm','Conv','Total'],
-    function(r){return [
-      r.contractor||'—',
-      (r.article||'—')+(r.customer?' ('+r.customer+')':''),
-      r.activityName||'—', r.qty,
-      psVal(r.rate), psVal(r.comm), psVal(r.conv), fmtPS(r.amount)
-    ];},
-    true
-  );
-}
-
 // ── TOAST ─────────────────────────────────────────────────────────────────────
 function toast(msg,isErr){
   var t=document.getElementById('toast');
@@ -2904,6 +3275,139 @@ function fosShowWhatsNew(){
 function fosCloseWhatsNew(){
   localStorage.setItem('fos_whatsnew_217','seen');
   document.getElementById('fos-whatsnew').style.display='none';
+}
+
+// ── WIP GRID — Phase 5.2f ────────────────────────────────────────────────────
+function renderGrid(c){
+  var MOVEMENTS=['Cutting IN','Cutting OUT','Preparation IN','Preparation OUT','Fitter IN','Fitter OUT','Upper IN','Lasting IN','Lasting OUT','Packing IN','Packing OUT','Dispatch IN','Dispatch OUT'];
+  var STORES=[{n:'Upper Store',c:6},{n:'Lasting & Packing',c:5},{n:'Dispatch',c:2}];
+  var orders=(D.wipGrid&&D.wipGrid.orders)||[];
+  var entries=(D.wipGrid&&D.wipGrid.entries)||[];
+  c.innerHTML='';
+
+  // Page header
+  var pgHdr=el('div',{style:'padding:20px 16px 8px;display:flex;align-items:center;justify-content:space-between'});
+  var hdrLeft=el('div',{});
+  hdrLeft.appendChild(el('div',{style:'font-size:18px;font-weight:700;color:var(--fos-ink)',text:'WIP Grid'}));
+  hdrLeft.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-top:2px',text:'Live production overview — updated automatically via Job Cards'}));
+  pgHdr.appendChild(hdrLeft);
+  var today=new Date();
+  var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  pgHdr.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:months[today.getMonth()]+' '+today.getDate()+', '+today.getFullYear()}));
+  c.appendChild(pgHdr);
+
+  if(!orders.length){
+    var emp=el('div',{style:'text-align:center;padding:60px 20px;color:var(--fos-ink-secondary)'});
+    emp.appendChild(el('div',{style:'font-size:13px;font-weight:600;margin-bottom:6px;color:var(--fos-ink)',text:'No active orders'}));
+    emp.appendChild(el('div',{style:'font-size:12px',text:'Active work orders will appear here'}));
+    c.appendChild(emp);
+    return;
+  }
+
+  // Lookup: orderRef+'||'+movement → {t:today, s:total}
+  var lkp={};
+  entries.forEach(function(e){lkp[e.orderRef+'||'+e.movement]={t:e.pairsToday,s:e.pairsTotal};});
+
+  var stickyBg='background:var(--fos-surface)';
+
+  // Table wrapper
+  var wrap=el('div',{style:'overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px'});
+  var tbl=document.createElement('table');
+  tbl.style.cssText='border-collapse:collapse;min-width:max-content;font-size:12px;width:100%';
+
+  // thead row 1: sticky col headers (rowspan 3) + store group headers + Save col
+  var thead=document.createElement('thead');
+  var tr1=document.createElement('tr');
+
+  function mkStickyTh(text,leftPx,minW){
+    var th=document.createElement('th');
+    th.textContent=text;th.rowSpan=3;
+    th.style.cssText='position:sticky;left:'+leftPx+'px;z-index:4;'+stickyBg+';padding:6px 8px;text-align:left;white-space:nowrap;font-size:11px;font-weight:600;color:var(--fos-ink-secondary);border-bottom:2px solid var(--fos-border);min-width:'+minW+'px;max-width:'+minW+'px;';
+    return th;
+  }
+  tr1.appendChild(mkStickyTh('Customer',0,96));
+  tr1.appendChild(mkStickyTh('Article / Color',96,120));
+  tr1.appendChild(mkStickyTh('Qty',216,52));
+
+  STORES.forEach(function(st,si){
+    var th=document.createElement('th');
+    th.textContent=st.n;th.colSpan=st.c*3;
+    th.style.cssText='text-align:center;padding:5px 6px;background:var(--fos-accent-soft);color:var(--fos-accent);font-weight:600;font-size:11px;border-bottom:1px solid var(--fos-border);border-left:2px solid var(--fos-border);white-space:nowrap;';
+    tr1.appendChild(th);
+  });
+  thead.appendChild(tr1);
+
+  // thead row 2: movement names (colspan=3 each)
+  var tr2mv=document.createElement('tr');
+  var mvStoreIdx=0;var mvStoreCount=0;
+  MOVEMENTS.forEach(function(mv,mi){
+    var th=document.createElement('th');
+    th.textContent=mv;th.colSpan=3;
+    th.style.cssText='text-align:center;padding:3px 6px;font-size:10px;font-weight:600;color:var(--fos-ink);border-bottom:1px solid var(--fos-border);white-space:nowrap;min-width:144px;border-left:2px solid var(--fos-border);';
+    tr2mv.appendChild(th);
+  });
+  thead.appendChild(tr2mv);
+
+  // thead row 3: TODAY / TOTAL / BAL labels
+  var tr2=document.createElement('tr');
+  for(var di=0;di<13;di++){
+    ['Today','Total','Bal'].forEach(function(lbl,ci){
+      var th=document.createElement('th');
+      th.textContent=lbl;
+      th.style.cssText='text-align:center;padding:3px 6px;font-size:10px;font-weight:500;color:var(--fos-ink-secondary);border-bottom:2px solid var(--fos-border);white-space:nowrap;min-width:48px;'+(ci===0?'border-left:2px solid var(--fos-border);':'');
+      tr2.appendChild(th);
+    });
+  }
+  thead.appendChild(tr2);
+  tbl.appendChild(thead);
+
+  // tbody — each row has its own Save button (store only)
+  var tbody=document.createElement('tbody');
+  orders.forEach(function(ord){
+    var tr=document.createElement('tr');
+
+    function mkStickyTd(text,leftPx,minW,fw){
+      var td=document.createElement('td');
+      td.textContent=text||'—';
+      td.style.cssText='position:sticky;left:'+leftPx+'px;z-index:2;'+stickyBg+';padding:7px 8px;white-space:nowrap;border-bottom:1px solid var(--fos-border);font-size:12px;color:var(--fos-ink);min-width:'+minW+'px;max-width:'+minW+'px;overflow:hidden;text-overflow:ellipsis;'+(fw?'font-weight:'+fw+';':'');
+      return td;
+    }
+    tr.appendChild(mkStickyTd(ord.customer,0,96,500));
+    tr.appendChild(mkStickyTd((ord.article||'')+(ord.color?' · '+ord.color:''),96,120));
+    tr.appendChild(mkStickyTd(ord.lotSize?String(ord.lotSize):'—',216,52));
+
+    MOVEMENTS.forEach(function(mv){
+      var key=ord.orderId+'||'+mv;
+      var agg=lkp[key]||{t:0,s:0};
+      var bal=(ord.lotSize||0)-(agg.s||0);
+
+      // TODAY
+      var tdT=document.createElement('td');
+      tdT.style.cssText='text-align:center;padding:5px 4px;border-bottom:1px solid var(--fos-border);border-left:2px solid var(--fos-border);';
+      tdT.textContent=agg.t?String(agg.t):'—';
+      tdT.style.color=agg.t?'var(--fos-ink)':'var(--fos-ink-secondary)';
+
+      // TOTAL
+      var tdS=document.createElement('td');
+      tdS.style.cssText='text-align:center;padding:5px 6px;border-bottom:1px solid var(--fos-border);font-size:12px;';
+      tdS.textContent=agg.s?String(agg.s):'—';
+      tdS.style.color=agg.s?'var(--fos-ink)':'var(--fos-ink-secondary)';
+
+      // BAL
+      var tdB=document.createElement('td');
+      tdB.style.cssText='text-align:center;padding:5px 6px;border-bottom:1px solid var(--fos-border);font-size:12px;font-weight:500;';
+      if(!ord.lotSize){tdB.textContent='—';tdB.style.color='var(--fos-ink-secondary)';}
+      else if(bal<=0){tdB.textContent='Done';tdB.style.color='var(--fos-success)';}
+      else{tdB.textContent=String(bal);tdB.style.color=bal<=(ord.lotSize*0.2)?'var(--fos-warning)':'var(--fos-ink-secondary)';}
+
+      tr.appendChild(tdT);tr.appendChild(tdS);tr.appendChild(tdB);
+    });
+
+    tbody.appendChild(tr);
+  });
+  tbl.appendChild(tbody);
+  wrap.appendChild(tbl);
+  c.appendChild(wrap);
 }
 </script>
 <div id="fos-whatsnew" style="display:none">
