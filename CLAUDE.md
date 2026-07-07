@@ -2,13 +2,30 @@
 
 Every LIVE deploy is a 4-step sequence. Never split across separate prompts.
 
-Step 1: Change CONFIG.ENV to 'LIVE' in Server.js
+Step 1: Change CONFIG.ENV to 'LIVE' in config.js
 Step 2: Push and deploy to LIVE deployment ID
-Step 3: Immediately change CONFIG.ENV back to 'DEV' in Server.js  
+Step 3: Immediately change CONFIG.ENV back to 'DEV' in config.js  
 Step 4: Push and deploy to DEV deployment ID
 
 Never deploy to LIVE without completing all 4 steps in the same prompt.
 Never leave HEAD at CONFIG.ENV = 'LIVE'.
+
+CONFIG.ENV now lives in config.js (not Server.js — that file no longer exists).
+Every deploy session must confirm ENV='DEV' in config.js before starting.
+
+## DEPLOYMENT COMMANDS (permanent reference)
+
+DEV deploy (all changes go here first):
+cd /Users/Ayush/adees-factoryos && npx @google/clasp push && npx @google/clasp deploy --deploymentId AKfycbzqXhBq6rVaCZ0fcAA2lzQiBYVGKaV3qiIfQ6iZRxnIBpd2pL2nWzSGJQtMHBWfnHusXQ --description "dev"
+
+LIVE deploy (4-step protocol only, never standalone):
+cd /Users/Ayush/adees-factoryos && npx @google/clasp push && npx @google/clasp deploy --deploymentId AKfycbwnXfDSJ9AwkOrTGkb5h88QHTyL2ZUSPKxZ1_RousLQgkc5x9e0B5n7slrCj3lXnNLlxw --description "live"
+
+DEV Sheet ID:  1eHnrG7IWn5PhreW1ywkdhgpzjOzYs6Y53vC4EIxwTvg
+LIVE Sheet ID: 1FLPeuQFPx0nQXRy-16P2-1-e5SjDu7nLE-1ycNZ-IH0
+
+LIVE is the factory's running system. DEV changes only until
+trial script passes. Never touch both in the same session.
 
 ## Deployment and run rules
 
@@ -26,8 +43,23 @@ There is NO other copy of this project anywhere on this machine.
 
 Before making ANY changes, always confirm:
 1. You are working in `/Users/Ayush/adees-factoryos`
-2. Run `wc -c Index.html` — it should be approximately 180KB
-3. If Index.html is less than 150KB — STOP immediately and report before proceeding
+
+FILE MAP (verify sizes before any edit session):
+- config.js       ~2 KB   — CONFIG, SHEET_ID, ROLES, doGet, helpers
+- orders.js       ~21 KB  — createOrder, deleteOrder, BOM/TS functions
+- activities.js   ~32 KB  — getEntryData, activity setup/approval flows
+- requests.js     ~17 KB  — submitRequest, processRequest, notifications
+- contractors.js  ~9 KB   — contractor CRUD, enrollments
+- wip.js          ~22 KB  — WIP entries, job card daily reports, grid
+- jobcards.js     ~12 KB  — issueJobCard, receiveJobCard, getJobCards
+- payments.js     ~41 KB  — getDashboardData, payment batch lifecycle
+- legacy.js       ~4 KB   — WIPE_AND_RESET etc, do not edit
+- Index.html      ~213 KB — full frontend (pre-split, Prompt 2 pending)
+
+SIZE GUARD: No file should shrink more than 20% in a single edit
+without explicit approval. If Index.html drops below 180KB or any
+.js file drops below 50% of listed size — stop and verify before
+proceeding.
 
 Never run `clasp pull` without explicit instruction from the user.
 `clasp pull` overwrites local files with server state and can destroy local work.
