@@ -1,0 +1,882 @@
+
+// ── STORE HOME ────────────────────────────────────────────────────────────────
+function renderStoreHome(c){
+  c.innerHTML='';
+  // Section 1: Pipeline tracker
+  var pt=fosPipelineTracker({cutting:12,prep:8,upper:14,lasting:10,sole:6,finishing:4});
+  pt.classList.add('fos-light');
+  c.appendChild(pt);
+
+  var STAGES_WIP=['Cutting','Preparation','Fitter','Lasting/Pasting','Finishing/Packing','Dispatch'];
+  var todayStr=(new Date()).toISOString().slice(0,10);
+  var stageTotals={};STAGES_WIP.forEach(function(s){stageTotals[s]=0;});
+  var entries=D.wip&&Array.isArray(D.wip)?D.wip:[];
+  entries.forEach(function(e){
+    var eDate='';try{eDate=new Date(e.submittedAt).toISOString().slice(0,10);}catch(err){}
+    if(eDate!==todayStr)return;
+    if(stageTotals.hasOwnProperty(e.stage))stageTotals[e.stage]+=(e.pairsCompleted||0);
+  });
+
+  // Section 2: Aaj Ka Report
+  var now=new Date();
+  var _MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var _DAYS=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  var todayLabel=now.getDate()+' '+_MONTHS[now.getMonth()]+', '+_DAYS[now.getDay()];
+  var sumCard=el('div',{style:'background:var(--fos-surface);border-radius:12px;padding:20px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,0.06)'});
+  sumCard.appendChild(el('div',{style:'font-family:var(--fos-font-display);font-size:18px;font-weight:600;color:var(--fos-accent);margin-bottom:2px',text:'Aaj Ka Report'}));
+  sumCard.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-bottom:14px',text:todayLabel}));
+  STAGES_WIP.forEach(function(stage){
+    var qty=stageTotals[stage];
+    var row=el('div',{style:'display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--fos-border)'});
+    row.appendChild(el('span',{style:'font-size:14px;color:var(--fos-ink)',text:stage}));
+    row.appendChild(qty>0?el('span',{style:'font-size:14px;font-weight:700;color:var(--fos-ink)',text:qty+' pairs'}):el('span',{style:'font-size:14px;color:var(--fos-ink-secondary)',text:'—'}));
+    sumCard.appendChild(row);
+  });
+  c.appendChild(sumCard);
+
+  // Section 3: Quick Entry
+  var quickBtn=el('button',{cls:'primary-btn',text:'New WIP Entry',style:'margin-bottom:16px'});
+  quickBtn.onclick=function(){loadTab('wip');};
+  c.appendChild(quickBtn);
+
+  // Section 4: Recent Activity (last 5)
+  c.appendChild(el('div',{style:'font-size:11px;font-weight:600;color:var(--fos-ink-secondary);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px',text:'Recent Activity'}));
+  var recent=entries.slice().reverse().slice(0,5);
+  var actCard=el('div',{style:'background:var(--fos-surface);border-radius:12px;padding:0 16px;box-shadow:0 1px 4px rgba(0,0,0,0.06)'});
+  if(!recent.length){
+    actCard.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);padding:20px 0;text-align:center',text:'No entries yet'}));
+  } else {
+    var todayMid=new Date();todayMid.setHours(0,0,0,0);
+    var _MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    recent.forEach(function(e,i){
+      var arts=D.entry&&D.entry.articles?D.entry.articles:[];
+      var artM=arts.find?arts.find(function(a){return a.sheet===e.orderRef;}):null;
+      var dispRef=artM?artM.article:e.orderRef;
+      var stLbl=e.stage+(e.subDept?' / '+e.subDept:'');
+      var tsStr='—';
+      try{if(e.submittedAt){var d=new Date(e.submittedAt);tsStr=d>=todayMid?(String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')):(d.getDate()+' '+_MON[d.getMonth()]);}}catch(err){}
+      var sCls=e.status==='LINKED'?'badge green':e.status==='VOID'?'badge grey':'badge yellow';
+      var borderStyle=i<recent.length-1?'border-bottom:1px solid var(--fos-border)':'';
+      var row=el('div',{style:'display:flex;align-items:flex-start;justify-content:space-between;padding:12px 0;'+borderStyle});
+      var left=el('div',{style:'flex:1;min-width:0;margin-right:12px'});
+      left.appendChild(el('div',{style:'font-size:14px;font-weight:600;color:var(--fos-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap',text:dispRef}));
+      left.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:stLbl}));
+      row.appendChild(left);
+      var right=el('div',{style:'text-align:right;flex-shrink:0'});
+      right.appendChild(el('div',{style:'font-size:13px;font-weight:700;color:var(--fos-ink)',text:e.pairsCompleted+' pairs'}));
+      right.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-bottom:4px',text:tsStr}));
+      right.appendChild(el('span',{cls:sCls,text:e.status||'PENDING'}));
+      row.appendChild(right);
+      actCard.appendChild(row);
+    });
+  }
+  c.appendChild(actCard);
+}
+// ── WIP ───────────────────────────────────────────────────────────────────────
+function renderWIP(c){
+  c.innerHTML='';
+
+  var STORE_MOVEMENTS={
+    'Upper Store':             ['Cutting IN','Preparation IN','Fitter IN'],
+    'Lasting & Packing Store': ['Upper IN','Lasting IN','Packing IN'],
+    'Dispatch Store':          ['Dispatch IN']
+  };
+  var MOVEMENT_DEPT={
+    'Cutting IN':     'Cutting',
+    'Preparation IN': 'Preparation',
+    'Fitter IN':      'Fitter',
+    'Upper IN':       'Lasting/Pasting',
+    'Lasting IN':     'Lasting/Pasting',
+    'Packing IN':     'Finishing/Packing',
+    'Dispatch IN':    'Dispatch'
+  };
+
+  var arts=D.entry&&D.entry.articles?D.entry.articles:[];
+  var enrollments=D.enrollments||[];
+  var contractors=D.contractors||[];
+
+  var selectedOrderRef='';
+  var selectedWorkOrder='';
+  var selectedOrderQty=0;
+  var selectedStore='';
+  var selectedMovement='';
+  var selectedContractorId='';
+  var activityCache={};
+
+  // ── Section 1: Issue Job Card Form ────────────────────────────────────────
+  var formCard=el('div',{cls:'art-item',style:'padding:16px;margin-bottom:16px'});
+
+  // 1. Order
+  var orderGrp=el('div',{cls:'form-group'});
+  orderGrp.appendChild(el('label',{cls:'form-label',text:'Order'}));
+  var orderSel=el('select',{cls:'form-select'});
+  orderSel.appendChild(el('option',{value:'',text:'— Select Order —'}));
+  arts.forEach(function(a){
+    var label='['+a.sheet+'] '+(a.bom||'')+(a.article?' · '+a.article:'')+(a.customer?' — '+a.customer:'');
+    orderSel.appendChild(el('option',{value:a.sheet,text:label}));
+  });
+  orderGrp.appendChild(orderSel);
+  formCard.appendChild(orderGrp);
+
+  // 2. Store
+  var storeGrp=el('div',{cls:'form-group'});
+  storeGrp.appendChild(el('label',{cls:'form-label',text:'Store'}));
+  var storeSel=el('select',{cls:'form-select'});
+  storeSel.appendChild(el('option',{value:'',text:'— Select Store —'}));
+  ['Upper Store','Lasting & Packing Store','Dispatch Store'].forEach(function(s){
+    storeSel.appendChild(el('option',{value:s,text:s}));
+  });
+  storeGrp.appendChild(storeSel);
+  formCard.appendChild(storeGrp);
+
+  // 3. Movement
+  var movGrp=el('div',{cls:'form-group'});
+  movGrp.appendChild(el('label',{cls:'form-label',text:'Movement'}));
+  var movSel=el('select',{cls:'form-select'});
+  movSel.disabled=true;
+  movSel.appendChild(el('option',{value:'',text:'— Select Movement —'}));
+  movGrp.appendChild(movSel);
+  formCard.appendChild(movGrp);
+  var actWarnDiv=el('div',{style:'display:none;font-size:12px;margin-top:2px;margin-bottom:8px'});
+  actWarnDiv.id='wip-act-warning';
+  formCard.appendChild(actWarnDiv);
+
+  // 4. Contractor
+  var ctrGrp=el('div',{cls:'form-group'});
+  ctrGrp.appendChild(el('label',{cls:'form-label',text:'Contractor'}));
+  var ctrSel=el('select',{cls:'form-select'});
+  ctrSel.disabled=true;
+  ctrSel.appendChild(el('option',{value:'',text:'— Select Contractor —'}));
+  var noEnrollMsg=el('div',{style:'display:none;font-size:12px;color:var(--fos-danger);margin-top:6px',text:'No contractors enrolled for this department. Enroll via Accounts > Contractors.'});
+  ctrGrp.appendChild(ctrSel);
+  ctrGrp.appendChild(noEnrollMsg);
+  formCard.appendChild(ctrGrp);
+
+  // 5. Pairs to Issue
+  var pairsGrp=el('div',{cls:'form-group'});
+  pairsGrp.appendChild(el('label',{cls:'form-label',text:'Pairs to Issue'}));
+  var pairsInput=el('input',{cls:'form-input',type:'number',min:'1',step:'1',placeholder:'0'});
+  var balanceEl=el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:4px',text:'Order balance: — pairs'});
+  pairsGrp.appendChild(pairsInput);
+  pairsGrp.appendChild(balanceEl);
+  formCard.appendChild(pairsGrp);
+
+  // 6. Size Breakdown
+  var sizeGrp=el('div',{cls:'form-group'});
+  sizeGrp.appendChild(el('label',{cls:'form-label',text:'Size Breakdown'}));
+  var sizeContainer=el('div');
+  sizeContainer.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'Select an order to load size breakdown'}));
+  sizeGrp.appendChild(sizeContainer);
+  formCard.appendChild(sizeGrp);
+
+  // 7. Expected Return Date
+  var dateGrp=el('div',{cls:'form-group'});
+  dateGrp.appendChild(el('label',{cls:'form-label',text:'Expected Return Date'}));
+  var dateInput=el('input',{cls:'form-input',type:'date'});
+  var d7=new Date();d7.setDate(d7.getDate()+7);
+  dateInput.value=d7.toISOString().slice(0,10);
+  dateGrp.appendChild(dateInput);
+  formCard.appendChild(dateGrp);
+
+  // 8. Notes
+  var notesGrp=el('div',{cls:'form-group'});
+  notesGrp.appendChild(el('label',{cls:'form-label',text:'Notes (optional)'}));
+  var notesInput=el('textarea',{cls:'form-input'});
+  notesInput.rows=2;
+  notesGrp.appendChild(notesInput);
+  formCard.appendChild(notesGrp);
+
+  // 9. Issue Job Card button
+  var issueBtn=el('button',{cls:'primary-btn',text:'Issue Job Card'});
+  issueBtn.disabled=true;
+  formCard.appendChild(issueBtn);
+  c.appendChild(formCard);
+
+  // ── Section 2: Recently Issued Today ─────────────────────────────────────
+  var recentWrap=el('div',{style:'margin-bottom:16px'});
+  recentWrap.appendChild(el('div',{
+    style:'font-size:11px;font-weight:600;letter-spacing:0.08em;color:var(--fos-ink-secondary);text-transform:uppercase;padding:12px 0 6px 0;border-bottom:1px solid var(--fos-border);margin-bottom:8px',
+    text:'RECENTLY ISSUED TODAY'
+  }));
+  var recentList=el('div');
+  recentWrap.appendChild(recentList);
+  c.appendChild(recentWrap);
+
+  function todayDateStr(){var n=new Date();return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0');}
+
+  function renderRecentlyIssued(){
+    recentList.innerHTML='';
+    var jcs=Array.isArray(D.jobCards)?D.jobCards:[];
+    var today=todayDateStr();
+    var todayCards=jcs.filter(function(jc){return (jc.issuedAt||'').slice(0,10)===today;}).slice(0,5);
+    if(!todayCards.length){
+      recentList.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);padding:12px 0;text-align:center',text:'No job cards issued yet today'}));
+      return;
+    }
+    var artByRef={};arts.forEach(function(a){artByRef[a.sheet]=a;});
+    var ctrById={};contractors.forEach(function(ct){ctrById[ct.ctrId]=ct;});
+    todayCards.forEach(function(jc){
+      var art=artByRef[jc.orderRef];
+      var artName=art?(art.article||jc.orderRef):jc.orderRef;
+      var ctr=ctrById[jc.contractorId];
+      var ctrName=ctr?ctr.name:jc.contractorId;
+      var card=el('div',{style:'background:var(--fos-surface);border:0.5px solid var(--fos-border);border-radius:10px;padding:12px;margin-bottom:8px'});
+      var row1=el('div',{style:'display:flex;align-items:center;justify-content:space-between;margin-bottom:4px'});
+      row1.appendChild(el('span',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:jc.jobCardId}));
+      row1.appendChild(el('span',{cls:'badge yellow',text:'ISSUED'}));
+      card.appendChild(row1);
+      card.appendChild(el('div',{style:'font-size:14px;font-weight:600;color:var(--fos-ink);margin-bottom:2px',text:artName}));
+      card.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:jc.store+' · '+jc.movement}));
+      card.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:ctrName+' — '+jc.pairsIssued+' pairs'}));
+      recentList.appendChild(card);
+    });
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function populateMovements(){
+    movSel.innerHTML='';
+    movSel.appendChild(el('option',{value:'',text:'— Select Movement —'}));
+    (STORE_MOVEMENTS[selectedStore]||[]).forEach(function(mv){movSel.appendChild(el('option',{value:mv,text:mv}));});
+    movSel.disabled=!selectedStore;
+    selectedMovement='';
+    populateContractors();
+  }
+
+  function populateContractors(){
+    ctrSel.innerHTML='';
+    ctrSel.appendChild(el('option',{value:'',text:'— Select Contractor —'}));
+    ctrSel.disabled=true;
+    noEnrollMsg.style.display='none';
+    issueBtn.disabled=false;
+    selectedContractorId='';
+    if(!selectedMovement)return;
+    var dept=MOVEMENT_DEPT[selectedMovement]||'';
+    var enrolled=enrollments.filter(function(e){return e.department===dept&&(e.status||'').toUpperCase()==='ACTIVE';});
+    if(!enrolled.length){noEnrollMsg.style.display='block';issueBtn.disabled=true;return;}
+    var enrolledIds={};enrolled.forEach(function(e){enrolledIds[e.contractorId]=e.contractorName||e.contractorId;});
+    var found=contractors.filter(function(ct){return !!enrolledIds[ct.ctrId];});
+    if(found.length){
+      found.forEach(function(ct){ctrSel.appendChild(el('option',{value:ct.ctrId,text:ct.ctrId+' — '+ct.name}));});
+    } else {
+      enrolled.forEach(function(e){ctrSel.appendChild(el('option',{value:e.contractorId,text:e.contractorId+' — '+(e.contractorName||e.contractorId)}));});
+    }
+    ctrSel.disabled=false;
+  }
+
+  function loadSizeBreakdown(orderRef){
+    sizeContainer.innerHTML='';
+    if(!orderRef){sizeContainer.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'Select an order to load size breakdown'}));return;}
+    if(D.orderSizes&&D.orderSizes[orderRef]){renderSizeInputs(D.orderSizes[orderRef]);return;}
+    sizeContainer.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'Loading sizes...'}));
+    google.script.run
+      .withSuccessHandler(function(result){
+        if(!D.orderSizes)D.orderSizes={};
+        D.orderSizes[orderRef]=result;
+        if(selectedOrderRef===orderRef)renderSizeInputs(result);
+      })
+      .withFailureHandler(function(){
+        if(selectedOrderRef===orderRef){sizeContainer.innerHTML='';sizeContainer.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'Could not load size breakdown'}));}
+      })
+      .getOrderSizes(orderRef);
+  }
+
+  function renderSizeInputs(result){
+    sizeContainer.innerHTML='';
+    if(!result||result.error||!result.sizes||!Object.keys(result.sizes).length){
+      sizeContainer.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'No size breakdown available for this order'}));
+      return;
+    }
+    var sizes=result.sizes;
+    var keys=Object.keys(sizes).sort(function(a,b){return parseFloat(a)-parseFloat(b);});
+    var scroll=el('div',{style:'overflow-x:auto;-webkit-overflow-scrolling:touch'});
+    var row=el('div',{style:'display:inline-flex;gap:6px;min-width:min-content'});
+    keys.forEach(function(k){
+      var col=el('div',{style:'display:flex;flex-direction:column;align-items:center;gap:4px'});
+      col.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);font-weight:500',text:k}));
+      var inp=el('input');
+      inp.type='number';inp.min='0';inp.step='1';inp.value=String(sizes[k]||0);
+      inp.dataset.size=k;
+      inp.style.cssText='width:50px;padding:5px 4px;border:1px solid var(--fos-border);border-radius:8px;font-size:13px;text-align:center;background:var(--fos-surface);color:var(--fos-ink)';
+      col.appendChild(inp);
+      row.appendChild(col);
+    });
+    scroll.appendChild(row);
+    sizeContainer.appendChild(scroll);
+  }
+
+  function getSizeBreakdown(){
+    var result={};
+    sizeContainer.querySelectorAll('input[data-size]').forEach(function(inp){
+      var v=parseInt(inp.value,10);
+      if(v>0)result[inp.dataset.size]=v;
+    });
+    return result;
+  }
+
+  function checkDeptActivities(){
+    actWarnDiv.innerHTML='';
+    actWarnDiv.style.display='none';
+    if(!selectedOrderRef||!selectedMovement)return;
+    var DEPT_KEY_MAP={
+      'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter',
+      'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finishing','Dispatch IN':'dispatch'
+    };
+    var deptKey=DEPT_KEY_MAP[selectedMovement]||'';
+    if(!deptKey)return;
+    issueBtn.disabled=true;
+    if(activityCache[selectedOrderRef]){
+      applyActivityCheck(activityCache[selectedOrderRef],deptKey);
+    } else {
+      google.script.run
+        .withSuccessHandler(function(res){
+          activityCache[selectedOrderRef]=res;
+          var curKey=DEPT_KEY_MAP[selectedMovement]||'';
+          if(curKey===deptKey)applyActivityCheck(res,deptKey);
+        })
+        .withFailureHandler(function(){
+          actWarnDiv.innerHTML='';actWarnDiv.style.display='none';
+          issueBtn.disabled=ctrSel.disabled;
+        })
+        .getApprovedActivitiesForArticle(selectedOrderRef);
+    }
+  }
+
+  function applyActivityCheck(res,deptKey){
+    actWarnDiv.innerHTML='';
+    var deptActs=[];
+    if(res&&res.success&&Array.isArray(res.activities)){
+      deptActs=res.activities.filter(function(a){return (a.dept||'').toLowerCase().indexOf(deptKey)===0;});
+    }
+    if(deptActs.length===0){
+      actWarnDiv.innerHTML='<span style="color:var(--fos-danger)">⚠ No approved activities for '+(MOVEMENT_DEPT[selectedMovement]||selectedMovement)+' on this order. Contact Arvind to set up activities.</span>';
+      actWarnDiv.style.display='block';
+      issueBtn.disabled=true;
+    } else {
+      var totalRate=deptActs.reduce(function(s,a){return s+(a.rate||0);},0);
+      actWarnDiv.innerHTML='<span style="color:var(--fos-success)">✓ '+deptActs.length+' activit'+(deptActs.length===1?'y':'ies')+' set up · Rate: ₹'+totalRate.toFixed(2)+'/pair</span>';
+      actWarnDiv.style.display='block';
+      issueBtn.disabled=ctrSel.disabled;
+    }
+  }
+
+  // ── Event handlers ────────────────────────────────────────────────────────
+  orderSel.onchange=function(){
+    selectedOrderRef=orderSel.value;
+    var art=arts.filter(function(a){return a.sheet===selectedOrderRef;})[0];
+    selectedWorkOrder=art?(art.bom||''):'';
+    selectedOrderQty=art?(parseInt(art.orderQty,10)||0):0;
+    balanceEl.textContent=selectedOrderQty>0?'Order balance: '+selectedOrderQty+' pairs':'Order balance: — pairs';
+    loadSizeBreakdown(selectedOrderRef);
+  };
+
+  storeSel.onchange=function(){selectedStore=storeSel.value;populateMovements();};
+  movSel.onchange=function(){selectedMovement=movSel.value;populateContractors();checkDeptActivities();};
+  ctrSel.onchange=function(){selectedContractorId=ctrSel.value;};
+
+  issueBtn.onclick=function(){
+    selectedContractorId=ctrSel.value;
+    if(!selectedOrderRef){toast('Select an order',true);return;}
+    if(!selectedStore){toast('Select a store',true);return;}
+    if(!selectedMovement){toast('Select a movement',true);return;}
+    if(!selectedContractorId){toast('Select a contractor',true);return;}
+    var pv=parseInt(pairsInput.value,10);
+    if(!pv||pv<=0){toast('Enter pairs to issue',true);return;}
+    if(!dateInput.value){toast('Enter expected return date',true);return;}
+    var payload={
+      orderRef:selectedOrderRef,
+      workOrder:selectedWorkOrder,
+      store:selectedStore,
+      movement:selectedMovement,
+      contractorId:selectedContractorId,
+      pairsIssued:pv,
+      sizeBreakdown:getSizeBreakdown(),
+      expectedReturn:dateInput.value,
+      notes:notesInput.value.trim()
+    };
+    issueBtn.disabled=true;issueBtn.textContent='Issuing...';
+    google.script.run
+      .withSuccessHandler(function(r){
+        issueBtn.disabled=false;issueBtn.textContent='Issue Job Card';
+        if(r&&r.success){
+          toast('Issued — '+(r.jobCardId||'OK'));
+          if(r.warning)toast(r.warning,true);
+          storeSel.value='';selectedStore='';
+          populateMovements();
+          pairsInput.value='';
+          notesInput.value='';
+          var d7n=new Date();d7n.setDate(d7n.getDate()+7);dateInput.value=d7n.toISOString().slice(0,10);
+          google.script.run
+            .withSuccessHandler(function(jcs){D.jobCards=Array.isArray(jcs)?jcs:[];renderRecentlyIssued();})
+            .withFailureHandler(function(){})
+            .getJobCards({});
+        } else {
+          toast((r&&r.error)||'Error issuing job card',true);
+        }
+      })
+      .withFailureHandler(function(){
+        issueBtn.disabled=false;issueBtn.textContent='Issue Job Card';
+        toast('Error issuing job card',true);
+      })
+      .issueJobCard(payload);
+  };
+
+  renderRecentlyIssued();
+}
+
+// ── JOB CARDS — Phase 5.4c ───────────────────────────────────────────────────
+function renderJobCards(c){
+  c.innerHTML='';
+
+  var arts=D.entry&&D.entry.articles?D.entry.articles:[];
+  var contractors=D.contractors||[];
+
+  var artByRef={};arts.forEach(function(a){artByRef[a.sheet]=a;});
+  var ctrById={};contractors.forEach(function(ct){ctrById[ct.ctrId]=ct;});
+
+  var filterStore='';
+  var filterStatus='open';
+
+  // ── Section 1: Filters ────────────────────────────────────────────────────
+  var filterRow=el('div',{style:'display:flex;gap:8px;margin-bottom:12px'});
+
+  var storeFilt=el('select',{cls:'form-select',style:'flex:1;padding:8px 10px;font-size:13px'});
+  [{v:'',t:'All Stores'},{v:'Upper Store',t:'Upper Store'},{v:'Lasting & Packing Store',t:'L&P Store'},{v:'Dispatch Store',t:'Dispatch Store'}].forEach(function(o){
+    storeFilt.appendChild(el('option',{value:o.v,text:o.t}));
+  });
+
+  var statusFilt=el('select',{cls:'form-select',style:'flex:1;padding:8px 10px;font-size:13px'});
+  [{v:'open',t:'Open'},{v:'complete',t:'Complete'},{v:'all',t:'All'}].forEach(function(o){
+    statusFilt.appendChild(el('option',{value:o.v,text:o.t}));
+  });
+
+  filterRow.appendChild(storeFilt);
+  filterRow.appendChild(statusFilt);
+  c.appendChild(filterRow);
+
+  // ── Section 2: Job Card list ──────────────────────────────────────────────
+  var listWrap=el('div');
+  c.appendChild(listWrap);
+
+  function fmtDate(iso){
+    if(!iso)return '—';
+    try{var d=new Date(iso);var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return d.getDate()+' '+months[d.getMonth()];}
+    catch(e){return iso.slice(0,10)||'—';}
+  }
+
+  function renderList(){
+    listWrap.innerHTML='';
+    var all=Array.isArray(D.jobCards)?D.jobCards:[];
+    var filtered=all.filter(function(jc){
+      if(filterStore&&jc.store!==filterStore)return false;
+      var st=(jc.status||'').toUpperCase();
+      if(filterStatus==='open')return st==='ISSUED'||st==='PARTIAL';
+      if(filterStatus==='complete')return st==='COMPLETE';
+      return true;
+    });
+    if(!filtered.length){
+      listWrap.appendChild(el('div',{style:'text-align:center;padding:40px;font-size:14px;color:var(--fos-ink-secondary)',text:'No job cards found'}));
+      return;
+    }
+    filtered.forEach(function(jc){
+      var st=(jc.status||'ISSUED').toUpperCase();
+      var art=artByRef[jc.orderRef];
+      var artName=art?(art.article||jc.orderRef):jc.orderRef;
+      var ctr=ctrById[jc.contractorId];
+      var ctrName=ctr?ctr.name:jc.contractorId;
+      var issued=jc.pairsIssued||0;
+      var received=jc.pairsReceived||0;
+      var balance=issued-received;
+      var pct=issued>0?Math.round((received/issued)*100):0;
+
+      var card=el('div',{style:'background:var(--fos-surface);border:0.5px solid var(--fos-border);border-radius:12px;padding:14px;margin-bottom:10px'});
+
+      // Top row: ID + badge
+      var topRow=el('div',{style:'display:flex;align-items:center;justify-content:space-between;margin-bottom:6px'});
+      topRow.appendChild(el('span',{style:'font-family:var(--fos-font-mono);font-size:12px;color:var(--fos-ink-secondary)',text:jc.jobCardId}));
+      var badgeCls=st==='COMPLETE'?'badge green':st==='PARTIAL'?'badge blue':'badge yellow';
+      topRow.appendChild(el('span',{cls:badgeCls,text:st}));
+      card.appendChild(topRow);
+
+      // Article name
+      card.appendChild(el('div',{style:'font-size:15px;font-weight:600;color:var(--fos-ink);margin-bottom:3px',text:artName}));
+
+      // Store · Movement
+      card.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-bottom:2px',text:jc.store+' · '+jc.movement}));
+
+      // Contractor
+      card.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-bottom:8px',text:ctrName}));
+
+      // Progress
+      var progWrap=el('div',{style:'margin-bottom:6px'});
+      var progHeader=el('div',{style:'display:flex;justify-content:space-between;margin-bottom:4px'});
+      progHeader.appendChild(el('span',{style:'font-size:13px;font-weight:700;color:var(--fos-ink)',text:'Issued: '+issued+' pairs'}));
+      progHeader.appendChild(el('span',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'Received: '+received+' / '+issued}));
+      progWrap.appendChild(progHeader);
+      var barBg=el('div',{style:'height:3px;background:var(--fos-border);border-radius:2px;overflow:hidden;margin-bottom:4px'});
+      var barFill=el('div');barFill.style.cssText='height:100%;width:'+pct+'%;background:var(--fos-accent);border-radius:2px;transition:width 0.3s';
+      barBg.appendChild(barFill);progWrap.appendChild(barBg);
+      progWrap.appendChild(el('span',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:'Balance: '+balance+' pairs'}));
+      card.appendChild(progWrap);
+
+      // Dates
+      var datesRow=el('div',{style:'display:flex;gap:12px;margin-bottom:8px'});
+      datesRow.appendChild(el('span',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'Issued: '+fmtDate(jc.issuedAt)}));
+      datesRow.appendChild(el('span',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'Expected: '+fmtDate(jc.expectedReturn)}));
+      card.appendChild(datesRow);
+
+      // Receive form or complete indicator
+      if(st==='ISSUED'||st==='PARTIAL'){
+        var rcvRow=el('div',{style:'display:flex;gap:8px;align-items:center'});
+        var rcvInput=el('input');
+        rcvInput.type='number';rcvInput.min='1';rcvInput.max=String(balance);rcvInput.placeholder='Pairs received';
+        rcvInput.style.cssText='flex:1;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:10px;padding:10px 12px;color:var(--fos-ink);font-size:14px';
+        var rcvBtn=el('button',{cls:'primary-btn',text:'Receive',style:'width:auto;padding:10px 18px;font-size:14px;border-radius:10px'});
+        rcvRow.appendChild(rcvInput);rcvRow.appendChild(rcvBtn);
+        card.appendChild(rcvRow);
+
+        (function(cardId,bal,btn,inp,cardEl){
+          btn.onclick=function(){
+            var v=parseInt(inp.value,10);
+            if(!v||v<=0||v>bal){toast('Enter a valid quantity (max '+bal+' pairs)',true);return;}
+            btn.disabled=true;btn.textContent='...';
+            google.script.run
+              .withSuccessHandler(function(r){
+                btn.disabled=false;btn.textContent='Receive';
+                if(r&&r.success){
+                  toast('Received — Job Card now '+(r.status||'updated'));
+                  if(r.warning)toast(r.warning,true);
+                  google.script.run
+                    .withSuccessHandler(function(jcs){D.jobCards=Array.isArray(jcs)?jcs:[];renderList();})
+                    .withFailureHandler(function(){})
+                    .getJobCards({});
+                } else {
+                  toast((r&&r.error)||'Error receiving',true);
+                }
+              })
+              .withFailureHandler(function(){btn.disabled=false;btn.textContent='Receive';toast('Error receiving job card',true);})
+              .receiveJobCard({jobCardId:cardId,pairsReceived:v,notes:''});
+          };
+        })(jc.jobCardId,balance,rcvBtn,rcvInput,card);
+
+      } else if(st==='COMPLETE'){
+        var doneRow=el('div',{style:'display:flex;align-items:center;gap:6px;padding:8px 0'});
+        doneRow.appendChild(el('span',{style:'color:var(--fos-success);font-size:16px',text:'✓'}));
+        doneRow.appendChild(el('span',{style:'font-size:13px;color:var(--fos-success)',text:'Completed '+fmtDate(jc.receivedAt)}));
+        card.appendChild(doneRow);
+      }
+
+      listWrap.appendChild(card);
+    });
+  }
+
+  storeFilt.onchange=function(){filterStore=storeFilt.value;renderList();};
+  statusFilt.onchange=function(){filterStatus=statusFilt.value;renderList();};
+
+  renderList();
+}
+
+// ── FLOOR VIEW — Phase 5.5 ────────────────────────────────────────────────────
+function renderFloor(c){
+  c.innerHTML='';
+
+  var arts=D.entry&&D.entry.articles?D.entry.articles:[];
+  var contractors=D.contractors||[];
+  var artByRef={};arts.forEach(function(a){artByRef[a.sheet]=a;});
+  var ctrById={};contractors.forEach(function(ct){ctrById[ct.ctrId]=ct;});
+
+  var filterStore='';
+  var sortMode='oldest';
+
+  // Header
+  var hdr=el('div',{style:'margin-bottom:16px'});
+  hdr.appendChild(el('div',{style:'font-size:20px;font-weight:700;color:var(--fos-accent)',text:'Floor View'}));
+  hdr.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'Outstanding work by contractor'}));
+  c.appendChild(hdr);
+
+  // Filters
+  var filterRow=el('div',{style:'display:flex;gap:8px;margin-bottom:16px'});
+  var storeFilt=el('select',{cls:'form-select',style:'flex:1;padding:8px 10px;font-size:13px'});
+  [{v:'',t:'All Stores'},{v:'Upper Store',t:'Upper Store'},{v:'Lasting & Packing Store',t:'L&P Store'},{v:'Dispatch Store',t:'Dispatch'}].forEach(function(o){
+    storeFilt.appendChild(el('option',{value:o.v,text:o.t}));
+  });
+  var sortFilt=el('select',{cls:'form-select',style:'flex:1;padding:8px 10px;font-size:13px'});
+  [{v:'oldest',t:'Longest Outstanding'},{v:'pairs',t:'Most Pairs'},{v:'name',t:'Contractor Name'}].forEach(function(o){
+    sortFilt.appendChild(el('option',{value:o.v,text:o.t}));
+  });
+  filterRow.appendChild(storeFilt);filterRow.appendChild(sortFilt);
+  c.appendChild(filterRow);
+
+  var listWrap=el('div');
+  c.appendChild(listWrap);
+
+  function daysSince(iso){
+    if(!iso)return 0;
+    try{
+      var d=new Date(iso);d.setHours(0,0,0,0);
+      var now=new Date();now.setHours(0,0,0,0);
+      return Math.max(0,Math.floor((now.getTime()-d.getTime())/(86400000)));
+    }catch(e){return 0;}
+  }
+
+  function fmtDate(iso){
+    if(!iso)return '—';
+    try{var d=new Date(iso);var mo=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];return d.getDate()+' '+mo[d.getMonth()];}
+    catch(e){return iso.slice(0,10)||'—';}
+  }
+
+  function isPast(iso){
+    if(!iso)return false;
+    try{var d=new Date(iso);d.setHours(23,59,59,0);return d.getTime()<Date.now();}
+    catch(e){return false;}
+  }
+
+  function renderList(){
+    listWrap.innerHTML='';
+    var all=Array.isArray(D.jobCards)?D.jobCards:[];
+    var open=all.filter(function(jc){
+      var st=(jc.status||'').toUpperCase();
+      if(st!=='ISSUED'&&st!=='PARTIAL')return false;
+      if(filterStore&&jc.store!==filterStore)return false;
+      return true;
+    });
+
+    if(!open.length){
+      var emptyWrap=el('div',{style:'text-align:center;padding:48px 16px'});
+      emptyWrap.appendChild(el('div',{style:'font-size:32px;color:var(--fos-success)',text:'✓'}));
+      emptyWrap.appendChild(el('div',{style:'font-size:14px;color:var(--fos-ink-secondary);margin-top:8px',text:'No outstanding work — all job cards complete'}));
+      listWrap.appendChild(emptyWrap);
+      return;
+    }
+
+    // Group by contractorId
+    var groupMap={};
+    open.forEach(function(jc){
+      var cId=jc.contractorId||'UNKNOWN';
+      if(!groupMap[cId])groupMap[cId]={ctrId:cId,cards:[]};
+      groupMap[cId].cards.push(jc);
+    });
+
+    var groups=Object.keys(groupMap).map(function(cId){
+      var g=groupMap[cId];
+      var ctr=ctrById[cId];
+      g.contractorName=ctr?ctr.name:cId;
+      g.totalOutstanding=0;
+      var oldestMs=Infinity;
+      g.cards.forEach(function(jc){
+        g.totalOutstanding+=(jc.pairsIssued||0)-(jc.pairsReceived||0);
+        if(jc.issuedAt){var t=new Date(jc.issuedAt).getTime();if(t<oldestMs)oldestMs=t;}
+      });
+      g.oldestIssuedIso=oldestMs===Infinity?'':new Date(oldestMs).toISOString();
+      g.daysOutstanding=daysSince(g.oldestIssuedIso);
+      g.jobCardCount=g.cards.length;
+      return g;
+    });
+
+    if(sortMode==='oldest'){groups.sort(function(a,b){return b.daysOutstanding-a.daysOutstanding;});}
+    else if(sortMode==='pairs'){groups.sort(function(a,b){return b.totalOutstanding-a.totalOutstanding;});}
+    else{groups.sort(function(a,b){return a.contractorName.localeCompare(b.contractorName);});}
+
+    groups.forEach(function(g){
+      var card=el('div',{style:'background:var(--fos-surface);border:0.5px solid var(--fos-border);border-radius:12px;padding:14px;margin-bottom:10px'});
+
+      // Top row: name + days badge
+      var topRow=el('div',{style:'display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px'});
+      var nameCol=el('div',{style:'flex:1;min-width:0;margin-right:8px'});
+      nameCol.appendChild(el('div',{style:'font-size:16px;font-weight:700;color:var(--fos-ink)',text:g.contractorName}));
+      if(g.ctrId&&g.ctrId!==g.contractorName){
+        nameCol.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:g.ctrId}));
+      }
+      topRow.appendChild(nameCol);
+      var days=g.daysOutstanding;
+      var badgeCls=days>=8?'badge red':days>=4?'badge yellow':'badge grey';
+      var badgeText=days>=8?(days+'d — DELAYED'):(days+'d');
+      topRow.appendChild(el('span',{cls:badgeCls,text:badgeText}));
+      card.appendChild(topRow);
+
+      // Summary
+      var plural=g.jobCardCount===1?' job card':' job cards';
+      card.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-bottom:10px',
+        text:g.totalOutstanding+' pairs outstanding across '+g.jobCardCount+plural}));
+
+      // Expand toggle
+      var expanded=false;
+      var toggleLabel=g.jobCardCount+plural+' — tap to expand';
+      var toggleBtn=el('div',{style:'font-size:12px;color:var(--fos-accent);cursor:pointer;user-select:none',text:toggleLabel});
+      var detailWrap=el('div',{style:'display:none;margin-top:8px;border-top:0.5px solid var(--fos-border);padding-top:8px'});
+
+      g.cards.forEach(function(jc){
+        var art=artByRef[jc.orderRef];
+        var artName=art?(art.article||jc.orderRef):jc.orderRef;
+        var bal=(jc.pairsIssued||0)-(jc.pairsReceived||0);
+        var overdue=isPast(jc.expectedReturn);
+
+        var jcRow=el('div',{style:'padding:8px 0;border-bottom:0.5px solid var(--fos-border)'});
+
+        var jcTop=el('div',{style:'display:flex;align-items:center;justify-content:space-between;margin-bottom:2px'});
+        jcTop.appendChild(el('span',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:jc.jobCardId}));
+        jcTop.appendChild(el('span',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:jc.store+' · '+jc.movement}));
+        jcRow.appendChild(jcTop);
+
+        jcRow.appendChild(el('div',{style:'font-size:13px;font-weight:600;color:var(--fos-ink);margin-bottom:2px',text:artName}));
+        jcRow.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-bottom:2px',
+          text:'Issued '+(jc.pairsIssued||0)+' · Received '+(jc.pairsReceived||0)+' · Balance '+bal}));
+
+        var datesRow=el('div',{style:'display:flex;flex-wrap:wrap;gap:8px;align-items:center'});
+        datesRow.appendChild(el('span',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'Issued: '+fmtDate(jc.issuedAt)}));
+        datesRow.appendChild(el('span',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'Expected: '+fmtDate(jc.expectedReturn)}));
+        if(overdue){
+          datesRow.appendChild(el('span',{style:'font-size:10px;font-weight:700;color:var(--fos-danger);font-family:var(--fos-font-mono)',text:'OVERDUE'}));
+        }
+        jcRow.appendChild(datesRow);
+        detailWrap.appendChild(jcRow);
+      });
+
+      toggleBtn.onclick=function(){
+        expanded=!expanded;
+        detailWrap.style.display=expanded?'block':'none';
+        toggleBtn.textContent=g.jobCardCount+plural+(expanded?' — tap to collapse':' — tap to expand');
+      };
+      card.appendChild(toggleBtn);
+      card.appendChild(detailWrap);
+      listWrap.appendChild(card);
+    });
+  }
+
+  storeFilt.onchange=function(){filterStore=storeFilt.value;renderList();};
+  sortFilt.onchange=function(){sortMode=sortFilt.value;renderList();};
+  renderList();
+}
+
+
+// ── WIP GRID — Phase 5.2f ────────────────────────────────────────────────────
+function renderGrid(c){
+  var MOVEMENTS=['Cutting IN','Cutting OUT','Preparation IN','Preparation OUT','Fitter IN','Fitter OUT','Upper IN','Lasting IN','Lasting OUT','Packing IN','Packing OUT','Dispatch IN','Dispatch OUT'];
+  var STORES=[{n:'Upper Store',c:6},{n:'Lasting & Packing',c:5},{n:'Dispatch',c:2}];
+  var orders=(D.wipGrid&&D.wipGrid.orders)||[];
+  var entries=(D.wipGrid&&D.wipGrid.entries)||[];
+  c.innerHTML='';
+
+  // Page header
+  var pgHdr=el('div',{style:'padding:20px 16px 8px;display:flex;align-items:center;justify-content:space-between'});
+  var hdrLeft=el('div',{});
+  hdrLeft.appendChild(el('div',{style:'font-size:18px;font-weight:700;color:var(--fos-ink)',text:'WIP Grid'}));
+  hdrLeft.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-top:2px',text:'Live production overview — updated automatically via Job Cards'}));
+  pgHdr.appendChild(hdrLeft);
+  var today=new Date();
+  var months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  pgHdr.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:months[today.getMonth()]+' '+today.getDate()+', '+today.getFullYear()}));
+  c.appendChild(pgHdr);
+
+  if(!orders.length){
+    var emp=el('div',{style:'text-align:center;padding:60px 20px;color:var(--fos-ink-secondary)'});
+    emp.appendChild(el('div',{style:'font-size:13px;font-weight:600;margin-bottom:6px;color:var(--fos-ink)',text:'No active orders'}));
+    emp.appendChild(el('div',{style:'font-size:12px',text:'Active work orders will appear here'}));
+    c.appendChild(emp);
+    return;
+  }
+
+  // Lookup: orderRef+'||'+movement → {t:today, s:total}
+  var lkp={};
+  entries.forEach(function(e){lkp[e.orderRef+'||'+e.movement]={t:e.pairsToday,s:e.pairsTotal};});
+
+  var stickyBg='background:var(--fos-surface)';
+
+  // Table wrapper
+  var wrap=el('div',{style:'overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px'});
+  var tbl=document.createElement('table');
+  tbl.style.cssText='border-collapse:collapse;min-width:max-content;font-size:12px;width:100%';
+
+  // thead row 1: sticky col headers (rowspan 3) + store group headers + Save col
+  var thead=document.createElement('thead');
+  var tr1=document.createElement('tr');
+
+  function mkStickyTh(text,leftPx,minW){
+    var th=document.createElement('th');
+    th.textContent=text;th.rowSpan=3;
+    th.style.cssText='position:sticky;left:'+leftPx+'px;z-index:4;'+stickyBg+';padding:6px 8px;text-align:left;white-space:nowrap;font-size:11px;font-weight:600;color:var(--fos-ink-secondary);border-bottom:2px solid var(--fos-border);min-width:'+minW+'px;max-width:'+minW+'px;';
+    return th;
+  }
+  tr1.appendChild(mkStickyTh('Customer',0,96));
+  tr1.appendChild(mkStickyTh('Article / Color',96,120));
+  tr1.appendChild(mkStickyTh('Qty',216,52));
+
+  STORES.forEach(function(st,si){
+    var th=document.createElement('th');
+    th.textContent=st.n;th.colSpan=st.c*3;
+    th.style.cssText='text-align:center;padding:5px 6px;background:var(--fos-accent-soft);color:var(--fos-accent);font-weight:600;font-size:11px;border-bottom:1px solid var(--fos-border);border-left:2px solid var(--fos-border);white-space:nowrap;';
+    tr1.appendChild(th);
+  });
+  thead.appendChild(tr1);
+
+  // thead row 2: movement names (colspan=3 each)
+  var tr2mv=document.createElement('tr');
+  var mvStoreIdx=0;var mvStoreCount=0;
+  MOVEMENTS.forEach(function(mv,mi){
+    var th=document.createElement('th');
+    th.textContent=mv;th.colSpan=3;
+    th.style.cssText='text-align:center;padding:3px 6px;font-size:10px;font-weight:600;color:var(--fos-ink);border-bottom:1px solid var(--fos-border);white-space:nowrap;min-width:144px;border-left:2px solid var(--fos-border);';
+    tr2mv.appendChild(th);
+  });
+  thead.appendChild(tr2mv);
+
+  // thead row 3: TODAY / TOTAL / BAL labels
+  var tr2=document.createElement('tr');
+  for(var di=0;di<13;di++){
+    ['Today','Total','Bal'].forEach(function(lbl,ci){
+      var th=document.createElement('th');
+      th.textContent=lbl;
+      th.style.cssText='text-align:center;padding:3px 6px;font-size:10px;font-weight:500;color:var(--fos-ink-secondary);border-bottom:2px solid var(--fos-border);white-space:nowrap;min-width:48px;'+(ci===0?'border-left:2px solid var(--fos-border);':'');
+      tr2.appendChild(th);
+    });
+  }
+  thead.appendChild(tr2);
+  tbl.appendChild(thead);
+
+  // tbody — each row has its own Save button (store only)
+  var tbody=document.createElement('tbody');
+  orders.forEach(function(ord){
+    var tr=document.createElement('tr');
+
+    function mkStickyTd(text,leftPx,minW,fw){
+      var td=document.createElement('td');
+      td.textContent=text||'—';
+      td.style.cssText='position:sticky;left:'+leftPx+'px;z-index:2;'+stickyBg+';padding:7px 8px;white-space:nowrap;border-bottom:1px solid var(--fos-border);font-size:12px;color:var(--fos-ink);min-width:'+minW+'px;max-width:'+minW+'px;overflow:hidden;text-overflow:ellipsis;'+(fw?'font-weight:'+fw+';':'');
+      return td;
+    }
+    tr.appendChild(mkStickyTd(ord.customer,0,96,500));
+    tr.appendChild(mkStickyTd((ord.article||'')+(ord.color?' · '+ord.color:''),96,120));
+    tr.appendChild(mkStickyTd(ord.lotSize?String(ord.lotSize):'—',216,52));
+
+    MOVEMENTS.forEach(function(mv){
+      var key=ord.orderId+'||'+mv;
+      var agg=lkp[key]||{t:0,s:0};
+      var bal=(ord.lotSize||0)-(agg.s||0);
+
+      // TODAY
+      var tdT=document.createElement('td');
+      tdT.style.cssText='text-align:center;padding:5px 4px;border-bottom:1px solid var(--fos-border);border-left:2px solid var(--fos-border);';
+      tdT.textContent=agg.t?String(agg.t):'—';
+      tdT.style.color=agg.t?'var(--fos-ink)':'var(--fos-ink-secondary)';
+
+      // TOTAL
+      var tdS=document.createElement('td');
+      tdS.style.cssText='text-align:center;padding:5px 6px;border-bottom:1px solid var(--fos-border);font-size:12px;';
+      tdS.textContent=agg.s?String(agg.s):'—';
+      tdS.style.color=agg.s?'var(--fos-ink)':'var(--fos-ink-secondary)';
+
+      // BAL
+      var tdB=document.createElement('td');
+      tdB.style.cssText='text-align:center;padding:5px 6px;border-bottom:1px solid var(--fos-border);font-size:12px;font-weight:500;';
+      if(!ord.lotSize){tdB.textContent='—';tdB.style.color='var(--fos-ink-secondary)';}
+      else if(bal<=0){tdB.textContent='Done';tdB.style.color='var(--fos-success)';}
+      else{tdB.textContent=String(bal);tdB.style.color=bal<=(ord.lotSize*0.2)?'var(--fos-warning)':'var(--fos-ink-secondary)';}
+
+      tr.appendChild(tdT);tr.appendChild(tdS);tr.appendChild(tdB);
+    });
+
+    tbody.appendChild(tr);
+  });
+  tbl.appendChild(tbody);
+  wrap.appendChild(tbl);
+  c.appendChild(wrap);
+}
