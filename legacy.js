@@ -1,6 +1,8 @@
 // LEGACY — scheduled for removal.
 
 function WIPE_AND_RESET() {
+  var user = getUserInfo();
+  if (user.role !== 'admin') return { success:false, error:'Not authorised' };
   var ss = SpreadsheetApp.openById(SHEET_ID);
   ss.getSheets().filter(isArtSheet).forEach(function(s){ ss.deleteSheet(s); });
   ['ORDER_TRACKER','ORDER_INDEX','PAYMENT_HISTORY','REQUESTS'].forEach(function(name){
@@ -16,41 +18,9 @@ function WIPE_AND_RESET() {
   return { success:true };
 }
 
-function deleteOrphanedArt005() {
-  var ss = SpreadsheetApp.openById(CONFIG.LIVE_SHEET_ID);
-  var ws = ss.getSheetByName('ART-005');
-  if (!ws) return 'ABORT: ART-005 sheet not found in LIVE';
-
-  var article = String(ws.getRange('B2').getValue());
-  var log = ['ART-005 B2 (article) = ' + article];
-
-  // Safety: confirm no registry entries exist before deleting
-  var registryRefs = [];
-  ['ORDER_INDEX', 'ORDER_TRACKER', 'WIP_RECONCILIATION'].forEach(function(name) {
-    var s = ss.getSheetByName(name);
-    if (!s || s.getLastRow() < 2) return;
-    var vals = s.getRange(1, 1, s.getLastRow(), s.getLastColumn()).getValues();
-    vals.forEach(function(row, ri) {
-      if (row.some(function(cell) { return String(cell).trim() === 'ART-005'; }))
-        registryRefs.push(name + ' row ' + (ri + 1));
-    });
-  });
-
-  if (registryRefs.length > 0) {
-    return 'ABORT: ART-005 found in registry — ' + registryRefs.join(', ');
-  }
-  log.push('Registry check: clean (no ORDER_INDEX / ORDER_TRACKER / WIP_RECONCILIATION rows)');
-
-  ss.deleteSheet(ws);
-  SpreadsheetApp.flush();
-  log.push('ART-005 sheet deleted from LIVE');
-
-  var result = log.join('\n');
-  Logger.log(result);
-  return result;
-}
-
 function fixFormulas() {
+  var user = getUserInfo();
+  if (user.role !== 'admin') return 'Not authorised';
   var ss = SpreadsheetApp.openById(SHEET_ID);
   ss.getSheets().filter(function(s){return s.getName().indexOf('ART-')===0;}).forEach(function(ws){
     for (var r=5; r<=49; r++) {

@@ -17,6 +17,8 @@ function ensureJobCardsSheet() {
 }
 
 function issueJobCard(data) {
+  var _user = getUserInfo();
+  if (_user.role !== 'store' && _user.role !== 'admin') return { success:false, error:'Not authorised' };
   var STORE_MOVEMENT_MAP = {
     'Upper Store':             ['Cutting IN','Cutting OUT','Preparation IN','Preparation OUT','Fitter IN','Fitter OUT'],
     'Lasting & Packing Store': ['Upper IN','Lasting IN','Lasting OUT','Packing IN','Packing OUT'],
@@ -128,6 +130,8 @@ function issueJobCard(data) {
 }
 
 function receiveJobCard(data) {
+  var _user = getUserInfo();
+  if (_user.role !== 'store' && _user.role !== 'admin') return { success:false, error:'Not authorised' };
   var jobCardId     = safeStr(data.jobCardId     || '').trim();
   var pairsReceived = safeNum(data.pairsReceived);
   var notes         = safeStr(data.notes         || '').trim();

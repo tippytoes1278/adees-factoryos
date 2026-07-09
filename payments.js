@@ -953,6 +953,8 @@ function approvePaymentBatch(paymentId) {
   var lock = LockService.getPublicLock();
   try {
     lock.waitLock(10000);
+    var _user = getUserInfo();
+    if (_user.role !== 'admin') return { success:false, error:'Only Ayush can approve payments' };
     var ss   = SpreadsheetApp.openById(SHEET_ID);
     var user = getUserInfo();
     var tz   = Session.getScriptTimeZone();
@@ -996,6 +998,8 @@ function rejectPaymentBatch(paymentId, reason) {
   var lock = LockService.getPublicLock();
   try {
     lock.waitLock(10000);
+    var _user = getUserInfo();
+    if (_user.role !== 'admin') return { success:false, error:'Only Ayush can reject payments' };
     var ss         = SpreadsheetApp.openById(SHEET_ID);
     var reasonStr  = 'REJECTED: ' + safeStr(reason || '').trim();
 

@@ -59,6 +59,10 @@ function saveWipEntry(data, status) {
       var contractors = Array.isArray(data.contractors) ? data.contractors : [];
       var jobCardRef  = safeStr(data.jobCardRef  || '').trim();
 
+      var _wipUser = getUserInfo();
+      if (_wipUser.role !== 'store' && _wipUser.role !== 'admin')
+        return { success:false, error:'Not authorised' };
+
       if (!orderRef) throw new Error('orderRef is required');
       if (!STORE_MOVEMENT_MAP[store]) throw new Error('Invalid store: ' + store);
       if (STORE_MOVEMENT_MAP[store].indexOf(movement) < 0) throw new Error('Invalid movement for store: ' + movement);
