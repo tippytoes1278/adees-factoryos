@@ -45,20 +45,26 @@ Before making ANY changes, always confirm:
 1. You are working in `/Users/Ayush/adees-factoryos`
 
 FILE MAP (verify sizes before any edit session):
-- config.js       ~2 KB   — CONFIG, SHEET_ID, ROLES, doGet, helpers
+- config.js        ~2 KB  — CONFIG, SHEET_ID, ROLES, doGet, helpers
 - orders.js       ~21 KB  — createOrder, deleteOrder, BOM/TS functions
 - activities.js   ~32 KB  — getEntryData, activity setup/approval flows
 - requests.js     ~17 KB  — submitRequest, processRequest, notifications
-- contractors.js  ~9 KB   — contractor CRUD, enrollments
+- contractors.js   ~9 KB  — contractor CRUD, enrollments
 - wip.js          ~22 KB  — WIP entries, job card daily reports, grid
 - jobcards.js     ~12 KB  — issueJobCard, receiveJobCard, getJobCards
 - payments.js     ~41 KB  — getDashboardData, payment batch lifecycle
-- legacy.js       ~4 KB   — WIPE_AND_RESET etc, do not edit
-- Index.html      ~213 KB — full frontend (pre-split, Prompt 2 pending)
+- legacy.js        ~4 KB  — WIPE_AND_RESET etc, do not edit
+- Index.html       ~3 KB  — shell only: head, static markup, 6 includes
+- css.html        ~21 KB  — all CSS styles
+- js_core.html    ~27 KB  — boot, nav, helpers, common functions
+- js_admin.html   ~29 KB  — Ayush's screens (home, orders, approvals, requests)
+- js_arvind.html  ~79 KB  — Arvind's screens (new order, payment, contractors, activities)
+- js_store.html   ~44 KB  — Prakash's screens (WIP, job cards, floor, grid)
+- js_tutorial.html ~7 KB  — tutorial, help, what's new overlays
 
 SIZE GUARD: No file should shrink more than 20% in a single edit
-without explicit approval. If Index.html drops below 180KB or any
-.js file drops below 50% of listed size — stop and verify before
+without explicit approval. If Index.html drops below 2KB or any
+component file drops below 50% of listed size — stop and verify before
 proceeding.
 
 Never run `clasp pull` without explicit instruction from the user.
