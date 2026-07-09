@@ -711,8 +711,8 @@ function approveRateEdit(requestId) {
     }
     if (targetRow === -1) return { success:false, error:'Request not found: ' + requestId };
     if (!payload) return { success:false, error:'Invalid payload for: ' + requestId };
-    var ma = ss.getSheetByName('MASTER_RATES');
-    if (!ma) return { success:false, error:'MASTER_RATES sheet not found' };
+    var ma = ss.getSheetByName('MASTER_ACTIVITIES');
+    if (!ma) return { success:false, error:'MASTER_ACTIVITIES sheet not found' };
     ma.getRange(payload.rowIndex, 3).setValue(payload.newRate);
     ma.getRange(payload.rowIndex, 4).setValue(payload.newComm);
     var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');

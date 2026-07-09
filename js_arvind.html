@@ -917,6 +917,41 @@ function renderContractors(c){
 
 function renderActivities(c){
   c.innerHTML='';
+
+  // ── PER-ORDER ACTIVITY SETUP ──────────────────────────────────────────
+  c.appendChild(sectionTitle('Order Activity Setup'));
+
+  // Order selector
+  var oasCard = el('div', {cls:'fos-card', style:'margin-bottom:16px'});
+  var oasLabel = el('div', {style:'font-size:12px;color:var(--fos-ink-secondary);margin-bottom:8px',
+    text:'Select an order to set up activities for that order\'s departments'});
+  oasCard.appendChild(oasLabel);
+
+  var oasSel = el('select', {cls:'form-select', style:'margin-bottom:10px'});
+  oasSel.appendChild(el('option', {value:'', text:'— Select Order —'}));
+  var oasArts = D.entry && D.entry.articles ? D.entry.articles : [];
+  oasArts.forEach(function(a) {
+    var label = (a.bom || a.sheet) + ' · ' + (a.article || a.sheet) + (a.customer ? ' — ' + a.customer : '');
+    oasSel.appendChild(el('option', {value: a.sheet, text: label}));
+  });
+  oasCard.appendChild(oasSel);
+
+  var oasBody = el('div');
+  oasCard.appendChild(oasBody);
+  c.appendChild(oasCard);
+
+  // When order selected — render the activity setup form for that order
+  oasSel.onchange = function() {
+    oasBody.innerHTML = '';
+    if (!oasSel.value) return;
+    var selectedArt = oasArts.filter(function(a) { return a.sheet === oasSel.value; })[0];
+    if (!selectedArt) return;
+    renderActivitySetup(oasBody, selectedArt);
+  };
+
+  c.appendChild(el('div', {style:'height:1px;background:var(--fos-border);margin:16px 0'}));
+  // ── END PER-ORDER ACTIVITY SETUP ──────────────────────────────────────
+
   c.appendChild(sectionTitle('Master Activities'));
   var addWrap=el('div',{style:'margin-bottom:12px'});
   var addBtn=el('button',{cls:'fos-btn-secondary',text:'+ Add Activity',style:'margin-bottom:0'});
@@ -1124,31 +1159,45 @@ function renderActivitySetup(body,article){
 
   var subBtn=el('button',{cls:'primary-btn',text:'Submit Selected for Approval',style:'margin-top:6px'});
   (function(art){
-    subBtn.onclick=function(){
-      var selected=[];
-      DEPTS.forEach(function(d){
-        deptData[d].forEach(function(e){
-          if(e.chk.checked)selected.push({department:e.department,activityName:e.activityName,rate:e.rate,comm:e.comm});
-        });
+    subBtn.onclick = function() {
+      var byDept = {};
+      DEPTS.forEach(function(d) {
+        var sel = deptData[d].filter(function(e) { return e.chk.checked; });
+        if (sel.length) byDept[d] = sel;
       });
-      if(!selected.length){toast('Add and select at least one activity',true);return;}
-      subBtn.disabled=true;subBtn.textContent='Submitting...';
+      if (!Object.keys(byDept).length) {
+        toast('Add and select at least one activity', true);
+        return;
+      }
+      var items = Object.keys(byDept).map(function(dept) {
+        return {
+          sheet: art.sheet,
+          dept: DEPT_VAL[dept],
+          activities: byDept[dept].map(function(e) {
+            return { activityName: e.activityName, rate: e.rate || 0, comm: e.comm || 0, department: DEPT_VAL[dept] };
+          })
+        };
+      });
+      subBtn.disabled = true;
+      subBtn.textContent = 'Submitting...';
       google.script.run
-        .withSuccessHandler(function(r){
-          if(r&&r.success){
-            toast('Submitted for approval');
-            D.entry=null;
-            setTimeout(function(){loadTab('entry');},600);
+        .withSuccessHandler(function(r) {
+          if (r && r.success) {
+            toast('Submitted ' + items.length + ' dept(s) for approval');
+            D.entry = null;
+            setTimeout(function() { loadTab('activities'); }, 600);
           } else {
-            toast((r&&r.error)||'Error',true);
-            subBtn.disabled=false;subBtn.textContent='Submit Selected for Approval';
+            toast((r && r.error) || 'Error', true);
+            subBtn.disabled = false;
+            subBtn.textContent = 'Submit Selected for Approval';
           }
         })
-        .withFailureHandler(function(){
-          toast('Error',true);
-          subBtn.disabled=false;subBtn.textContent='Submit Selected for Approval';
+        .withFailureHandler(function() {
+          toast('Error', true);
+          subBtn.disabled = false;
+          subBtn.textContent = 'Submit Selected for Approval';
         })
-        .submitRequest('ACTIVITY_SETUP',JSON.stringify({sheet:art.sheet,activities:selected}));
+        .requestActivitySetup(items, '');
     };
   })(article);
 
