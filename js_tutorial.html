@@ -1,0 +1,131 @@
+<script>
+/* ── FOS Tutorial System ──────────────────────────────────────────── */
+var FOS_STEPS=[],FOS_IDX=0;
+var FOS_TOUR={
+  admin:[
+    {sel:'.topbar',text:'Yahan se sab control hota hai. Role dekho, view refresh karo — apna FactoryOS command centre.'},
+    {sel:'#nav-home',text:'Apna daily dashboard. Active orders, pending approvals, aur recent payments — ek nazar mein sab.'},
+    {sel:'#nav-orders',text:'Sab production orders yahan hain. Buyer, delivery date, lot size — sab track karo.'},
+    {sel:'#nav-requests',text:'Accounts team ki requests yahan aati hain. Roz dekho aur resolve karo.'},
+    {sel:'#nav-approve',text:'Pending approvals yahan hain. Orders, expenses, contractors — sab clear karo yahan se.'}
+  ],
+  accounts:[
+    {sel:'.topbar',text:'Yahan se sab dikhta hai. Apna role, current view, aur refresh button — sab ek jagah.'},
+    {sel:'#nav-home',text:'Apna daily snapshot. Pending entries, khule alerts, aur aaj ka kaam — ek nazar mein.'},
+    {sel:'#nav-entry',text:'Yahan apna main kaam karo. Payments, expenses, updates — bharo aur submit karo. Admin approve karega.'},
+    {sel:'#nav-review',text:'Jo bhi submit kiya uska status yahan dikhega. Reject hua toh yahan se fix karke dobara bhejo.'},
+    {sel:'#nav-contractors',text:'Sab active contractors ka record. Work orders, baaki payment, paid amount — sab yahan track hota hai.'}
+  ]
+};
+var FOS_WELCOME={
+  admin:{icon:'★',title:'Swagat hai, Ayush! 👋',body:'Apna command centre ready hai. Orders, approvals, payments — sab kuch ek hi jagah se dikhta aur control hota hai.'},
+  accounts:{icon:'✦',title:'Swagat hai! 👋',body:'Tera kaam yahan se shuru hota hai — entry karo, review karo, contractors manage karo.'}
+};
+function fosShowWelcome(){
+  if(!USER||!USER.role)return;
+  var role=USER.role;
+  if(role!=='admin'&&role!=='accounts')return;
+  if(localStorage.getItem('fos_tour_done_'+role))return;
+  var wc=FOS_WELCOME[role];
+  document.getElementById('fos-wi').textContent=wc.icon;
+  document.getElementById('fos-wt').textContent=wc.title;
+  document.getElementById('fos-wb').textContent=wc.body;
+  document.getElementById('fos-welcome').style.display='flex';
+}
+function fosWelcomeDone(){
+  if(USER&&USER.role)localStorage.setItem('fos_tour_done_'+USER.role,'1');
+  document.getElementById('fos-welcome').style.display='none';
+}
+function fosStartTour(){
+  fosWelcomeDone();
+  fosCloseHelp();
+  FOS_STEPS=FOS_TOUR[USER&&USER.role]||[];
+  if(!FOS_STEPS.length)return;
+  FOS_IDX=0;
+  fosTourShow(0);
+}
+function fosTourShow(i){
+  var s=FOS_STEPS[i];
+  if(!s)return;
+  var tgt=document.querySelector(s.sel);
+  document.getElementById('fos-tip-step').textContent='Step '+(i+1)+' / '+FOS_STEPS.length;
+  document.getElementById('fos-tip-text').textContent=s.text;
+  document.getElementById('fos-tip-prev').style.visibility=(i===0?'hidden':'visible');
+  document.getElementById('fos-tip-next').textContent=(i===FOS_STEPS.length-1?'Ho Gaya!':'Aage →');
+  var bl=document.getElementById('fos-blocker');
+  var tp=document.getElementById('fos-tip');
+  if(tgt){
+    var r=tgt.getBoundingClientRect(),pd=7;
+    bl.style.top=(r.top-pd)+'px';
+    bl.style.left=(r.left-pd)+'px';
+    bl.style.width=(r.width+pd*2)+'px';
+    bl.style.height=(r.height+pd*2)+'px';
+    bl.style.display='block';
+    var tpH=150,tpW=280,mg=12;
+    var tx=r.left,ty=r.bottom+mg;
+    if(ty+tpH>window.innerHeight-16)ty=r.top-tpH-mg;
+    if(tx+tpW>window.innerWidth-16)tx=window.innerWidth-tpW-16;
+    if(tx<8)tx=8;
+    tp.style.left=tx+'px';
+    tp.style.top=ty+'px';
+  }
+  tp.style.display='block';
+}
+function fosTourNext(){
+  FOS_IDX++;
+  if(FOS_IDX>=FOS_STEPS.length){fosTourDone();return;}
+  fosTourShow(FOS_IDX);
+}
+function fosTourPrev(){if(FOS_IDX>0){FOS_IDX--;fosTourShow(FOS_IDX);}}
+function fosTourDone(){
+  fosWelcomeDone();
+  document.getElementById('fos-blocker').style.display='none';
+  document.getElementById('fos-tip').style.display='none';
+}
+function fosOpenHelp(){
+  var role=USER&&USER.role,s='';
+  if(role==='admin'){
+    s='<h3>Orders</h3><ul><li>Sab active production orders ek jagah — buyer, delivery date, lot size dekho</li><li>Kisi bhi order mein jaake poori detail lo</li><li>Status filter karo — buyer, style, ya progress se</li></ul>'+
+      '<h3>Approvals</h3><ul><li>Accounts team ke submissions yahan aate hain review ke liye</li><li>Approve karo ya reject karo note ke saath — team ko pata chal jayega</li></ul>'+
+      '<h3>Payments</h3><ul><li>Sab outgoing aur incoming payments ka record yahan hai</li><li>Order value aur contractor records se cross-check karo</li></ul>'+
+      '<h3>Requests</h3><ul><li>Accounts team ki ad-hoc requests yahan aati hain</li><li>Resolve karo ya zaroori ho toh escalate karo</li></ul>';
+  }else if(role==='accounts'){
+    s='<h3>Entry</h3><ul><li>Roz ka kaam yahan — payments, expenses, production updates bharo</li><li>Sab entries admin ke paas approval ke liye jaati hain</li></ul>'+
+      '<h3>New Order</h3><ul><li>Naya production order banao — article, buyer, brand, PO, size run, lot size</li><li>Do-step form hai taaki koi cheez miss na ho</li></ul>'+
+      '<h3>Review</h3><ul><li>Jo bhi submit kiya uska status yahan dikhega</li><li>Reject hua toh yahan se fix karke resubmit karo</li></ul>'+
+      '<h3>Contractors</h3><ul><li>Sab active contractors ka record aur work orders yahan hain</li><li>Kitna baaki hai, kitna paid — sab track hota hai</li></ul>'+
+      '<h3>Activities</h3><ul><li>Poori system ka audit log — kaun ne kya kiya, kab kiya</li></ul>';
+  }else{
+    s='<p style="color:var(--fos-ink-secondary);font-size:13px;padding:4px 0">Tumhare role ke liye koi guide available nahi hai.</p>';
+  }
+  document.getElementById('fos-help-content').innerHTML=s;
+  document.getElementById('fos-help').style.display='flex';
+}
+function fosCloseHelp(){document.getElementById('fos-help').style.display='none';}
+
+function fosShowWhatsNew(){
+  if(localStorage.getItem('fos_whatsnew_217')==='seen')return;
+  var role=USER&&USER.role,items='';
+  if(role==='admin'){
+    items='<p style="font-weight:600;margin:0 0 12px;color:var(--fos-ink)">Admin ke liye naya:</p><ul>'+
+      '<li>&#x2756; New Order form mein Brand aur PO Receive Date fields wapas aaye</li>'+
+      '<li>&#x2756; Naya Guide button (?) — top right mein hai, kabhi bhi help lo</li>'+
+      '<li>&#x2756; First-time tour — har role ke liye alag, Hinglish mein</li>'+
+      '<li>&#x2756; Tour complete karne ke baad ? se dobara chala sakte ho</li>'+
+      '</ul>';
+  }else if(role==='accounts'){
+    items='<p style="font-weight:600;margin:0 0 12px;color:var(--fos-ink)">Accounts ke liye naya:</p><ul>'+
+      '<li>&#x2756; Naya Guide button (?) — top right mein hai, kabhi bhi help lo</li>'+
+      '<li>&#x2756; First-time tour — apna workflow step by step dikhayega</li>'+
+      '<li>&#x2756; Tour complete karne ke baad ? se dobara chala sakte ho</li>'+
+      '</ul>';
+  }
+  if(!items)return;
+  document.getElementById('fos-wn-body').innerHTML=items;
+  document.getElementById('fos-whatsnew').style.display='flex';
+}
+function fosCloseWhatsNew(){
+  localStorage.setItem('fos_whatsnew_217','seen');
+  document.getElementById('fos-whatsnew').style.display='none';
+}
+</script>

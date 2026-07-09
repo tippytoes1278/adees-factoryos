@@ -18,7 +18,7 @@ const ROLES = {
 
 function doGet() {
   return HtmlService
-    .createHtmlOutputFromFile('Index')
+    .createTemplateFromFile('Index').evaluate()
     .setTitle('FactoryOS — Adees Exports' + (CONFIG.ENV === 'DEV' ? ' (DEV)' : ''))
     .addMetaTag('viewport','width=device-width, initial-scale=1')
     .setSandboxMode(HtmlService.SandboxMode.IFRAME)
@@ -67,4 +67,8 @@ function getAllData() {
     result.error = e.message;
   }
   return result;
+}
+
+function include(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }

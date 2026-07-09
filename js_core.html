@@ -1,0 +1,516 @@
+<script>
+var USER=null, TAB='home', D={}, CONTRACTORS=[], MASTER_ACTS=[], NO_RESUBMIT=null;
+var NO_STEP=1, NO_TS=null;
+var ENTRY_PERIOD=null;
+var ENTRY_AUTO_OPEN_SHEET=null;
+var ENTRY_REVISION_REMARK=null;
+var ACTS_REVISION_REMARK=null, ACTS_REVISION_ACTIVITY=null;
+var SEEN_ALERT_IDS=new Set();
+var NO_RESUBMIT_RATE=null;
+
+function fmt(n){return '₹'+Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});}
+
+function fmtPd(ds,yr){
+  if(!ds)return '';
+  var s=String(ds),d=null;
+  var mo={jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+  var m1=s.match(/^(\d{1,2})-([A-Za-z]+)-(\d{4})$/);
+  if(m1)d=new Date(+m1[3],mo[m1[2].toLowerCase()]||0,+m1[1]);
+  if(!d){var m2=s.match(/^(\d{4})-(\d{2})-(\d{2})$/);if(m2)d=new Date(+m2[1],+m2[2]-1,+m2[3]);}
+  if(!d)d=new Date(s.indexOf('T')<0?s+'T00:00:00':s);
+  if(!d||isNaN(d.getTime()))return s;
+  var dn=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var mn=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return dn[d.getDay()]+' '+d.getDate()+' '+mn[d.getMonth()]+(yr?' '+d.getFullYear():'');
+}
+
+// ── PIPELINE TRACKER ─────────────────────────────────────────────────────────
+var FOS_PIPELINE_STAGES=[
+  {key:'cutting',    label:'Cutting'},
+  {key:'prep',       label:'Preparation'},
+  {key:'upper',      label:'Upper Making'},
+  {key:'lasting',    label:'Lasting &\nPasting'},
+  {key:'finishing',  label:'Finishing &\nPacking'},
+  {key:'dispatch',   label:'Dispatch'}
+];
+function fosPipelineTracker(counts){
+  var wrap=document.createElement('div');
+  wrap.className='fos-pipeline-wrap';
+  var title=document.createElement('div');
+  title.className='fos-pipeline-title';
+  title.textContent='Production Pipeline';
+  wrap.appendChild(title);
+  var rail=document.createElement('div');
+  rail.className='fos-pipeline';
+  FOS_PIPELINE_STAGES.forEach(function(s,i){
+    if(i>0){
+      var conn=document.createElement('div');
+      conn.className='fos-pipeline-connector';
+      rail.appendChild(conn);
+    }
+    var stage=document.createElement('div');
+    stage.className='fos-pipeline-stage';
+    var badge=document.createElement('div');
+    badge.className='fos-pipeline-badge';
+    badge.textContent=counts&&counts[s.key]!==undefined?String(counts[s.key]):'—';
+    var lbl=document.createElement('div');
+    lbl.className='fos-pipeline-label';
+    lbl.textContent=s.label;
+    stage.appendChild(badge);
+    stage.appendChild(lbl);
+    rail.appendChild(stage);
+  });
+  wrap.appendChild(rail);
+  return wrap;
+}
+
+// ── BOOT ──────────────────────────────────────────────────────────────────────
+window.onload=function(){
+  google.script.run
+    .withSuccessHandler(function(allData){
+      if(!allData||!allData.user){
+        document.getElementById('loading').innerHTML=
+          '<div style="color:#ef4444;text-align:center;padding:40px">' +
+          '<div style="font-size:36px;margin-bottom:12px">!</div>' +
+          '<div style="font-weight:700;font-size:16px">Access Error</div>' +
+          '<div style="font-size:12px;color:#7986a3;margin-top:8px">Could not load user info</div>' +
+          '</div>';
+        return;
+      }
+      var u=allData.user;
+      USER=u;
+      document.getElementById('userName').textContent=u.name;
+      if(u.env==='DEV'){
+        document.querySelector('.topbar-title').insertAdjacentHTML('beforeend',
+          ' <span style="background:#f59e0b;color:#1a1a2e;font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;vertical-align:middle;letter-spacing:.5px">DEV</span>');
+      }
+      document.getElementById('topSub').textContent=
+        u.role==='admin'?'Admin':u.role==='accounts'?'Accounts':'Store';
+      var dot=document.getElementById('roleDot');
+      if(u.role==='admin')dot.classList.add('admin');
+      else if(u.role==='store')dot.classList.add('store');
+      buildNav();
+      fosShowWhatsNew();
+      fosShowWelcome();
+      if(allData.ok){
+        D.dash  = allData.dash;
+        D.entry = allData.entry;
+        D.wip   = allData.wip;
+        D.reqs  = allData.reqs;
+        if(allData.entry){
+          CONTRACTORS  = allData.entry.contractors  || [];
+          MASTER_ACTS  = allData.entry.masterActivities || [];
+          (allData.entry.articles||[]).forEach(function(a){console.log('[DIAG] boot '+a.sheet+' "'+a.article+'" → '+(a.activities?a.activities.length:0)+' activities');});
+          updateNavBadge('activities',(allData.entry.pendingActsCount||0)>0);
+        }
+        if(allData.reqs&&allData.reqs.requests&&USER.role==='accounts'){
+          var _unseenAlerts=(allData.reqs.requests||[]).filter(function(r){
+            return (r.status==='REVISION'||r.status==='REJECTED')&&r.submittedBy===USER.name&&!SEEN_ALERT_IDS.has(r.reqId);
+          }).length;
+          if(_unseenAlerts>0)updateNavBadge('alerts',true,_unseenAlerts);
+        }
+      }
+      document.getElementById('loading').style.display='none';
+      document.getElementById('app').classList.add('visible');
+      renderTab('home');
+    })
+    .withFailureHandler(function(e){
+      document.getElementById('loading').innerHTML=
+        '<div style="color:#ef4444;text-align:center;padding:40px">' +
+        '<div style="font-size:36px;margin-bottom:12px">!</div>' +
+        '<div style="font-weight:700;font-size:16px">Access Error</div>' +
+        '<div style="font-size:12px;color:#7986a3;margin-top:8px">' + (e.message||'Unknown error') + '</div>' +
+        '</div>';
+    })
+    .getAllData();
+};
+
+// ── NAV ───────────────────────────────────────────────────────────────────────
+var FOS_ICONS={
+  home:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12L12 3l9 9"/><path d="M5 10v9a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1v-9"/></svg>',
+  orders:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>',
+  approve:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></svg>',
+  payment:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20"/></svg>',
+  requests:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>',
+  alerts:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/><circle cx="18" cy="5" r="3" fill="var(--fos-danger)" stroke="none"/></svg>',
+  entry:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
+  neworder:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>',
+  review:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+  contractors:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>',
+  activities:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12h6M9 16h4"/></svg>',
+  wip:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>',
+  jobcards:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h10M7 13h10M7 17h6"/><path d="M15 1v4M9 1v4"/></svg>',
+  floor:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V8l7-5 7 5v13"/><path d="M9 21v-5h6v5"/><rect x="9.5" y="10" width="2" height="2" rx="0.5"/><rect x="12.5" y="10" width="2" height="2" rx="0.5"/></svg>',
+  grid:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>',
+  payhistory:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v16l2-2 2 2 2-2 2 2 2-2 2 2 2-2V4z"/><path d="M8 10h8M8 14h6"/></svg>'
+};
+var NAVS={
+  admin:   [{id:'home',icon:'Home',label:'Home'},{id:'orders',icon:'Orders',label:'Orders'},{id:'approve',icon:'Approve',label:'Approvals'},{id:'payment',icon:'Pay',label:'Payment'},{id:'payhistory',icon:'Pay',label:'Pay History'},{id:'requests',icon:'Req',label:'Requests'},{id:'grid',icon:'Grid',label:'Grid'},{id:'floor',icon:'FLOOR',label:'Floor'}],
+  accounts:[{id:'home',icon:'Home',label:'Home'},{id:'neworder',icon:'New',label:'New Order'},{id:'payment',icon:'Pay',label:'Payment'},{id:'payhistory',icon:'Pay',label:'Pay History'},{id:'alerts',icon:'Alerts',label:'Alerts'},{id:'contractors',icon:'Ctrs',label:'Contractors'},{id:'activities',icon:'Acts',label:'Activities'},{id:'grid',icon:'Grid',label:'Grid'},{id:'floor',icon:'FLOOR',label:'Floor'}],
+  store:   [{id:'home',icon:'Home',label:'Home'},{id:'wip',icon:'WIP',label:'WIP'},{id:'jobcards',icon:'JC',label:'Job Cards'},{id:'grid',icon:'Grid',label:'Grid'},{id:'floor',icon:'FLOOR',label:'Floor'}],
+  viewer:  [{id:'home',icon:'Home',label:'Home'}]
+};
+
+function buildNav(){
+  var items=NAVS[USER.role]||NAVS.viewer;
+  var nav=document.getElementById('bottomNav');
+  nav.innerHTML='';
+  for(var i=0;i<items.length;i++){
+    var it=items[i];
+    var btn=document.createElement('button');
+    btn.className='nav-btn'+(it.id==='home'?' active':'');
+    btn.id='nav-'+it.id;
+    btn.style.position='relative';
+    var iconHtml=FOS_ICONS[it.id]?('<span class="nav-icon">'+FOS_ICONS[it.id]+'</span>'):('<span class="nav-icon" style="font-size:16px">'+it.icon+'</span>');
+    btn.innerHTML=iconHtml+'<span class="nav-label">'+it.label+'</span>';
+    (function(id){btn.onclick=function(){loadTab(id);};})(it.id);
+    nav.appendChild(btn);
+  }
+}
+
+function setNav(id){
+  var btns=document.querySelectorAll('.nav-btn');
+  for(var i=0;i<btns.length;i++)btns[i].classList.remove('active');
+  var el=document.getElementById('nav-'+id);
+  if(el)el.classList.add('active');
+}
+
+function updateNavBadge(tabId,show,count){
+  var btn=document.getElementById('nav-'+tabId);
+  if(!btn)return;
+  var ex=btn.querySelector('.nav-badge,.nav-badge-count');
+  if(ex)ex.remove();
+  if(!show)return;
+  if(count&&count>0){var b=document.createElement('span');b.className='nav-badge-count';b.textContent=String(count);btn.appendChild(b);}
+  else{var b=document.createElement('span');b.className='nav-badge';btn.appendChild(b);}
+}
+
+// ── TAB LOADER ────────────────────────────────────────────────────────────────
+function loadTab(id){
+  TAB=id; setNav(id);
+  // Use cached data if available — instant tab switch
+  if(id==='home'||id==='orders'){
+    if(USER&&USER.role==='store'&&id==='home'){
+      if(D.wip&&Array.isArray(D.wip)){renderTab(id);return;}
+      showLoading();
+      google.script.run.withSuccessHandler(function(w){D.wip=w;renderTab(id);}).withFailureHandler(showErr).getWipEntries({});
+    } else {
+      if(D.dash){renderTab(id);return;}
+      showLoading();
+      google.script.run.withSuccessHandler(function(d){D.dash=d;renderTab(id);}).withFailureHandler(showErr).getDashboardData();
+    }
+  } else if(id==='approve'){
+    if(D.dash&&D.subs){renderTab(id);return;}
+    showLoading();
+    var _loadSubs=function(){google.script.run.withSuccessHandler(function(s){D.subs=s;renderTab(id);}).withFailureHandler(showErr).getPaymentSubmissions();};
+    if(D.dash){_loadSubs();}
+    else{google.script.run.withSuccessHandler(function(d){D.dash=d;_loadSubs();}).withFailureHandler(showErr).getDashboardData();}
+  } else if(id==='requests'){
+    if(D.reqs){renderTab(id);return;}
+    showLoading();
+    google.script.run.withSuccessHandler(function(d){D.reqs=d;renderTab(id);}).withFailureHandler(showErr).getPendingRequests();
+  } else if(id==='neworder'){
+    renderTab(id);
+  } else if(id==='payment'){
+    showLoading();
+    var _payLoadCards=function(){
+      google.script.run
+        .withSuccessHandler(function(jcs){D.completedJobCards=Array.isArray(jcs)?jcs:[];renderTab(id);})
+        .withFailureHandler(showErr)
+        .getCompletedUnpaidJobCards();
+    };
+    var _payLoadContractors=function(){
+      if(D.contractors){_payLoadCards();return;}
+      google.script.run
+        .withSuccessHandler(function(ctrs){D.contractors=Array.isArray(ctrs)?ctrs:[];_payLoadCards();})
+        .withFailureHandler(showErr)
+        .getContractors();
+    };
+    if(D.entry){_payLoadContractors();}
+    else{
+      google.script.run
+        .withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];_payLoadContractors();})
+        .withFailureHandler(showErr)
+        .getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
+    }
+  } else if(id==='wip'){
+    showLoading();
+    var _doLoadJobCards=function(){
+      google.script.run
+        .withSuccessHandler(function(jcs){D.jobCards=Array.isArray(jcs)?jcs:[];renderTab(id);})
+        .withFailureHandler(showErr)
+        .getJobCards({});
+    };
+    var _doLoadEnrollments=function(){
+      if(D.enrollments){_doLoadJobCards();return;}
+      google.script.run
+        .withSuccessHandler(function(e){D.enrollments=Array.isArray(e)?e:[];_doLoadJobCards();})
+        .withFailureHandler(showErr)
+        .getEnrollments({status:'ACTIVE'});
+    };
+    var _doLoadContractors=function(){
+      if(D.contractors){_doLoadEnrollments();return;}
+      google.script.run
+        .withSuccessHandler(function(ctrs){D.contractors=Array.isArray(ctrs)?ctrs:[];_doLoadEnrollments();})
+        .withFailureHandler(showErr)
+        .getContractors();
+    };
+    if(D.entry){_doLoadContractors();}
+    else{
+      google.script.run
+        .withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];_doLoadContractors();})
+        .withFailureHandler(showErr)
+        .getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
+    }
+  } else if(id==='contractors'){
+    if(D.ctrs&&D.contractors&&D.enrollments){renderTab(id);return;}
+    showLoading();
+    var _loadEnrollments=function(){google.script.run.withSuccessHandler(function(e){D.enrollments=Array.isArray(e)?e:[];renderTab(id);}).withFailureHandler(showErr).getEnrollments({status:'ACTIVE'});};
+    var _loadContractorsList=function(){if(D.contractors){_loadEnrollments();return;}google.script.run.withSuccessHandler(function(ctrs){D.contractors=Array.isArray(ctrs)?ctrs:[];_loadEnrollments();}).withFailureHandler(showErr).getContractors();};
+    if(D.ctrs){_loadContractorsList();}
+    else{google.script.run.withSuccessHandler(function(d){D.ctrs=d;_loadContractorsList();}).withFailureHandler(showErr).getContractorsData();}
+  } else if(id==='activities'){
+    if(D.entry){renderTab(id);return;}
+    showLoading();
+    google.script.run.withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];renderTab(id);}).withFailureHandler(showErr).getEntryData();
+  } else if(id==='alerts'){
+    if(D.myreqs){renderTab(id);return;}
+    showLoading();
+    google.script.run.withSuccessHandler(function(d){
+      D.myreqs=d;
+      if(d&&d.requests){d.requests.forEach(function(r){if(r.status==='REVISION'||r.status==='REJECTED')SEEN_ALERT_IDS.add(r.reqId);});}
+      updateNavBadge('alerts',false);
+      renderTab(id);
+    }).withFailureHandler(showErr).getMyRequests();
+  } else if(id==='jobcards'){
+    showLoading();
+    var _jcLoadCards=function(){
+      google.script.run
+        .withSuccessHandler(function(jcs){D.jobCards=Array.isArray(jcs)?jcs:[];renderTab(id);})
+        .withFailureHandler(showErr)
+        .getJobCards({});
+    };
+    var _jcLoadContractors=function(){
+      if(D.contractors){_jcLoadCards();return;}
+      google.script.run
+        .withSuccessHandler(function(ctrs){D.contractors=Array.isArray(ctrs)?ctrs:[];_jcLoadCards();})
+        .withFailureHandler(showErr)
+        .getContractors();
+    };
+    if(D.entry){_jcLoadContractors();}
+    else{
+      google.script.run
+        .withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];_jcLoadContractors();})
+        .withFailureHandler(showErr)
+        .getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
+    }
+  } else if(id==='payhistory'){
+    showLoading();
+    var _phLoadBatches=function(){
+      google.script.run
+        .withSuccessHandler(function(b){D.payBatches=Array.isArray(b)?b:[];renderTab(id);})
+        .withFailureHandler(showErr)
+        .getPaymentBatches({});
+    };
+    var _phLoadCtrs=function(){
+      if(D.contractors){_phLoadBatches();return;}
+      google.script.run
+        .withSuccessHandler(function(ctrs){D.contractors=Array.isArray(ctrs)?ctrs:[];_phLoadBatches();})
+        .withFailureHandler(showErr)
+        .getContractors();
+    };
+    if(D.entry){_phLoadCtrs();}
+    else{
+      google.script.run
+        .withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];_phLoadCtrs();})
+        .withFailureHandler(showErr)
+        .getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
+    }
+  } else if(id==='grid'){
+    if(D.wipGrid){renderTab(id);return;}
+    showLoading();
+    google.script.run.withSuccessHandler(function(g){D.wipGrid=g;renderTab(id);}).withFailureHandler(showErr).getWipGrid();
+  } else if(id==='floor'){
+    showLoading();
+    var _flLoadCards=function(){
+      google.script.run
+        .withSuccessHandler(function(jcs){D.jobCards=Array.isArray(jcs)?jcs:[];renderTab(id);})
+        .withFailureHandler(showErr)
+        .getJobCards({});
+    };
+    var _flLoadContractors=function(){
+      if(D.contractors){_flLoadCards();return;}
+      google.script.run
+        .withSuccessHandler(function(ctrs){D.contractors=Array.isArray(ctrs)?ctrs:[];_flLoadCards();})
+        .withFailureHandler(showErr)
+        .getContractors();
+    };
+    if(D.entry){_flLoadContractors();}
+    else{
+      google.script.run
+        .withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];_flLoadContractors();})
+        .withFailureHandler(showErr)
+        .getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
+    }
+  }
+}
+
+function showLoading(){
+  document.getElementById('mainContent').innerHTML=
+    '<div style="display:flex;justify-content:center;padding:50px"><div class="loader"></div></div>';
+}
+
+// Refresh: force reload from server (pull to refresh equivalent)
+function refreshTab(){
+  D.dash=null; D.entry=null; D.wip=null; D.reqs=null; D.subs=null; ENTRY_PERIOD=null; D.ctrs=null; D.myreqs=null; D.contractors=null; D.enrollments=null; D.wipGrid=null; D.jobCards=null; D.orderSizes=null; D.completedJobCards=null; D.payBatches=null;
+  loadTab(TAB);
+}
+
+function renderTab(id){
+  var c=document.getElementById('mainContent');
+  if(id==='home'){
+    if(USER.role==='admin')renderAdminHome(c);
+    else if(USER.role==='accounts')renderArvindHome(c);
+    else renderStoreHome(c);
+  } else if(id==='orders'){renderOrders(c);}
+  else if(id==='approve'){renderApprove(c);}
+  else if(id==='requests'){renderRequests(c);}
+  else if(id==='neworder'){renderNewOrder(c);}
+  else if(id==='payment'){renderPayment(c);}
+  else if(id==='payhistory'){renderPayHistory(c);}
+  else if(id==='wip'){renderWIP(c);}
+  else if(id==='jobcards'){renderJobCards(c);}
+  else if(id==='contractors'){renderContractors(c);}
+  else if(id==='activities'){renderActivities(c);}
+  else if(id==='alerts'){renderAlerts(c);}
+  else if(id==='grid'){renderGrid(c);}
+  else if(id==='floor'){renderFloor(c);}
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function el(tag,props,children){
+  var e=document.createElement(tag);
+  if(props)Object.keys(props).forEach(function(k){
+    if(k==='cls')e.className=props[k];
+    else if(k==='html')e.innerHTML=props[k];
+    else if(k==='text')e.textContent=props[k];
+    else if(k==='style')e.style.cssText=props[k];
+    else e[k]=props[k];
+  });
+  if(children){
+    if(Array.isArray(children))children.forEach(function(ch){if(ch)e.appendChild(ch);});
+    else if(typeof children==='string')e.textContent=children;
+  }
+  return e;
+}
+
+function alert_(type,title,body){
+  var d=el('div',{cls:'alert '+type});
+  var t=el('div',{cls:'alert-text'});
+  if(title)t.appendChild(el('span',{cls:'alert-title',text:title}));
+  if(body)t.appendChild(el('span',{text:body}));
+  d.appendChild(t);
+  return d;
+}
+
+function kpiEl(label,value,sub,colorClass){
+  var d=el('div',{cls:'kpi '+(colorClass||'')});
+  d.appendChild(el('div',{cls:'kpi-label',text:label}));
+  d.appendChild(el('div',{cls:'kpi-value',text:value}));
+  if(sub)d.appendChild(el('div',{cls:'kpi-sub',text:sub}));
+  return d;
+}
+
+function renderStageBreakdown(result){
+  var ctr=el('div',{style:'padding:0.75rem;background:var(--fos-bg);border-radius:6px;margin-top:0.5rem'});
+  if(!result||result.error){
+    ctr.appendChild(el('div',{style:'font-size:0.8rem;color:var(--fos-ink-secondary)',text:result&&result.error?result.error:'Unknown error'}));
+    return ctr;
+  }
+  var lot=result.lotSize||0;
+  (result.stages||[]).forEach(function(s){
+    var paid=s.paidQty||0;
+    var pct=lot>0?Math.min(100,paid/lot*100):0;
+    var full=lot>0&&paid>=lot;
+    var sr=el('div',{style:'margin-bottom:0.5rem'});
+    var top=el('div',{style:'display:flex;justify-content:space-between;align-items:center'});
+    var lbl=el('span',{style:'font-size:0.85rem;color:'+(full?'var(--fos-success)':'var(--fos-ink)'),text:s.label+(full?' ✓':'')});
+    var qty=el('span',{style:'font-family:var(--fos-font-mono);font-size:0.8rem;color:var(--fos-ink-secondary)',text:paid+' / '+lot});
+    top.appendChild(lbl);top.appendChild(qty);sr.appendChild(top);
+    var track=el('div',{style:'background:var(--fos-border);border-radius:2px;height:3px;margin-top:3px'});
+    if(pct>0){var barFill=el('div',{style:'background:var(--fos-accent);border-radius:2px;height:3px;width:'+pct+'%'});track.appendChild(barFill);}
+    sr.appendChild(track);ctr.appendChild(sr);
+  });
+  return ctr;
+}
+
+// Work Order number is the primary order identifier. Always display alongside article name.
+function orderRowEl(o){
+  var pct=o.orderQty>0?Math.min(100,Math.round(o.cumul/o.orderQty*100)):0;
+  var over=o.orderQty>0&&o.cumul>o.orderQty;
+  var done=!over&&o.orderQty>0&&o.cumul>=o.orderQty;
+  var bClass=over?'red':done?'green':o.remaining>0?'blue':'grey';
+  var bText=over?'COMPLETE':done?'DONE':o.remaining>0?(o.remaining+' left'):'NO LOT';
+
+  var wrap=el('div',{style:'border-bottom:0.5px solid var(--fos-border)'});
+  var row=el('div',{cls:'order-row',style:'padding:11px 16px;border-bottom:none'});
+  var info=el('div',{cls:'order-info'});
+  info.appendChild(el('div',{cls:'order-art',text:o.article||o.sheet}));
+  info.appendChild(el('div',{cls:'order-cust',text:o.customer||''}));
+  if(o.bom){var _oBomS=el('span',{style:'font-family:var(--fos-font-mono);font-size:0.72rem;color:var(--fos-ink-secondary)',text:o.bom});info.appendChild(_oBomS);}
+  var bar=el('div',{cls:'progress-bar'});
+  var fill=el('div',{cls:'progress-fill '+(over?'over':done?'done':'')});
+  fill.style.width=pct+'%';
+  bar.appendChild(fill);
+  info.appendChild(bar);
+  var nums=el('div',{cls:'order-nums'});
+  nums.appendChild(el('span',{text:o.cumul+' paid'}));
+  nums.appendChild(el('span',{text:o.orderQty+' lot'}));
+  info.appendChild(nums);
+  row.appendChild(info);
+  row.appendChild(el('span',{cls:'badge '+bClass,text:bText}));
+  wrap.appendChild(row);
+  var _arvProg={loaded:false};
+  var arvTgl=el('div',{style:'font-size:0.8rem;color:var(--fos-accent);cursor:pointer;user-select:none;padding:4px 16px 6px'});
+  arvTgl.textContent='▶ Stage Progress';
+  var arvPanel=el('div',{style:'display:none;padding:0 16px 8px'});
+  arvTgl.onclick=function(){
+    var open=arvPanel.style.display!=='none';
+    arvPanel.style.display=open?'none':'block';
+    arvTgl.textContent=open?'▶ Stage Progress':'▼ Stage Progress';
+    if(!open&&!_arvProg.loaded){
+      arvPanel.innerHTML='<div style="font-size:0.8rem;color:var(--fos-ink-secondary);padding:0.5rem 0">Loading...</div>';
+      google.script.run
+        .withSuccessHandler(function(r){_arvProg.loaded=true;arvPanel.innerHTML='';arvPanel.appendChild(renderStageBreakdown(r));})
+        .withFailureHandler(function(){arvPanel.innerHTML='<div style="font-size:0.8rem;color:var(--fos-ink-secondary);padding:0.5rem 0">Error loading</div>';})
+        .getOrderProgress(o.sheet);
+    }
+  };
+  wrap.appendChild(arvTgl);wrap.appendChild(arvPanel);
+  return wrap;
+}
+
+function sectionTitle(text){return el('div',{cls:'section-title',text:text});}
+
+function fosMetricEl(label,value,sub,colorClass){
+  var d=el('div',{cls:'fos-metric'+(colorClass?' '+colorClass:'')});
+  d.appendChild(el('div',{cls:'fos-metric-label',text:label}));
+  d.appendChild(el('div',{cls:'fos-metric-value',text:value}));
+  if(sub)d.appendChild(el('div',{cls:'fos-metric-sub',text:sub}));
+  return d;
+}
+// ── TOAST ─────────────────────────────────────────────────────────────────────
+function toast(msg,isErr){
+  var t=document.getElementById('toast');
+  t.textContent=msg;t.className=isErr?'show err':'show';
+  clearTimeout(t._t);t._t=setTimeout(function(){t.className='';},2500);
+}
+function showErr(e){
+  document.getElementById('mainContent').innerHTML=
+    '<div style="padding:20px">' +
+    '<div style="background:#450a0a;border:1px solid #7f1d1d;border-radius:12px;padding:14px">' +
+    '<div style="color:#ef4444;font-weight:700;margin-bottom:6px">Error loading data</div>' +
+    '<div style="color:#e8eaf0;font-size:13px">'+(e.message||'Unknown error')+'</div>' +
+    '</div></div>';
+}
+</script>
