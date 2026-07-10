@@ -213,25 +213,48 @@ function loadTab(id){
     renderTab(id);
   } else if(id==='payment'){
     showLoading();
-    var _payLoadCards=function(){
-      google.script.run
-        .withSuccessHandler(function(jcs){D.completedJobCards=Array.isArray(jcs)?jcs:[];renderTab(id);})
-        .withFailureHandler(showErr)
-        .getCompletedUnpaidJobCards();
-    };
-    var _payLoadContractors=function(){
-      if(D.contractors){_payLoadCards();return;}
-      google.script.run
-        .withSuccessHandler(function(ctrs){D.contractors=Array.isArray(ctrs)?ctrs:[];_payLoadCards();})
-        .withFailureHandler(showErr)
-        .getContractors();
-    };
-    if(D.entry){_payLoadContractors();}
-    else{
-      google.script.run
-        .withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];_payLoadContractors();})
-        .withFailureHandler(showErr)
-        .getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
+    if(USER&&USER.role==='admin'){
+      var _admPayLoadBatches=function(){
+        google.script.run
+          .withSuccessHandler(function(b){D.payBatches=Array.isArray(b)?b:[];renderTab(id);})
+          .withFailureHandler(showErr)
+          .getPaymentBatches({});
+      };
+      var _admPayLoadCtrs=function(){
+        if(D.contractors){_admPayLoadBatches();return;}
+        google.script.run
+          .withSuccessHandler(function(ctrs){D.contractors=Array.isArray(ctrs)?ctrs:[];_admPayLoadBatches();})
+          .withFailureHandler(showErr)
+          .getContractors();
+      };
+      if(D.entry){_admPayLoadCtrs();}
+      else{
+        google.script.run
+          .withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];_admPayLoadCtrs();})
+          .withFailureHandler(showErr)
+          .getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
+      }
+    } else {
+      var _payLoadCards=function(){
+        google.script.run
+          .withSuccessHandler(function(jcs){D.completedJobCards=Array.isArray(jcs)?jcs:[];renderTab(id);})
+          .withFailureHandler(showErr)
+          .getCompletedUnpaidJobCards();
+      };
+      var _payLoadContractors=function(){
+        if(D.contractors){_payLoadCards();return;}
+        google.script.run
+          .withSuccessHandler(function(ctrs){D.contractors=Array.isArray(ctrs)?ctrs:[];_payLoadCards();})
+          .withFailureHandler(showErr)
+          .getContractors();
+      };
+      if(D.entry){_payLoadContractors();}
+      else{
+        google.script.run
+          .withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];_payLoadContractors();})
+          .withFailureHandler(showErr)
+          .getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
+      }
     }
   } else if(id==='wip'){
     showLoading();
@@ -376,7 +399,10 @@ function renderTab(id){
   else if(id==='approve'){renderApprove(c);}
   else if(id==='requests'){renderRequests(c);}
   else if(id==='neworder'){renderNewOrder(c);}
-  else if(id==='payment'){renderPayment(c);}
+  else if(id==='payment'){
+    if(USER&&USER.role==='admin') renderAdminPayment(c);
+    else renderPayment(c);
+  }
   else if(id==='payhistory'){renderPayHistory(c);}
   else if(id==='wip'){renderWIP(c);}
   else if(id==='jobcards'){renderJobCards(c);}

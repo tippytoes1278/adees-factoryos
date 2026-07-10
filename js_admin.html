@@ -269,6 +269,180 @@ function renderApprove(c){
   if(d.mismatches>0)c.appendChild(alert_('yellow',d.mismatches+' WIP mismatch','Verify before paying'));
 }
 
+// Called from js_core.html renderTab for admin 'payment' tab
+function renderAdminPayment(c){
+  c.innerHTML='';
+
+  if(!D.payBatches){
+    c.appendChild(alert_('yellow','Loading...','Tap Refresh to reload'));
+    return;
+  }
+
+  // Section 1: Pending payment batches (from job card flow)
+  var batches=D.payBatches||[];
+  var artMap={};
+  if(D.entry&&D.entry.articles){
+    D.entry.articles.forEach(function(a){artMap[a.sheet]=a.article||a.sheet;});
+  }
+  var ctrMap={};
+  if(D.contractors){
+    D.contractors.forEach(function(ct){var cid=ct.ctrId||'';if(cid)ctrMap[cid]=ct.name||cid;});
+  }
+  var pending=batches.filter(function(b){
+    return b.status==='PENDING'&&
+           !(b.approvedBy&&b.approvedBy.indexOf('REJECTED:')===0);
+  });
+
+  c.appendChild(sectionTitle('Pending Payment Approvals ('+pending.length+')'));
+
+  if(!pending.length){
+    c.appendChild(alert_('green','No pending payments','All payments approved'));
+  } else {
+    pending.forEach(function(b){
+      var ctrName=ctrMap[b.contractorId||'']||(b.contractorId||'Unknown');
+      var bCard=el('div',{cls:'req-card',style:'margin-bottom:12px'});
+
+      // Header
+      var top=el('div',{style:'display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px'});
+      var tl=el('div');
+      tl.appendChild(el('div',{style:'font-size:14px;font-weight:700;color:var(--fos-ink)',text:ctrName}));
+      tl.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:b.paymentId||'—'}));
+      tl.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:'Period: '+(b.periodId||'—')}));
+      top.appendChild(tl);
+      top.appendChild(el('span',{cls:'badge yellow',text:'PENDING'}));
+      bCard.appendChild(top);
+
+      // Job card lines
+      var lines=b.lines||[];
+      if(lines.length){
+        var tbl=el('div',{style:'margin-bottom:10px'});
+        var hdr=el('div',{style:'display:grid;grid-template-columns:1fr 80px 80px;gap:4px;padding:4px 0;border-bottom:1px solid var(--fos-border);font-size:10px;font-weight:700;color:var(--fos-ink-secondary);text-transform:uppercase'});
+        ['Article / Dept','Pairs','Amount'].forEach(function(h){hdr.appendChild(el('div',{text:h}));});
+        tbl.appendChild(hdr);
+        lines.forEach(function(l){
+          var aRow=el('div',{style:'display:grid;grid-template-columns:1fr 80px 80px;gap:4px;padding:5px 0;border-bottom:1px solid var(--fos-border);font-size:12px'});
+          var ai=el('div');
+          ai.appendChild(el('div',{style:'font-weight:600;color:var(--fos-ink)',text:artMap[l.orderRef]||l.orderRef||'—'}));
+          ai.appendChild(el('div',{style:'font-size:10px;color:var(--fos-ink-secondary)',text:l.department||'—'}));
+          aRow.appendChild(ai);
+          aRow.appendChild(el('div',{style:'color:var(--fos-ink)',text:String(l.pairs||0)}));
+          aRow.appendChild(el('div',{style:'color:var(--fos-success);font-weight:700',text:'₹'+Number(l.amount||0).toFixed(2)}));
+          tbl.appendChild(aRow);
+        });
+        bCard.appendChild(tbl);
+      }
+
+      // Total + approve/reject
+      var footer=el('div',{style:'display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:1px solid var(--fos-border)'});
+      var totalPairsV=0,totalAmountV=0;
+      (b.lines||[]).forEach(function(l){totalPairsV+=(l.pairs||0);totalAmountV+=(l.amount||0);});
+      footer.appendChild(el('div',{style:'font-size:14px;font-weight:700;color:var(--fos-success)',
+        text:totalPairsV+' pairs · ₹'+totalAmountV.toFixed(2)}));
+
+      var btnRow=el('div',{style:'display:flex;gap:8px'});
+      var apBtn=el('button',{cls:'ap-btn',text:'Approve'});
+      var rjBtn=el('button',{cls:'rj-btn',text:'Reject'});
+
+      (function(payId,aBtn,rBtn,cardEl){
+        aBtn.onclick=function(){
+          if(!confirm('Approve payment '+payId+'?'))return;
+          aBtn.disabled=true;aBtn.textContent='Approving…';
+          google.script.run
+            .withSuccessHandler(function(r){
+              if(r&&r.success){
+                toast('Approved — '+payId);
+                D.payBatches=null;
+                setTimeout(function(){loadTab('payment');},600);
+              } else {
+                aBtn.disabled=false;aBtn.textContent='Approve';
+                toast((r&&r.error)||'Error',true);
+              }
+            })
+            .withFailureHandler(function(){
+              aBtn.disabled=false;aBtn.textContent='Approve';
+              toast('Error',true);
+            })
+            .approvePaymentBatch(payId);
+        };
+
+        // Reject with inline reason
+        var rkWrap=el('div',{style:'display:none;margin-top:8px;width:100%'});
+        var rkInp=el('textarea',{placeholder:'Reason for rejection — required',
+          style:'width:100%;background:var(--fos-bg);border:1px solid var(--fos-danger);border-radius:8px;padding:9px 12px;color:var(--fos-ink);font-size:13px;box-sizing:border-box;margin-bottom:6px;display:block;resize:none;min-height:60px'});
+        var rkRow2=el('div',{style:'display:flex;gap:8px'});
+        var rkConfirm=el('button',{text:'Confirm Reject',
+          style:'flex:1;padding:9px;background:#7f1d1d;color:#fca5a5;font-size:13px;font-weight:700;border-radius:8px;border:none;cursor:not-allowed;opacity:0.4'});
+        rkConfirm.disabled=true;
+        var rkCancel=el('a',{style:'font-size:12px;color:var(--fos-ink-secondary);cursor:pointer;text-decoration:underline',text:'Cancel'});
+        rkRow2.appendChild(rkConfirm);rkRow2.appendChild(rkCancel);
+        rkWrap.appendChild(rkInp);rkWrap.appendChild(rkRow2);
+
+        rkInp.oninput=function(){
+          var ok=!!rkInp.value.trim();
+          rkConfirm.disabled=!ok;
+          rkConfirm.style.opacity=ok?'1':'0.4';
+          rkConfirm.style.cursor=ok?'pointer':'not-allowed';
+        };
+        rBtn.onclick=function(){btnRow.style.display='none';rkWrap.style.display='block';rkInp.focus();};
+        rkCancel.onclick=function(){rkWrap.style.display='none';btnRow.style.display='';};
+        rkConfirm.onclick=function(){
+          var reason=rkInp.value.trim();if(!reason)return;
+          rkConfirm.disabled=true;rkConfirm.textContent='Rejecting...';
+          google.script.run
+            .withSuccessHandler(function(r){
+              if(r&&r.success){
+                toast('Rejected — '+payId);
+                D.payBatches=null;
+                setTimeout(function(){loadTab('payment');},600);
+              } else {
+                rkConfirm.disabled=false;rkConfirm.textContent='Confirm Reject';
+                toast((r&&r.error)||'Error',true);
+              }
+            })
+            .withFailureHandler(function(){
+              rkConfirm.disabled=false;rkConfirm.textContent='Confirm Reject';
+              toast('Error',true);
+            })
+            .rejectPaymentBatch(payId,reason);
+        };
+        cardEl.appendChild(rkWrap);
+      })(b.paymentId,apBtn,rjBtn,bCard);
+
+      btnRow.appendChild(apBtn);btnRow.appendChild(rjBtn);
+      footer.appendChild(btnRow);
+      bCard.appendChild(footer);
+      c.appendChild(bCard);
+    });
+  }
+
+  // Section 2: Legacy payment submissions (keep for backward compat)
+  var subs=D.subs&&D.subs.submissions?D.subs.submissions:[];
+  var pending2=subs.filter(function(s){return s.status==='PENDING'||!s.status;});
+  if(pending2.length){
+    c.appendChild(el('div',{style:'height:1px;background:var(--fos-border);margin:20px 0'}));
+    c.appendChild(sectionTitle('Legacy Submissions ('+pending2.length+')'));
+    pending2.forEach(function(sub){
+      var card=el('div',{cls:'req-card',style:'margin-bottom:12px'});
+      card.appendChild(el('div',{style:'font-size:14px;font-weight:500;color:var(--fos-ink)',text:sub.article||sub.sheet}));
+      card.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:sub.periodId||''}));
+      card.appendChild(el('div',{style:'font-size:14px;font-weight:700;color:var(--fos-success);margin-top:6px',text:'Total: ₹'+Number(sub.grandTotal||0).toFixed(2)}));
+      var apBtn2=el('button',{cls:'ap-btn',text:'Approve & Lock',style:'margin-top:8px'});
+      (function(reqId,btn){btn.onclick=function(){
+        btn.disabled=true;btn.textContent='Approving…';
+        google.script.run
+          .withSuccessHandler(function(r){
+            if(r&&r.success){toast('Approved');D.subs=null;D.dash=null;setTimeout(function(){loadTab('payment');},700);}
+            else{toast((r&&r.error)||'Error',true);btn.disabled=false;btn.textContent='Approve & Lock';}
+          })
+          .withFailureHandler(function(){toast('Error',true);btn.disabled=false;btn.textContent='Approve & Lock';})
+          .approvePaymentSubmission(reqId);
+      };})(sub.reqId,apBtn2);
+      card.appendChild(apBtn2);
+      c.appendChild(card);
+    });
+  }
+}
+
 function doApprove(){
   var v=document.getElementById('initials').value.trim();
   if(!v){toast('Enter your initials',true);return;}
