@@ -309,7 +309,20 @@ function renderNO_Step2(c){
   var clG=el('div',{cls:'form-group'});clG.appendChild(el('label',{cls:'form-label',text:'Color *'}));
   var clI=el('input',{cls:'form-input',type:'text',placeholder:'e.g. Full Black'});clG.appendChild(clI);card.appendChild(clG);
   var byG=el('div',{cls:'form-group'});byG.appendChild(el('label',{cls:'form-label',text:'Buyer *'}));
-  var byS=el('select',{cls:'form-select'});['','Snitch','Tata/Westside','Van Heusen','Mothercare','Other'].forEach(function(b){byS.appendChild(el('option',{text:b||'Select buyer…',value:b}));});byG.appendChild(byS);card.appendChild(byG);
+  var byS=el('select',{cls:'form-select'});
+  ['','Snitch','Tata/Westside','Van Heusen','Mothercare','Other'].forEach(function(b){
+    byS.appendChild(el('option',{text:b||'Select buyer…',value:b}));
+  });
+  byG.appendChild(byS);
+  var byOtherWrap=el('div',{style:'display:none;margin-top:8px'});
+  var byOtherI=el('input',{cls:'form-input',type:'text',placeholder:'Enter buyer name…'});
+  byOtherWrap.appendChild(byOtherI);
+  byG.appendChild(byOtherWrap);
+  card.appendChild(byG);
+  byS.onchange=function(){
+    byOtherWrap.style.display=byS.value==='Other'?'block':'none';
+    if(byS.value!=='Other')byOtherI.value='';
+  };
   var brG=el('div',{cls:'form-group'});brG.appendChild(el('label',{cls:'form-label',text:'Brand'}));
   var brI=el('input',{cls:'form-input',type:'text',placeholder:'e.g. Van Heusen (if different from buyer)'});brG.appendChild(brI);card.appendChild(brG);
   var poG=el('div',{cls:'form-group'});poG.appendChild(el('label',{cls:'form-label',text:'PO Number'}));
@@ -415,7 +428,8 @@ function renderNO_Step2(c){
   var sbC=el('div',{cls:'fos-card'});
   var sbB=el('button',{cls:'primary-btn',text:'Submit for Approval'});
   sbB.onclick=function(){
-    var art=aI.value.trim(),col=clI.value.trim(),buyer=byS.value,dd=ddI.value;
+    var art=aI.value.trim(),col=clI.value.trim(),dd=ddI.value;
+    var buyer=byS.value==='Other'?(byOtherI.value.trim()||'Other'):byS.value;
     if(!art||!col||!buyer||!dd){toast('Fill all required fields (*)',true);return;}
     if(!grCat){toast('Category select karo pehle',true);return;}
     if(!grSel){toast('Grading select karo pehle (UK ya EU)',true);return;}
@@ -513,7 +527,21 @@ function renderPayment(c){
       info.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:12px;color:var(--fos-ink-secondary);margin-bottom:2px',text:jc.jobCardId}));
       info.appendChild(el('div',{style:'font-size:14px;font-weight:500;color:var(--fos-ink);margin-bottom:2px',text:artName+(artColor?' · '+artColor:'')}));
       info.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-bottom:2px',text:(jc.store||'')+(jc.movement?' · '+jc.movement:'')}));
-      info.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:'Pairs: '+pairs+'  ·  Rate: ₹'+(rate>0?rate.toFixed(2):'—')+'/pair'}));
+      var rateDisplay='';
+      if(rate>0){
+        var baseRate=0,commRate=0;
+        if(jc.activities&&jc.activities.length){
+          jc.activities.forEach(function(a){baseRate+=safeNum(a.rate);commRate+=safeNum(a.comm);});
+        }
+        if(commRate>0){
+          rateDisplay='₹'+baseRate.toFixed(2)+'/pr + ₹'+commRate.toFixed(2)+' comm';
+        } else {
+          rateDisplay='₹'+rate.toFixed(2)+'/pair';
+        }
+      } else {
+        rateDisplay='Rate not set';
+      }
+      info.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:'Pairs: '+pairs+'  ·  '+rateDisplay}));
       row.appendChild(info);
 
       var amtWrap=el('div',{style:'text-align:right;flex-shrink:0;padding-top:2px'});
@@ -1149,6 +1177,9 @@ function renderActivitySetup(body,article){
       addBtn.onclick=function(){
         var name=aSel.value;
         if(!name){toast('Select an activity',true);return;}
+        var masterAct=MASTER_ACTS.filter(function(ma){return ma.name===name;})[0];
+        var masterRate=masterAct?masterAct.stdRate:0;
+        var masterComm=masterAct?masterAct.comm:0;
         var chk=el('input',{type:'checkbox',checked:true,style:'width:15px;height:15px;flex-shrink:0;accent-color:var(--fos-accent)'});
         var rowEl=el('div',{style:'padding:6px 0;border-top:0.5px solid var(--fos-border)'});
         var nameRow=el('div',{style:'display:flex;align-items:center;gap:8px;margin-bottom:6px'});
@@ -1156,12 +1187,21 @@ function renderActivitySetup(body,article){
         nameRow.appendChild(el('div',{style:'flex:1;font-size:12px;font-weight:600;color:var(--fos-ink)',text:name}));
         rowEl.appendChild(nameRow);
         var rateRow=el('div',{style:'display:flex;gap:8px;margin-left:23px'});
-        var rateInp=el('input',{type:'number',placeholder:'Rate ₹/pair',min:'0',step:'0.01',style:'flex:1;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:6px 8px;color:var(--fos-ink);font-size:12px;font-family:var(--fos-font-mono)'});
-        var commInp=el('input',{type:'number',placeholder:'Comm ₹/pair (optional)',min:'0',step:'0.01',style:'flex:1;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:6px 8px;color:var(--fos-ink);font-size:12px;font-family:var(--fos-font-mono)'});
+        var rateInp=el('input',{type:'number',placeholder:'Rate ₹/pair',min:'0',step:'0.01',
+          value:masterRate>0?String(masterRate):'',
+          style:'flex:1;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:6px 8px;color:var(--fos-ink);font-size:12px;font-family:var(--fos-font-mono)'});
+        var commInp=el('input',{type:'number',placeholder:'Comm ₹/pair (optional)',min:'0',step:'0.01',
+          value:masterComm>0?String(masterComm):'',
+          style:'flex:1;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:6px 8px;color:var(--fos-ink);font-size:12px;font-family:var(--fos-font-mono)'});
         rateRow.appendChild(rateInp);
         rateRow.appendChild(commInp);
         rowEl.appendChild(rateRow);
-        var entry={chk:chk,department:d,activityName:name,rate:0,comm:0};
+        if(masterRate>0){
+          var masterHint=el('div',{style:'font-size:10px;color:var(--fos-ink-secondary);margin-top:3px;margin-left:0',
+            text:'Master rate: ₹'+masterRate+'/pr'+(masterComm?' + ₹'+masterComm+' comm':'')});
+          rowEl.appendChild(masterHint);
+        }
+        var entry={chk:chk,department:d,activityName:name,rate:masterRate||0,comm:masterComm||0};
         rateInp.oninput=function(){entry.rate=parseFloat(rateInp.value)||0;};
         commInp.oninput=function(){entry.comm=parseFloat(commInp.value)||0;};
         entries.push(entry);
