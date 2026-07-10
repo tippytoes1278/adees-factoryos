@@ -68,6 +68,42 @@ function issueJobCard(data) {
     }
   }
 
+  // Sequence lock — previous dept must be fully complete
+  var PREV_MOVEMENTS = {
+    'prep':      ['Cutting IN'],
+    'fitter':    ['Preparation IN'],
+    'lasting':   ['Fitter IN'],
+    'finishing': ['Upper IN','Lasting IN'],
+    'dispatch':  ['Packing IN']
+  };
+  var prevMovements = PREV_MOVEMENTS[deptKey] || [];
+  if (prevMovements.length > 0) {
+    var allJCs = getJobCards({orderRef: orderRef});
+    if (!Array.isArray(allJCs)) allJCs = [];
+    var prevJCs = allJCs.filter(function(jc) {
+      return prevMovements.indexOf(jc.movement) >= 0;
+    });
+    if (prevJCs.length === 0) {
+      return {
+        success: false,
+        error: 'Previous department has no completed job cards yet. ' +
+               'Complete the prior stage before issuing this department.'
+      };
+    }
+    var incomplete = prevJCs.filter(function(jc) {
+      var st = safeStr(jc.status).toUpperCase();
+      return st === 'ISSUED' || st === 'PARTIAL';
+    });
+    if (incomplete.length > 0) {
+      return {
+        success: false,
+        error: 'Previous department still has ' + incomplete.length +
+               ' open job card(s). All must be COMPLETE before issuing ' +
+               'the next department.'
+      };
+    }
+  }
+
   var jobCardId;
   var lock = LockService.getPublicLock();
   try {
