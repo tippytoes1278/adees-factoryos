@@ -60,9 +60,31 @@ function setCustomWeek(startDate, endDate) {
 function getDashboardData() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var weeklyPayout = 0, approvalStatus = '', weekEnding = '';
+  try {
+    var wk = getCurrentWeek();
+    weekEnding = wk ? (wk.weekLabel || '') : '';
+  } catch(we) {}
 
-  var week = getCurrentWeek();
-  weekEnding = week.weekLabel;
+  // Compute weeklyPayout from PAYMENT_HISTORY (new job card flow)
+  try {
+    var ph2 = ss.getSheetByName('PAYMENT_HISTORY');
+    if (ph2 && ph2.getLastRow() > 1) {
+      var phRows = ph2.getRange(2, 1, ph2.getLastRow()-1, 12).getValues();
+      var pendingAmt = 0, approvedAmt = 0;
+      phRows.forEach(function(r) {
+        var approvedBy = safeStr(r[6]).trim();
+        var amt = safeNum(r[5]);
+        if (!approvedBy) {
+          pendingAmt += amt;
+        } else if (approvedBy.indexOf('REJECTED:') !== 0) {
+          approvedAmt += amt;
+        }
+      });
+      weeklyPayout = approvedAmt;
+      approvalStatus = pendingAmt > 0 ?
+        'pending:' + pendingAmt.toFixed(2) : 'all_approved';
+    }
+  } catch(ph2Err) { Logger.log('payout err: ' + ph2Err.message); }
 
   var orders = [];
   var redCount = 0, completeCount = 0;

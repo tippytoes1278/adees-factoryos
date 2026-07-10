@@ -86,7 +86,17 @@ function renderAdminHome(c){
     apprM.onclick=function(){loadTab('requests');};
     mrow.appendChild(apprM);
   } else {
-    mrow.appendChild(fosMetricEl('Approval',approved?'Done':'Wait',approved?'signed':'awaiting',approved?'green':'orange'));
+    var _apSt=d.approvalStatus||'';
+    var _apLabel='', _apSub='', _apColor='';
+    if(_apSt==='all_approved'){
+      _apLabel='All Clear';_apSub='no pending';_apColor='green';
+    } else if(_apSt.indexOf('pending:')===0){
+      var _pendAmt=_apSt.replace('pending:','');
+      _apLabel='₹'+_pendAmt;_apSub='pending approval';_apColor='orange';
+    } else {
+      _apLabel='—';_apSub='no data';_apColor='';
+    }
+    mrow.appendChild(fosMetricEl('PENDING',_apLabel,_apSub,_apColor));
   }
   c.appendChild(mrow);
 
