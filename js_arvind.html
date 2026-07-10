@@ -1150,10 +1150,21 @@ function renderActivitySetup(body,article){
         var name=aSel.value;
         if(!name){toast('Select an activity',true);return;}
         var chk=el('input',{type:'checkbox',checked:true,style:'width:15px;height:15px;flex-shrink:0;accent-color:var(--fos-accent)'});
-        var rowEl=el('div',{style:'display:flex;align-items:center;gap:8px;padding:6px 0;border-top:0.5px solid var(--fos-border)'});
-        rowEl.appendChild(chk);
-        rowEl.appendChild(el('div',{style:'flex:1;font-size:12px;color:var(--fos-ink)',text:name}));
-        entries.push({chk:chk,department:d,activityName:name,rate:0,comm:0});
+        var rowEl=el('div',{style:'padding:6px 0;border-top:0.5px solid var(--fos-border)'});
+        var nameRow=el('div',{style:'display:flex;align-items:center;gap:8px;margin-bottom:6px'});
+        nameRow.appendChild(chk);
+        nameRow.appendChild(el('div',{style:'flex:1;font-size:12px;font-weight:600;color:var(--fos-ink)',text:name}));
+        rowEl.appendChild(nameRow);
+        var rateRow=el('div',{style:'display:flex;gap:8px;margin-left:23px'});
+        var rateInp=el('input',{type:'number',placeholder:'Rate ₹/pair',min:'0',step:'0.01',style:'flex:1;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:6px 8px;color:var(--fos-ink);font-size:12px;font-family:var(--fos-font-mono)'});
+        var commInp=el('input',{type:'number',placeholder:'Comm ₹/pair (optional)',min:'0',step:'0.01',style:'flex:1;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:6px 8px;color:var(--fos-ink);font-size:12px;font-family:var(--fos-font-mono)'});
+        rateRow.appendChild(rateInp);
+        rateRow.appendChild(commInp);
+        rowEl.appendChild(rateRow);
+        var entry={chk:chk,department:d,activityName:name,rate:0,comm:0};
+        rateInp.oninput=function(){entry.rate=parseFloat(rateInp.value)||0;};
+        commInp.oninput=function(){entry.comm=parseFloat(commInp.value)||0;};
+        entries.push(entry);
         aList.appendChild(rowEl);
         aSel.value='';
       };
@@ -1172,6 +1183,16 @@ function renderActivitySetup(body,article){
       });
       if (!Object.keys(byDept).length) {
         toast('Add and select at least one activity', true);
+        return;
+      }
+      var missingRate = false;
+      Object.keys(byDept).forEach(function(dept) {
+        byDept[dept].forEach(function(e) {
+          if (!e.rate || e.rate <= 0) missingRate = true;
+        });
+      });
+      if (missingRate) {
+        toast('Har selected activity ka rate enter karo', true);
         return;
       }
       var items = Object.keys(byDept).map(function(dept) {
