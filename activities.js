@@ -652,6 +652,33 @@ function requestActivityRateEdit(rowIndex, newRate, newComm, revisionRemark) {
 function requestActivitySetup(payload, revisionRemark) {
   var user = getUserInfo();
   try {
+    // Block if already APPROVED for this order+dept
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var rqChk = ss.getSheetByName('REQUESTS');
+    if (rqChk && rqChk.getLastRow() > 3) {
+      var rqChkData = rqChk.getRange(4, 1, rqChk.getLastRow()-3, 6).getValues();
+      var itemsArr = Array.isArray(payload) ? payload : [payload];
+      for (var _ai = 0; _ai < itemsArr.length; _ai++) {
+        var _item = itemsArr[_ai];
+        for (var _ri = 0; _ri < rqChkData.length; _ri++) {
+          var _r = rqChkData[_ri];
+          if (safeStr(_r[3]) !== 'ACTIVITY_SETUP') continue;
+          if (safeStr(_r[5]).toUpperCase() !== 'APPROVED') continue;
+          try {
+            var _pl = JSON.parse(safeStr(_r[4]));
+            if (_pl && safeStr(_pl.sheet) === safeStr(_item.sheet) &&
+                safeStr(_pl.dept) === safeStr(_item.dept)) {
+              return {
+                success: false,
+                error: 'Activities already approved for ' +
+                       safeStr(_item.dept) + ' department on this order. ' +
+                       'Contact Ayush if changes are needed.'
+              };
+            }
+          } catch(pe) {}
+        }
+      }
+    }
     var items = Array.isArray(payload) ? payload : [payload];
     for (var _di = 0; _di < items.length; _di++) {
       var _dup = checkDuplicateRequest('ACTIVITY_SETUP', {sheet: items[_di].sheet, dept: items[_di].dept});
