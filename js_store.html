@@ -11,10 +11,21 @@ function renderStoreHome(c){
   var todayStr=(new Date()).toISOString().slice(0,10);
   var stageTotals={};STAGES_WIP.forEach(function(s){stageTotals[s]=0;});
   var entries=D.wip&&Array.isArray(D.wip)?D.wip:[];
+  var MOVEMENT_TO_STAGE={
+    'Cutting IN':'Cutting',
+    'Preparation IN':'Preparation',
+    'Fitter IN':'Fitter',
+    'Lasting IN':'Lasting/Pasting',
+    'Packing IN':'Finishing/Packing',
+    'Dispatch IN':'Dispatch'
+  };
   entries.forEach(function(e){
-    var eDate='';try{eDate=new Date(e.submittedAt).toISOString().slice(0,10);}catch(err){}
+    var eDate='';
+    try{eDate=new Date(e.submittedAt).toISOString().slice(0,10);}catch(err){}
     if(eDate!==todayStr)return;
-    if(stageTotals.hasOwnProperty(e.stage))stageTotals[e.stage]+=(e.pairsCompleted||0);
+    var stageName=MOVEMENT_TO_STAGE[e.movement]||'';
+    if(stageName&&stageTotals.hasOwnProperty(stageName))
+      stageTotals[stageName]+=(e.pairs||0);
   });
 
   // Section 2: Aaj Ka Report
@@ -52,10 +63,10 @@ function renderStoreHome(c){
       var arts=D.entry&&D.entry.articles?D.entry.articles:[];
       var artM=arts.find?arts.find(function(a){return a.sheet===e.orderRef;}):null;
       var dispRef=artM?artM.article:e.orderRef;
-      var stLbl=e.stage+(e.subDept?' / '+e.subDept:'');
+      var stLbl=(MOVEMENT_TO_STAGE[e.movement]||e.movement||'');
       var tsStr='—';
       try{if(e.submittedAt){var d=new Date(e.submittedAt);tsStr=d>=todayMid?(String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')):(d.getDate()+' '+_MON[d.getMonth()]);}}catch(err){}
-      var sCls=e.status==='LINKED'?'badge green':e.status==='VOID'?'badge grey':'badge yellow';
+      var sCls=(e.status==='LINKED'||e.status==='SUBMITTED')?'badge green':e.status==='VOID'?'badge grey':'badge yellow';
       var borderStyle=i<recent.length-1?'border-bottom:1px solid var(--fos-border)':'';
       var row=el('div',{style:'display:flex;align-items:flex-start;justify-content:space-between;padding:12px 0;'+borderStyle});
       var left=el('div',{style:'flex:1;min-width:0;margin-right:12px'});
@@ -63,7 +74,7 @@ function renderStoreHome(c){
       left.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:stLbl}));
       row.appendChild(left);
       var right=el('div',{style:'text-align:right;flex-shrink:0'});
-      right.appendChild(el('div',{style:'font-size:13px;font-weight:700;color:var(--fos-ink)',text:e.pairsCompleted+' pairs'}));
+      right.appendChild(el('div',{style:'font-size:13px;font-weight:700;color:var(--fos-ink)',text:(e.pairs||0)+' pairs'}));
       right.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-bottom:4px',text:tsStr}));
       right.appendChild(el('span',{cls:sCls,text:e.status||'PENDING'}));
       row.appendChild(right);

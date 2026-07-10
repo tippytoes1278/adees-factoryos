@@ -28,12 +28,30 @@ function saveContractor(payload) {
     var mc = ss.getSheetByName('MASTER_CONTRACTORS');
     if (!mc) return { success: false, error: 'MASTER_CONTRACTORS sheet not found' };
     var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
-    mc.getRange(mc.getLastRow() + 1, 2, 1, 6).setValues([[
-      safeStr(payload.name), safeStr(payload.paymentMethod) || 'Cash',
+    var nextCtrId = 'CTR-001';
+    try {
+      var mcRows = mc.getLastRow() > 3
+        ? mc.getRange(4, 1, mc.getLastRow()-3, 1).getValues()
+        : [];
+      var maxNum = 0;
+      mcRows.forEach(function(r) {
+        var existing = safeStr(r[0]).trim();
+        if (/^CTR-\d+$/.test(existing)) {
+          var n = parseInt(existing.replace('CTR-', ''), 10);
+          if (n > maxNum) maxNum = n;
+        }
+      });
+      var nextNum = maxNum + 1;
+      var seq = String(nextNum);
+      while (seq.length < 3) seq = '0' + seq;
+      nextCtrId = 'CTR-' + seq;
+    } catch(cidErr) { Logger.log('CTR-ID gen error: ' + cidErr.message); }
+    mc.getRange(mc.getLastRow() + 1, 1, 1, 7).setValues([[
+      nextCtrId, safeStr(payload.name), safeStr(payload.paymentMethod) || 'Cash',
       'ACTIVE', safeStr(payload.dept), safeStr(payload.phone), now
     ]]);
     SpreadsheetApp.flush();
-    return { success: true };
+    return { success: true, ctrId: nextCtrId };
   } catch(e) { return { success: false, error: e.message }; }
 }
 
