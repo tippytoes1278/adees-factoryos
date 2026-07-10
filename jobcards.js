@@ -104,6 +104,51 @@ function issueJobCard(data) {
     }
   }
 
+  // Pairs cap — cannot issue more than previous dept received
+  if (prevMovements.length > 0 && Array.isArray(allJCs)) {
+    // Sum pairsReceived from all COMPLETE prev dept JCs for this order
+    var prevDeptReceived = 0;
+    allJCs.forEach(function(jc) {
+      if (prevMovements.indexOf(jc.movement) >= 0) {
+        var st = safeStr(jc.status).toUpperCase();
+        if (st === 'COMPLETE' || st === 'PAYMENT_PENDING' || st === 'PAID') {
+          prevDeptReceived += safeNum(jc.pairsReceived);
+        }
+      }
+    });
+    // Sum pairsIssued from all existing JCs for THIS dept on this order
+    var thisDeptAlreadyIssued = 0;
+    var thisDeptMovements = Object.keys(PREV_MOVEMENTS).filter(function(k) {
+      return PREV_MOVEMENTS[k].some(function(m) {
+        return prevMovements.indexOf(m) >= 0;
+      });
+    });
+    var thisDeptMvmts = [];
+    if (deptKey === 'prep')      thisDeptMvmts = ['Preparation IN'];
+    if (deptKey === 'fitter')    thisDeptMvmts = ['Fitter IN'];
+    if (deptKey === 'lasting')   thisDeptMvmts = ['Upper IN','Lasting IN'];
+    if (deptKey === 'finishing') thisDeptMvmts = ['Packing IN'];
+    if (deptKey === 'dispatch')  thisDeptMvmts = ['Dispatch IN'];
+    allJCs.forEach(function(jc) {
+      if (thisDeptMvmts.indexOf(jc.movement) >= 0) {
+        var st = safeStr(jc.status).toUpperCase();
+        if (st !== 'CANCELLED') {
+          thisDeptAlreadyIssued += safeNum(jc.pairsIssued);
+        }
+      }
+    });
+    var available = prevDeptReceived - thisDeptAlreadyIssued;
+    if (pairsIssued > available) {
+      return {
+        success: false,
+        error: 'Cannot issue ' + pairsIssued + ' pairs. Previous department ' +
+               'completed ' + prevDeptReceived + ' pairs, and ' +
+               thisDeptAlreadyIssued + ' are already issued for this department. ' +
+               'Maximum available: ' + available + ' pairs.'
+      };
+    }
+  }
+
   var jobCardId;
   var lock = LockService.getPublicLock();
   try {
