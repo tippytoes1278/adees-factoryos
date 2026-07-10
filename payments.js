@@ -713,7 +713,7 @@ function getCompletedUnpaidJobCards() {
           activities = deptKey
             ? actRes.activities.filter(function(a) { return safeStr(a.dept).toLowerCase().trim().indexOf(deptKey) >= 0; })
             : actRes.activities;
-          activities.forEach(function(a) { ratePerPair += safeNum(a.rate); });
+          activities.forEach(function(a) { ratePerPair += safeNum(a.rate) + safeNum(a.comm); });
         }
       } catch(ae) {}
 
@@ -730,7 +730,7 @@ function getCompletedUnpaidJobCards() {
         department:     deptKey,
         activities:     activities,
         ratePerPair:    ratePerPair,
-        totalAmount:    ratePerPair * pairsIssued,
+        totalAmount:    ratePerPair * pairsReceived,
         article:        oiEntry.article  || '',
         color:          oiEntry.color    || '',
         customer:       oiEntry.customer || '',
@@ -857,8 +857,9 @@ function submitJobCardPayment(data) {
 
       var acts = deptActs(orderRef, deptKey);
       var ratePerPair = 0;
-      acts.forEach(function(a) { ratePerPair += safeNum(a.rate); });
-      var amount = ratePerPair * pairs;
+      acts.forEach(function(a) { ratePerPair += safeNum(a.rate) + safeNum(a.comm); });
+      var pairsRcvd = safeNum(r[7]);
+      var amount = ratePerPair * pairsRcvd;
 
       ph.appendRow([
         periodId, orderRef, customer, contractorName,
