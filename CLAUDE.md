@@ -70,3 +70,28 @@ proceeding.
 Never run `clasp pull` without explicit instruction from the user.
 `clasp pull` overwrites local files with server state and can destroy local work.
 Git history is the recovery source for all rollbacks.
+
+## CLIENT-SIDE vs SERVER-SIDE RULES
+
+Server utility functions (safeNum, safeStr etc.) are defined in
+config.js and available to all server .js files automatically.
+They are NOT available in the browser.
+
+RULE 1: Never call server utility functions in js_*.html files.
+Frontend files must define their own versions in js_core.html.
+
+Current client-side utilities (defined in js_core.html):
+- safeNum(v) — parseFloat with NaN fallback to 0
+- fmt(n) — formats number as ₹ with Indian locale
+- fmtPd(ds,yr) — formats period date string
+
+If a fix in js_*.html needs safeNum or safeStr,
+add the client-side version to js_core.html first.
+
+RULE 2: Always open browser DevTools console after every deploy.
+Zero red errors = pass. Any red error = something is broken
+even if the page looks okay. Fix before calling deploy done.
+
+RULE 3: When adding a new server utility to config.js that might
+be used in frontend code, add a matching client-side version
+to js_core.html in the same commit.
