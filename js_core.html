@@ -203,9 +203,23 @@ function loadTab(id){
   } else if(id==='approve'){
     if(D.dash&&D.subs){renderTab(id);return;}
     showLoading();
-    var _loadSubs=function(){google.script.run.withSuccessHandler(function(s){D.subs=s;renderTab(id);}).withFailureHandler(showErr).getPaymentSubmissions();};
-    if(D.dash){_loadSubs();}
-    else{google.script.run.withSuccessHandler(function(d){D.dash=d;_loadSubs();}).withFailureHandler(showErr).getDashboardData();}
+    if(D.dash){
+      google.script.run
+        .withSuccessHandler(function(s){D.subs=s;renderTab(id);})
+        .withFailureHandler(showErr)
+        .getPaymentSubmissions();
+    } else {
+      google.script.run
+        .withSuccessHandler(function(d){
+          D.dash=d;
+          google.script.run
+            .withSuccessHandler(function(s){D.subs=s;renderTab(id);})
+            .withFailureHandler(showErr)
+            .getPaymentSubmissions();
+        })
+        .withFailureHandler(showErr)
+        .getDashboardData();
+    }
   } else if(id==='requests'){
     if(D.reqs){renderTab(id);return;}
     showLoading();
@@ -289,10 +303,15 @@ function loadTab(id){
   } else if(id==='contractors'){
     if(D.ctrs&&D.contractors&&D.enrollments){renderTab(id);return;}
     showLoading();
-    var _loadEnrollments=function(){google.script.run.withSuccessHandler(function(e){D.enrollments=Array.isArray(e)?e:[];renderTab(id);}).withFailureHandler(showErr).getEnrollments({status:'ACTIVE'});};
-    var _loadContractorsList=function(){if(D.contractors){_loadEnrollments();return;}google.script.run.withSuccessHandler(function(ctrs){D.contractors=Array.isArray(ctrs)?ctrs:[];_loadEnrollments();}).withFailureHandler(showErr).getContractors();};
-    if(D.ctrs){_loadContractorsList();}
-    else{google.script.run.withSuccessHandler(function(d){D.ctrs=d;_loadContractorsList();}).withFailureHandler(showErr).getContractorsData();}
+    google.script.run
+      .withSuccessHandler(function(d){
+        D.ctrs=d.ctrs;
+        D.contractors=Array.isArray(d.contractors)?d.contractors:[];
+        D.enrollments=Array.isArray(d.enrollments)?d.enrollments:[];
+        renderTab(id);
+      })
+      .withFailureHandler(showErr)
+      .getContractorsScreenData();
   } else if(id==='activities'){
     if(D.entry){renderTab(id);return;}
     showLoading();

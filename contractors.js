@@ -1,6 +1,6 @@
-function getContractorsData() {
+function getContractorsData(ss) {
   try {
-    var ss = SpreadsheetApp.openById(SHEET_ID);
+    if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
     var mc = ss.getSheetByName('MASTER_CONTRACTORS');
     var contractors = [];
     if (mc && mc.getLastRow() > 3) {
@@ -55,9 +55,9 @@ function saveContractor(payload) {
   } catch(e) { return { success: false, error: e.message }; }
 }
 
-function getContractors() {
+function getContractors(ss) {
   try {
-    var ss = SpreadsheetApp.openById(SHEET_ID);
+    if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
     var mc = ss.getSheetByName('MASTER_CONTRACTORS');
     if (!mc || mc.getLastRow() < 4) return [];
     var rows = mc.getRange(4, 1, mc.getLastRow()-3, 4).getValues();
@@ -240,7 +240,7 @@ function unenrollContractor(enrollmentId) {
   } finally { lock.releaseLock(); }
 }
 
-function getEnrollments(filters) {
+function getEnrollments(filters, ss) {
   try {
     var ws = ensureEnrollmentsSheet();
     var lastRow = ws.getLastRow();
@@ -267,4 +267,13 @@ function getEnrollments(filters) {
     });
     return result;
   } catch(e) { return { success: false, error: e.message }; }
+}
+
+function getContractorsScreenData() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var result = { ctrs: null, contractors: [], enrollments: [] };
+  try { result.ctrs = getContractorsData(ss); } catch(e) {}
+  try { result.contractors = getContractors(ss); } catch(e) {}
+  try { result.enrollments = getEnrollments({status:'ACTIVE'}, ss); } catch(e) {}
+  return result;
 }
