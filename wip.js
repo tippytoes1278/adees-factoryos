@@ -93,7 +93,7 @@ function saveWipEntry(data, status) {
   }
 }
 
-function getWipEntries(filters) {
+function getWipEntries(filters, ss) {
   try {
     var ws = ensureWipEntriesSheet();
     var lastRow = ws.getLastRow();

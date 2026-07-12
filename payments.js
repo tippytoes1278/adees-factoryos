@@ -57,8 +57,8 @@ function setCustomWeek(startDate, endDate) {
   } catch(e) { return { success:false, error:e.message }; }
 }
 
-function getDashboardData() {
-  var ss = SpreadsheetApp.openById(SHEET_ID);
+function getDashboardData(ss) {
+  if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
   var weeklyPayout = 0, approvalStatus = '', weekEnding = '';
   try {
     var wk = getCurrentWeek();

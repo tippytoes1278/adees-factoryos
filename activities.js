@@ -1,6 +1,6 @@
-function getEntryData(periodId) {
+function getEntryData(periodId, ss) {
   ensureCurrentPeriod();
-  var ss = SpreadsheetApp.openById(SHEET_ID);
+  if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
   var firstOpenId = '';
   try {
     var ppE = ss.getSheetByName('PAYMENT_PERIODS');

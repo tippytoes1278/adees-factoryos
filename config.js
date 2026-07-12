@@ -55,12 +55,15 @@ function getAllData() {
     var user = getUserInfo();
     result.user = user;
     Logger.log('[getAllData] user=' + user.email + ' role=' + user.role);
-    result.dash = getDashboardData();
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    result.dash = getDashboardData(ss);
     if (user.role === 'accounts') {
-      result.entry = getEntryData();
-      result.reqs = getPendingRequests();
+      result.entry = getEntryData(null, ss);
+      result.reqs = getPendingRequests(ss);
     } else if (user.role === 'admin') {
-      result.reqs = getPendingRequests();
+      result.reqs = getPendingRequests(ss);
+    } else if (user.role === 'store') {
+      result.wip = getWipEntries({}, ss);
     }
   } catch(e) {
     Logger.log('getAllData error: ' + e.message + ' | stack: ' + e.stack);

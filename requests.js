@@ -1,5 +1,5 @@
-function getPendingRequests() {
-  var ss = SpreadsheetApp.openById(SHEET_ID);
+function getPendingRequests(ss) {
+  if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
   var rq = ss.getSheetByName('REQUESTS');
   var requests = [];
   try {
