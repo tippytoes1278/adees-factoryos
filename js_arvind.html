@@ -7,67 +7,93 @@ function renderArvindHome(c){
     return;
   }
   var d=D.dash;
-  // ── AAJ KA KAAM ──────────────────────────────────────────────
-  var tasks=[];
+  // ── NEEDS ATTENTION ──────────────────────────────────────────
+  var naItems=[];
 
-  // Pending payment cards
+  // 1. Revision requests — Arvind needs to resubmit
+  var reqs=D.reqs&&D.reqs.requests?D.reqs.requests:[];
+  var revisionReqs=reqs.filter(function(r){
+    return r.status==='REVISION'&&r.submittedBy===USER.name;
+  });
+  if(revisionReqs.length>0){
+    naItems.push({
+      icon:'⚠️',
+      text:revisionReqs.length+' request'+(revisionReqs.length!==1?'s':'')+' need revision',
+      sub:'Ayush ne changes maange hain — resubmit karo',
+      tab:'alerts',
+      color:'#d97706'
+    });
+  }
+
+  // 2. Orders with no approved activities — blocks Job Card issue
+  var oasArts=D.entry&&D.entry.articles?D.entry.articles:[];
+  var noActOrders=oasArts.filter(function(a){
+    return !a.activities||a.activities.length===0;
+  });
+  if(noActOrders.length>0){
+    naItems.push({
+      icon:'📋',
+      text:noActOrders.length+' order'+(noActOrders.length!==1?'s':'')+' need activity setup',
+      sub:'Bina activities ke Prakash job card issue nahi kar sakta',
+      tab:'activities',
+      color:'#d97706'
+    });
+  }
+
+  // 3. Contractors with no department enrollments
+  var allCtrs=D.contractors||[];
+  var allEnrs=D.enrollments||[];
+  var enrolledIds={};
+  allEnrs.forEach(function(e){if(e.contractorId)enrolledIds[e.contractorId]=true;});
+  var unenrolledCtrs=allCtrs.filter(function(ct){
+    return ct.ctrId&&!enrolledIds[ct.ctrId];
+  });
+  if(unenrolledCtrs.length>0){
+    naItems.push({
+      icon:'👤',
+      text:unenrolledCtrs.length+' contractor'+(unenrolledCtrs.length!==1?'s':'')+' not enrolled in any department',
+      sub:unenrolledCtrs.map(function(c){return c.name;}).join(', '),
+      tab:'contractors',
+      color:'#7c3aed'
+    });
+  }
+
+  // 4. Completed job cards ready for payment
   var completedCards=D.completedJobCards;
   if(Array.isArray(completedCards)&&completedCards.length>0){
-    tasks.push({
+    naItems.push({
       icon:'💰',
-      text:completedCards.length+' completed job card'+(completedCards.length!==1?'s':'')+' ready for payment',
-      action:'Payment tab mein jao',
+      text:completedCards.length+' job card'+(completedCards.length!==1?'s':'')+' ready for payment',
+      sub:'Select karo aur Ayush ko submit karo',
       tab:'payment',
-      color:'var(--fos-success)'
+      color:'#059669'
     });
   }
 
-  // Rejected requests needing revision
-  var reqs=D.reqs&&D.reqs.requests?D.reqs.requests:[];
-  var rejectedReqs=reqs.filter(function(r){
-    return (r.status==='REJECTED'||r.status==='REVISION')&&r.submittedBy===USER.name;
-  });
-  if(rejectedReqs.length>0){
-    tasks.push({
-      icon:'⚠️',
-      text:rejectedReqs.length+' request'+(rejectedReqs.length!==1?'s':'')+' need revision',
-      action:'Alerts mein dekho',
-      tab:'alerts',
-      color:'var(--fos-warning)'
-    });
-  }
-
-  // Over-lot orders
-  var overLot=(d.orders||[]).filter(function(o){return o.orderQty>0&&o.cumul>o.orderQty;});
-  if(overLot.length>0){
-    tasks.push({
-      icon:'🚨',
-      text:overLot.length+' order'+(overLot.length!==1?'s':'')+' over lot — check immediately',
-      action:'Orders mein dekho',
-      tab:'orders',
-      color:'var(--fos-danger)'
-    });
-  }
-
-  if(tasks.length>0){
-    var kaamCard=el('div',{cls:'fos-card',style:'margin-bottom:16px;padding:12px 16px'});
-    kaamCard.appendChild(el('div',{style:'font-size:11px;font-weight:600;color:var(--fos-ink-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px',text:'Aaj Ka Kaam'}));
-    tasks.forEach(function(t){
-      var row=el('div',{style:'display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--fos-border)'});
-      row.appendChild(el('div',{style:'font-size:20px;flex-shrink:0',text:t.icon}));
-      var txt=el('div',{style:'flex:1;min-width:0'});
-      txt.appendChild(el('div',{style:'font-size:13px;font-weight:600;color:var(--fos-ink)',text:t.text}));
-      txt.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:t.action}));
-      row.appendChild(txt);
-      var arr=el('div',{style:'font-size:18px;color:var(--fos-ink-secondary)',text:'›'});
-      row.style.cursor='pointer';
+  if(naItems.length>0){
+    var naCard=el('div',{cls:'fos-card',style:'margin-bottom:16px;padding:12px 16px'});
+    naCard.appendChild(el('div',{
+      style:'font-size:11px;font-weight:600;color:var(--fos-ink-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px',
+      text:'Needs Attention ('+naItems.length+')'
+    }));
+    naItems.forEach(function(t){
+      var row=el('div',{style:'display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--fos-border);cursor:pointer'});
       row.onclick=function(tab){return function(){loadTab(tab);};}(t.tab);
-      row.appendChild(arr);
-      kaamCard.appendChild(row);
+      var iconEl=el('div',{style:'font-size:20px;flex-shrink:0;width:28px;text-align:center',text:t.icon});
+      var txt=el('div',{style:'flex:1;min-width:0'});
+      txt.appendChild(el('div',{style:'font-size:13px;font-weight:600;color:'+t.color,text:t.text}));
+      if(t.sub)txt.appendChild(el('div',{
+        style:'font-size:11px;color:var(--fos-ink-secondary);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis',
+        text:t.sub
+      }));
+      row.appendChild(iconEl);
+      row.appendChild(txt);
+      row.appendChild(el('div',{style:'font-size:18px;color:var(--fos-ink-secondary);flex-shrink:0',text:'›'}));
+      naCard.appendChild(row);
     });
-    c.appendChild(kaamCard);
+    c.appendChild(naCard);
   }
-  // ── END AAJ KA KAAM ──────────────────────────────────────────
+  // ── END NEEDS ATTENTION ──────────────────────────────────────
   var pt=fosPipelineTracker({cutting:12,prep:8,upper:14,lasting:10,sole:6,finishing:4});
   pt.classList.add('fos-light');
   c.appendChild(pt);
