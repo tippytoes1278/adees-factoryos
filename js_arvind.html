@@ -401,7 +401,8 @@ function renderNO_Step2(c){
     if(srG.children.length<=1)return;
     var last=srG.children[srG.children.length-1];
     var qty=parseInt(last._qI.value)||0;
-    if(qty>0&&!confirm('Is kha ko hatana chahte ho? (Qty: '+qty+')'))return;
+    if(qty<=0)return;
+    // Delete proceeds directly — order is selected intentionally
     srG.removeChild(last);recalc();rmSzBtn.disabled=srG.children.length<=1;
   };
 
@@ -600,7 +601,7 @@ function renderPayment(c){
         var selPairs=selIds.reduce(function(s,id){var r=grpRowEls[id];return s+(r?r.pairs:0);},0);
         var selTotal=selIds.reduce(function(s,id){var r=grpRowEls[id];return s+(r?r.amount:0);},0);
         var msg='Submit payment for '+grpCtrName+'?\n'+selIds.length+' job card'+(selIds.length!==1?'s':'')+' · '+selPairs+' pairs · ₹'+selTotal.toFixed(2)+' total';
-        if(!confirm(msg))return;
+        // Submit proceeds directly
         var payload={
           contractorId:grpCid,
           jobCardIds:selIds,
@@ -773,11 +774,13 @@ function renderPayHistory(c){
           bftr.appendChild(el('span',{style:'font-size:11px;color:#dc2626;margin-left:auto',text:'Rejected: '+_rejReason}));
         } else if(_dispStatus==='PENDING'){
           if(USER.role==='admin'){
-            var approveBtn=el('button',{style:'margin-left:auto;padding:5px 14px;background:#15803d;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer',text:'Approve'});
+            var approveBtn=el('button',{style:'padding:5px 14px;background:#15803d;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer',text:'Approve'});
             var rejectBtn=el('button',{style:'padding:5px 14px;background:none;color:#dc2626;border:1.5px solid #dc2626;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer',text:'Reject'});
-            (function(batch,aBtn,rBtn){
+            var btnRow=el('div',{style:'display:flex;gap:8px;margin-left:auto'});
+            btnRow.appendChild(approveBtn);btnRow.appendChild(rejectBtn);
+            (function(batch,aBtn,rBtn,btnRowEl,cardEl){
               aBtn.onclick=function(){
-                if(!confirm('Approve payment '+batch.paymentId+'?'))return;
+                // Approval proceeds directly
                 aBtn.disabled=true;aBtn.textContent='Approving…';
                 google.script.run
                   .withSuccessHandler(function(r){
@@ -787,21 +790,47 @@ function renderPayHistory(c){
                   .withFailureHandler(function(e){aBtn.disabled=false;aBtn.textContent='Approve';toast((e&&e.message)?e.message:'Error',true);})
                   .approvePaymentBatch(batch.paymentId);
               };
-              rBtn.onclick=function(){
-                var reason=prompt('Reason for rejecting '+batch.paymentId+':');
-                if(!reason||!reason.trim())return;
-                rBtn.disabled=true;rBtn.textContent='Rejecting…';
+              var rkWrap=el('div',{style:'display:none;margin-top:8px'});
+              var rkInp=el('textarea',{placeholder:'Rejection reason — required',
+                style:'width:100%;background:var(--fos-bg);border:1px solid var(--fos-danger);border-radius:8px;padding:9px 12px;color:var(--fos-ink);font-size:13px;box-sizing:border-box;margin-bottom:6px;display:block;resize:none;min-height:60px'});
+              var rkRow2=el('div',{style:'display:flex;gap:8px'});
+              var rkConfirm=el('button',{text:'Confirm Reject',
+                style:'flex:1;padding:9px;background:#7f1d1d;color:#fca5a5;font-size:13px;font-weight:700;border-radius:8px;border:none;cursor:not-allowed;opacity:0.4'});
+              rkConfirm.disabled=true;
+              var rkCancel=el('a',{style:'font-size:12px;color:var(--fos-ink-secondary);cursor:pointer;text-decoration:underline',text:'Cancel'});
+              rkRow2.appendChild(rkConfirm);rkRow2.appendChild(rkCancel);
+              rkWrap.appendChild(rkInp);rkWrap.appendChild(rkRow2);
+              rkInp.oninput=function(){
+                var ok=!!rkInp.value.trim();
+                rkConfirm.disabled=!ok;
+                rkConfirm.style.opacity=ok?'1':'0.4';
+                rkConfirm.style.cursor=ok?'pointer':'not-allowed';
+              };
+              rBtn.onclick=function(){btnRowEl.style.display='none';rkWrap.style.display='block';rkInp.focus();};
+              rkCancel.onclick=function(){rkWrap.style.display='none';btnRowEl.style.display='';};
+              rkConfirm.onclick=function(){
+                var reason=rkInp.value.trim();if(!reason)return;
+                rkConfirm.disabled=true;rkConfirm.textContent='Rejecting...';
                 google.script.run
                   .withSuccessHandler(function(r){
-                    if(r&&r.success){toast('Rejected — '+batch.paymentId);D.payBatches=null;loadTab('payhistory');}
-                    else{rBtn.disabled=false;rBtn.textContent='Reject';toast((r&&r.error)?r.error:'Rejection failed',true);}
+                    if(r&&r.success){
+                      toast('Rejected — '+batch.paymentId);
+                      D.payBatches=null;
+                      loadTab('payhistory');
+                    } else {
+                      rkConfirm.disabled=false;rkConfirm.textContent='Confirm Reject';
+                      toast((r&&r.error)||'Error',true);
+                    }
                   })
-                  .withFailureHandler(function(e){rBtn.disabled=false;rBtn.textContent='Reject';toast((e&&e.message)?e.message:'Error',true);})
-                  .rejectPaymentBatch(batch.paymentId,reason.trim());
+                  .withFailureHandler(function(){
+                    rkConfirm.disabled=false;rkConfirm.textContent='Confirm Reject';
+                    toast('Error',true);
+                  })
+                  .rejectPaymentBatch(batch.paymentId,reason);
               };
-            })(b,approveBtn,rejectBtn);
-            bftr.appendChild(approveBtn);
-            bftr.appendChild(rejectBtn);
+              cardEl.appendChild(rkWrap);
+            })(b,approveBtn,rejectBtn,btnRow,bCard);
+            bftr.appendChild(btnRow);
           } else {
             bftr.appendChild(el('span',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-left:auto',text:'Awaiting approval'}));
           }
@@ -915,7 +944,7 @@ function renderContractors(c){
           var xBtn=el('button',{style:'background:none;border:none;color:var(--fos-accent);font-size:13px;line-height:1;cursor:pointer;padding:0 0 1px 2px',text:'×'});
           (function(eid,dName){
             xBtn.onclick=function(){
-              if(!confirm('Remove '+cName+' from '+dName+'?'))return;
+              // Removal proceeds directly
               xBtn.disabled=true;
               google.script.run
                 .withSuccessHandler(function(r){

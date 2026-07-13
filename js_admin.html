@@ -188,7 +188,7 @@ function renderOrders(c){
     var wrap=buildAdminOrderRow(o);
     var delBtn=el('button',{text:'Delete Order',style:'background:none;border:none;color:var(--fos-danger);font-family:var(--fos-font-body);font-size:12px;padding:6px 0 2px;cursor:pointer;display:block'});
     (function(sn,btn){btn.onclick=function(){
-      if(!confirm('Delete this order? This cannot be undone.'))return;
+      // Delete proceeds — button press is confirmation
       btn.disabled=true;btn.textContent='Deleting…';
       google.script.run
         .withSuccessHandler(function(r){
@@ -355,7 +355,7 @@ function renderAdminPayment(c){
 
       (function(payId,aBtn,rBtn,cardEl){
         aBtn.onclick=function(){
-          if(!confirm('Approve payment '+payId+'?'))return;
+          // Approval proceeds directly
           aBtn.disabled=true;aBtn.textContent='Approving…';
           google.script.run
             .withSuccessHandler(function(r){
