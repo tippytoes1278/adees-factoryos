@@ -1,4 +1,11 @@
 function getEntryData(periodId, ss) {
+  if (!ss && !periodId) {
+    try {
+      var _ec = CacheService.getScriptCache();
+      var _ev = _ec.get('entryData_' + CONFIG.ENV);
+      if (_ev) return JSON.parse(_ev);
+    } catch(ce) {}
+  }
   ensureCurrentPeriod();
   if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
   var firstOpenId = '';
@@ -257,7 +264,14 @@ function getEntryData(periodId, ss) {
     }
   } catch(e5) {}
   if (!week) week = getCurrentWeek();
-  return { articles:articles, contractors:contractors, masterActivities:masterActivities, pendingActivities:pendingActivities, pendingActsCount:pendingActsCount, week:week, periods:periods };
+  var _entryResult = { articles:articles, contractors:contractors, masterActivities:masterActivities, pendingActivities:pendingActivities, pendingActsCount:pendingActsCount, week:week, periods:periods };
+  if (!periodId) {
+    try {
+      CacheService.getScriptCache()
+        .put('entryData_' + CONFIG.ENV, JSON.stringify(_entryResult), 300);
+    } catch(ce) {}
+  }
+  return _entryResult;
 }
 
 function getActivitiesFromTS(sheetName) {
@@ -716,6 +730,7 @@ function requestActivitySetup(payload, revisionRemark) {
         MailApp.sendEmail('ayush@adeesexports.com', 'Factory OS — New ACTIVITY_SETUP request', batchLines.join('\n'));
       } catch(mailErr) { Logger.log('notifyNewRequest_ batch mail error: ' + mailErr.message); }
     }
+    try { CacheService.getScriptCache().remove('entryData_' + CONFIG.ENV); } catch(ce) {}
     return { success:true, reqId:lastReqId, count:items.length };
   } catch(e) { return { success:false, error:e.message }; }
 }
@@ -747,6 +762,7 @@ function approveRateEdit(requestId) {
     rq.getRange(targetRow, 8).setValue(now);
     rq.getRange(targetRow, 9).setValue('Yes');
     SpreadsheetApp.flush();
+    try { CacheService.getScriptCache().remove('entryData_' + CONFIG.ENV); } catch(ce) {}
     return { success:true };
   } catch(e) { return { success:false, error:e.message }; }
 }

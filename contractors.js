@@ -51,6 +51,7 @@ function saveContractor(payload) {
       'ACTIVE', safeStr(payload.dept), safeStr(payload.phone), now
     ]]);
     SpreadsheetApp.flush();
+    try { CacheService.getScriptCache().remove('contractorsScreen_' + CONFIG.ENV); } catch(ce) {}
     return { success: true, ctrId: nextCtrId };
   } catch(e) { return { success: false, error: e.message }; }
 }
@@ -214,6 +215,7 @@ function enrollContractor(data) {
       var now  = new Date().toISOString();
       ws.appendRow([enrollmentId, contractorId, contractorName, department, user.email, now, 'ACTIVE']);
       SpreadsheetApp.flush();
+      try { CacheService.getScriptCache().remove('contractorsScreen_' + CONFIG.ENV); } catch(ce) {}
       return { success: true, enrollmentId: enrollmentId };
     } catch(e) { return { success: false, error: e.message }; }
   } finally { lock.releaseLock(); }
@@ -232,6 +234,7 @@ function unenrollContractor(enrollmentId) {
         if (safeStr(colA[i][0]).trim() === safeStr(enrollmentId).trim()) {
           ws.getRange(i + 2, 7).setValue('INACTIVE');
           SpreadsheetApp.flush();
+          try { CacheService.getScriptCache().remove('contractorsScreen_' + CONFIG.ENV); } catch(ce) {}
           return { success: true };
         }
       }
@@ -270,10 +273,19 @@ function getEnrollments(filters, ss) {
 }
 
 function getContractorsScreenData() {
+  try {
+    var _cc = CacheService.getScriptCache();
+    var _cv = _cc.get('contractorsScreen_' + CONFIG.ENV);
+    if (_cv) return JSON.parse(_cv);
+  } catch(ce) {}
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var result = { ctrs: null, contractors: [], enrollments: [] };
   try { result.ctrs = getContractorsData(ss); } catch(e) {}
   try { result.contractors = getContractors(ss); } catch(e) {}
   try { result.enrollments = getEnrollments({status:'ACTIVE'}, ss); } catch(e) {}
+  try {
+    CacheService.getScriptCache()
+      .put('contractorsScreen_' + CONFIG.ENV, JSON.stringify(result), 300);
+  } catch(ce) {}
   return result;
 }

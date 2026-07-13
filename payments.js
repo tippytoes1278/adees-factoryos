@@ -58,6 +58,13 @@ function setCustomWeek(startDate, endDate) {
 }
 
 function getDashboardData(ss) {
+  if (!ss) {
+    try {
+      var _cache = CacheService.getScriptCache();
+      var _cached = _cache.get('dashboardData_' + CONFIG.ENV);
+      if (_cached) return JSON.parse(_cached);
+    } catch(ce) {}
+  }
   if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
   var weeklyPayout = 0, approvalStatus = '', weekEnding = '';
   try {
@@ -250,13 +257,18 @@ function getDashboardData(ss) {
     periodList = Object.keys(pidMap).sort().map(function(k){ return pidMap[k]; });
   } catch(e) {}
 
-  return {
+  var _dashResult = {
     weeklyPayout:weeklyPayout, approvalStatus:approvalStatus,
     weekEnding:weekEnding, orders:orders, redCount:redCount,
     completeCount:completeCount, mismatches:mismatches,
     pendingCount:pendingCount, totalOrders:orders.length,
     contractorSummary:contractorSummary, periodList:periodList
   };
+  try {
+    CacheService.getScriptCache()
+      .put('dashboardData_' + CONFIG.ENV, JSON.stringify(_dashResult), 300);
+  } catch(ce) {}
+  return _dashResult;
 }
 
 function ensureCurrentPeriod() {
@@ -1009,6 +1021,7 @@ function approvePaymentBatch(paymentId) {
     }
 
     SpreadsheetApp.flush();
+    try { CacheService.getScriptCache().remove('dashboardData_' + CONFIG.ENV); } catch(ce) {}
     return { success: true, paymentId: paymentId, jobCardCount: matchedRows.length };
   } catch(e) {
     return { success: false, error: e.message };
@@ -1051,6 +1064,7 @@ function rejectPaymentBatch(paymentId, reason) {
     }
 
     SpreadsheetApp.flush();
+    try { CacheService.getScriptCache().remove('dashboardData_' + CONFIG.ENV); } catch(ce) {}
     return { success: true };
   } catch(e) {
     return { success: false, error: e.message };
