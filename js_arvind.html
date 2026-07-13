@@ -7,6 +7,67 @@ function renderArvindHome(c){
     return;
   }
   var d=D.dash;
+  // ── AAJ KA KAAM ──────────────────────────────────────────────
+  var tasks=[];
+
+  // Pending payment cards
+  var completedCards=D.completedJobCards;
+  if(Array.isArray(completedCards)&&completedCards.length>0){
+    tasks.push({
+      icon:'💰',
+      text:completedCards.length+' completed job card'+(completedCards.length!==1?'s':'')+' ready for payment',
+      action:'Payment tab mein jao',
+      tab:'payment',
+      color:'var(--fos-success)'
+    });
+  }
+
+  // Rejected requests needing revision
+  var reqs=D.reqs&&D.reqs.requests?D.reqs.requests:[];
+  var rejectedReqs=reqs.filter(function(r){
+    return (r.status==='REJECTED'||r.status==='REVISION')&&r.submittedBy===USER.name;
+  });
+  if(rejectedReqs.length>0){
+    tasks.push({
+      icon:'⚠️',
+      text:rejectedReqs.length+' request'+(rejectedReqs.length!==1?'s':'')+' need revision',
+      action:'Alerts mein dekho',
+      tab:'alerts',
+      color:'var(--fos-warning)'
+    });
+  }
+
+  // Over-lot orders
+  var overLot=(d.orders||[]).filter(function(o){return o.orderQty>0&&o.cumul>o.orderQty;});
+  if(overLot.length>0){
+    tasks.push({
+      icon:'🚨',
+      text:overLot.length+' order'+(overLot.length!==1?'s':'')+' over lot — check immediately',
+      action:'Orders mein dekho',
+      tab:'orders',
+      color:'var(--fos-danger)'
+    });
+  }
+
+  if(tasks.length>0){
+    var kaamCard=el('div',{cls:'fos-card',style:'margin-bottom:16px;padding:12px 16px'});
+    kaamCard.appendChild(el('div',{style:'font-size:11px;font-weight:600;color:var(--fos-ink-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px',text:'Aaj Ka Kaam'}));
+    tasks.forEach(function(t){
+      var row=el('div',{style:'display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--fos-border)'});
+      row.appendChild(el('div',{style:'font-size:20px;flex-shrink:0',text:t.icon}));
+      var txt=el('div',{style:'flex:1;min-width:0'});
+      txt.appendChild(el('div',{style:'font-size:13px;font-weight:600;color:var(--fos-ink)',text:t.text}));
+      txt.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:t.action}));
+      row.appendChild(txt);
+      var arr=el('div',{style:'font-size:18px;color:var(--fos-ink-secondary)',text:'›'});
+      row.style.cursor='pointer';
+      row.onclick=function(tab){return function(){loadTab(tab);};}(t.tab);
+      row.appendChild(arr);
+      kaamCard.appendChild(row);
+    });
+    c.appendChild(kaamCard);
+  }
+  // ── END AAJ KA KAAM ──────────────────────────────────────────
   var pt=fosPipelineTracker({cutting:12,prep:8,upper:14,lasting:10,sole:6,finishing:4});
   pt.classList.add('fos-light');
   c.appendChild(pt);

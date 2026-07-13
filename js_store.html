@@ -2,6 +2,63 @@
 // ── STORE HOME ────────────────────────────────────────────────────────────────
 function renderStoreHome(c){
   c.innerHTML='';
+  // ── AAJ KA KAAM (STORE) ──────────────────────────────────────
+  var storeTasks=[];
+  var allJCs=D.jobCards||[];
+
+  // Overdue job cards
+  var today=new Date();
+  today.setHours(0,0,0,0);
+  var overdueJCs=allJCs.filter(function(jc){
+    if(!jc.expectedReturn)return false;
+    try{
+      var ret=new Date(jc.expectedReturn);
+      ret.setHours(0,0,0,0);
+      return ret<today&&jc.status==='ISSUED';
+    }catch(e){return false;}
+  });
+  if(overdueJCs.length>0){
+    storeTasks.push({
+      icon:'🚨',
+      text:overdueJCs.length+' job card'+(overdueJCs.length!==1?'s':'')+' OVERDUE — receive karo',
+      tab:'jobcards',
+      color:'var(--fos-danger)'
+    });
+  }
+
+  // Cards due today
+  var todayStr=today.toISOString().slice(0,10);
+  var dueToday=allJCs.filter(function(jc){
+    if(!jc.expectedReturn||jc.status!=='ISSUED')return false;
+    try{
+      return new Date(jc.expectedReturn).toISOString().slice(0,10)===todayStr;
+    }catch(e){return false;}
+  });
+  if(dueToday.length>0){
+    storeTasks.push({
+      icon:'📋',
+      text:dueToday.length+' job card'+(dueToday.length!==1?'s':'')+' aaj wapas aane hain',
+      tab:'jobcards',
+      color:'var(--fos-warning)'
+    });
+  }
+
+  if(storeTasks.length>0){
+    var sKaamCard=el('div',{cls:'fos-card',style:'margin-bottom:16px;padding:12px 16px'});
+    sKaamCard.appendChild(el('div',{style:'font-size:11px;font-weight:600;color:var(--fos-ink-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px',text:'Aaj Ka Kaam'}));
+    storeTasks.forEach(function(t){
+      var row=el('div',{style:'display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--fos-border);cursor:pointer'});
+      row.onclick=function(tab){return function(){loadTab(tab);};}(t.tab);
+      row.appendChild(el('div',{style:'font-size:20px;flex-shrink:0',text:t.icon}));
+      var txt=el('div',{style:'flex:1'});
+      txt.appendChild(el('div',{style:'font-size:13px;font-weight:600;color:'+t.color,text:t.text}));
+      row.appendChild(txt);
+      row.appendChild(el('div',{style:'font-size:18px;color:var(--fos-ink-secondary)',text:'›'}));
+      sKaamCard.appendChild(row);
+    });
+    c.appendChild(sKaamCard);
+  }
+  // ── END AAJ KA KAAM (STORE) ──────────────────────────────────
   // Section 1: Pipeline tracker
   var pt=fosPipelineTracker({cutting:12,prep:8,upper:14,lasting:10,sole:6,finishing:4});
   pt.classList.add('fos-light');
@@ -123,7 +180,7 @@ function renderWIP(c){
   var orderSel=el('select',{cls:'form-select'});
   orderSel.appendChild(el('option',{value:'',text:'— Select Order —'}));
   arts.forEach(function(a){
-    var label='['+a.sheet+'] '+(a.bom||'')+(a.article?' · '+a.article:'')+(a.customer?' — '+a.customer:'');
+    var label=(a.article||a.bom||a.sheet)+(a.customer?' — '+a.customer:'')+(a.bom?' · '+a.bom:'')+(a.sheet?' ['+a.sheet+']':'');
     orderSel.appendChild(el('option',{value:a.sheet,text:label}));
   });
   orderGrp.appendChild(orderSel);
