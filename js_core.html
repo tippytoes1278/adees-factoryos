@@ -6,7 +6,16 @@ var ENTRY_PERIOD=null;
 var ENTRY_AUTO_OPEN_SHEET=null;
 var ENTRY_REVISION_REMARK=null;
 var ACTS_REVISION_REMARK=null, ACTS_REVISION_ACTIVITY=null;
-var SEEN_ALERT_IDS=new Set();
+var SEEN_ALERT_IDS=(function(){
+  try{
+    var _ids=JSON.parse(localStorage.getItem('fos_seen_alerts')||'[]');
+    return new Set(Array.isArray(_ids)?_ids:[]);
+  }catch(e){return new Set();}
+})();
+function fosMarkAlertSeen(id){
+  SEEN_ALERT_IDS.add(id);
+  try{localStorage.setItem('fos_seen_alerts',JSON.stringify(Array.from(SEEN_ALERT_IDS)));}catch(e){}
+}
 var NO_RESUBMIT_RATE=null;
 
 function fmt(n){return '₹'+Number(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});}

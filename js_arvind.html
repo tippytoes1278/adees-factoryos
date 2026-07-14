@@ -13,7 +13,9 @@ function renderArvindHome(c){
   // 1. Revision requests — Arvind needs to resubmit
   var reqs=D.reqs&&D.reqs.requests?D.reqs.requests:[];
   var revisionReqs=reqs.filter(function(r){
-    return r.status==='REVISION'&&r.submittedBy===USER.name;
+    return r.status==='REVISION'&&
+           r.submittedBy===USER.name&&
+           !SEEN_ALERT_IDS.has(r.reqId);
   });
   if(revisionReqs.length>0){
     naItems.push({
@@ -34,7 +36,7 @@ function renderArvindHome(c){
     naItems.push({
       icon:'📋',
       text:noActOrders.length+' order'+(noActOrders.length!==1?'s':'')+' need activity setup',
-      sub:'Bina activities ke Prakash job card issue nahi kar sakta',
+      sub:noActOrders.map(function(a){return (a.article||a.sheet)+(a.customer?' — '+a.customer:'');}).join(' · '),
       tab:'activities',
       color:'#d97706'
     });
@@ -188,7 +190,7 @@ function renderAlerts(c){
     typeRow.appendChild(sBadge);
     if(r.status==='REJECTED'||r.status==='REVISION'){
       var dimBtn=el('button',{text:'✕',style:'margin-left:auto;background:none;border:none;color:var(--fos-ink-secondary);font-size:16px;cursor:pointer;padding:2px 6px;border-radius:4px;flex-shrink:0'});
-      (function(cardEl){dimBtn.onclick=function(){cardEl.remove();};})(card);
+      (function(cardEl,reqId){dimBtn.onclick=function(){fosMarkAlertSeen(reqId);cardEl.remove();};})(card,r.reqId);
       typeRow.appendChild(dimBtn);
     }
     card.appendChild(typeRow);
@@ -1279,6 +1281,23 @@ function renderActivitySetup(body,article){
     var section=el('div',{style:'margin-bottom:16px'});
     section.appendChild(el('div',{style:'font-size:12px;font-weight:500;color:var(--fos-ink-secondary);text-transform:uppercase;margin-bottom:6px',text:dept}));
 
+    var deptKey2=DEPT_VAL[dept]||dept.toLowerCase();
+    var deptApproved=(article.activities||[]).some(function(a){
+      return String(a.dept||'').toLowerCase().indexOf(deptKey2)>=0;
+    });
+    if(deptApproved){
+      var approvedChip=el('div',{
+        style:'display:flex;align-items:center;gap:6px;padding:8px 10px;background:#d1fae5;border-radius:8px;margin-bottom:8px',
+      });
+      approvedChip.appendChild(el('span',{text:'✅',style:'font-size:14px'}));
+      approvedChip.appendChild(el('div',{
+        style:'font-size:12px;color:#065f46;font-weight:600',
+        text:'Activities approved — Prakash can issue job cards'
+      }));
+      section.appendChild(approvedChip);
+      wrap.appendChild(section);
+      return;
+    }
     var actSel=el('select',{style:'width:100%;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:8px;padding:8px 10px;color:var(--fos-ink);font-size:13px;margin-bottom:6px'});
     actSel.appendChild(el('option',{text:'Select activity...',value:''}));
     var deptActs=MASTER_ACTS.filter(function(ma){return ma.section===DEPT_VAL[dept];});
