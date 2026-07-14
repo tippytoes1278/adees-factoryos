@@ -1281,10 +1281,9 @@ function renderActivitySetup(body,article){
     var section=el('div',{style:'margin-bottom:16px'});
     section.appendChild(el('div',{style:'font-size:12px;font-weight:500;color:var(--fos-ink-secondary);text-transform:uppercase;margin-bottom:6px',text:dept}));
 
-    var deptKey2=DEPT_VAL[dept]||dept.toLowerCase();
     var deptStatus=article.deptStatus||{};
-    var deptApproved=deptStatus[deptKey2]==='APPROVED'||
-                     deptStatus[deptKey2]==='CAP_REACHED';
+    var deptApproved=deptStatus[dept]==='APPROVED'||
+                     deptStatus[dept]==='CAP_REACHED';
     if(deptApproved){
       var approvedChip=el('div',{
         style:'display:flex;align-items:center;gap:6px;padding:8px 10px;background:#d1fae5;border-radius:8px;margin-bottom:8px',
