@@ -9,7 +9,8 @@ function ensureJobCardsSheet() {
     ws.appendRow([
       'JOB_CARD_ID','ORDER_REF','WORK_ORDER','STORE','MOVEMENT',
       'CONTRACTOR_ID','PAIRS_ISSUED','PAIRS_RECEIVED','SIZE_BREAKDOWN',
-      'ISSUED_BY','ISSUED_AT','EXPECTED_RETURN','RECEIVED_AT','STATUS','NOTES'
+      'ISSUED_BY','ISSUED_AT','EXPECTED_RETURN','RECEIVED_AT','STATUS','NOTES',
+      'BATCH_ID'
     ]);
     ws.setFrozenRows(1);
   }
@@ -68,85 +69,117 @@ function issueJobCard(data) {
     }
   }
 
-  // Sequence lock — previous dept must be fully complete
-  var PREV_MOVEMENTS = {
-    'prep':      ['Cutting IN'],
-    'fitter':    ['Preparation IN'],
-    'lasting':   ['Fitter IN'],
-    'finishing': ['Upper IN','Lasting IN'],
-    'dispatch':  ['Packing IN']
+  // Predecessor stage lock — finds nearest EARLIER active stage
+  // for this specific order, skipping stages that don't apply
+  var STAGE_ORDER = ['Cutting','Preparation','Fitter','Lasting','Packing','Dispatch'];
+  var STAGE_DEPT_KEY = {
+    'Cutting':'cutting','Preparation':'prep','Fitter':'fitter',
+    'Lasting':'lasting','Packing':'finishing','Dispatch':'dispatch'
   };
-  var prevMovements = PREV_MOVEMENTS[deptKey] || [];
-  if (prevMovements.length > 0) {
-    var allJCs = getJobCards({orderRef: orderRef});
-    if (!Array.isArray(allJCs)) allJCs = [];
-    var prevJCs = allJCs.filter(function(jc) {
-      return prevMovements.indexOf(jc.movement) >= 0;
-    });
-    if (prevJCs.length === 0) {
-      return {
-        success: false,
-        error: 'Previous department has no completed job cards yet. ' +
-               'Complete the prior stage before issuing this department.'
-      };
-    }
-    var incomplete = prevJCs.filter(function(jc) {
-      var st = safeStr(jc.status).toUpperCase();
-      return st === 'ISSUED' || st === 'PARTIAL';
-    });
-    if (incomplete.length > 0) {
-      return {
-        success: false,
-        error: 'Previous department still has ' + incomplete.length +
-               ' open job card(s). All must be COMPLETE before issuing ' +
-               'the next department.'
-      };
-    }
-  }
+  var STAGE_OWN_MOVEMENTS = {
+    'Cutting':['Cutting IN'],
+    'Preparation':['Preparation IN'],
+    'Fitter':['Fitter IN'],
+    'Lasting':['Upper IN','Lasting IN'],
+    'Packing':['Packing IN'],
+    'Dispatch':['Dispatch IN']
+  };
+  var MOVEMENT_TO_STAGE = {
+    'Cutting IN':'Cutting','Preparation IN':'Preparation',
+    'Fitter IN':'Fitter','Upper IN':'Lasting','Lasting IN':'Lasting',
+    'Packing IN':'Packing','Dispatch IN':'Dispatch'
+  };
 
-  // Pairs cap — cannot issue more than previous dept received
-  if (prevMovements.length > 0 && Array.isArray(allJCs)) {
-    // Sum pairsReceived from all COMPLETE prev dept JCs for this order
-    var prevDeptReceived = 0;
-    allJCs.forEach(function(jc) {
-      if (prevMovements.indexOf(jc.movement) >= 0) {
-        var st = safeStr(jc.status).toUpperCase();
-        if (st === 'COMPLETE' || st === 'PAYMENT_PENDING' || st === 'PAID') {
-          prevDeptReceived += safeNum(jc.pairsReceived);
-        }
-      }
-    });
-    // Sum pairsIssued from all existing JCs for THIS dept on this order
-    var thisDeptAlreadyIssued = 0;
-    var thisDeptMovements = Object.keys(PREV_MOVEMENTS).filter(function(k) {
-      return PREV_MOVEMENTS[k].some(function(m) {
-        return prevMovements.indexOf(m) >= 0;
+  var currentStage = MOVEMENT_TO_STAGE[movement] || '';
+  if (currentStage) {
+    var currentStageIdx = STAGE_ORDER.indexOf(currentStage);
+
+    // Get which stages are active for THIS order (have approved activities)
+    var orderActRes = getApprovedActivitiesForArticle(orderRef);
+    var orderActiveDepts = {};
+    if (orderActRes && orderActRes.success && Array.isArray(orderActRes.activities)) {
+      orderActRes.activities.forEach(function(a) {
+        var dk = safeStr(a.dept).toLowerCase();
+        Object.keys(STAGE_DEPT_KEY).forEach(function(stageName) {
+          if (STAGE_DEPT_KEY[stageName] === dk) orderActiveDepts[stageName] = true;
+        });
       });
-    });
-    var thisDeptMvmts = [];
-    if (deptKey === 'prep')      thisDeptMvmts = ['Preparation IN'];
-    if (deptKey === 'fitter')    thisDeptMvmts = ['Fitter IN'];
-    if (deptKey === 'lasting')   thisDeptMvmts = ['Upper IN','Lasting IN'];
-    if (deptKey === 'finishing') thisDeptMvmts = ['Packing IN'];
-    if (deptKey === 'dispatch')  thisDeptMvmts = ['Dispatch IN'];
-    allJCs.forEach(function(jc) {
-      if (thisDeptMvmts.indexOf(jc.movement) >= 0) {
-        var st = safeStr(jc.status).toUpperCase();
-        if (st !== 'CANCELLED') {
-          thisDeptAlreadyIssued += safeNum(jc.pairsIssued);
-        }
-      }
-    });
-    var available = prevDeptReceived - thisDeptAlreadyIssued;
-    if (pairsIssued > available) {
-      return {
-        success: false,
-        error: 'Cannot issue ' + pairsIssued + ' pairs. Previous department ' +
-               'completed ' + prevDeptReceived + ' pairs, and ' +
-               thisDeptAlreadyIssued + ' are already issued for this department. ' +
-               'Maximum available: ' + available + ' pairs.'
-      };
     }
+
+    // Walk backward from current stage to find nearest active predecessor
+    var predecessorStage = null;
+    for (var si = currentStageIdx - 1; si >= 0; si--) {
+      var candidateStage = STAGE_ORDER[si];
+      if (orderActiveDepts[candidateStage]) {
+        predecessorStage = candidateStage;
+        break;
+      }
+    }
+
+    if (predecessorStage) {
+      var predMovements = STAGE_OWN_MOVEMENTS[predecessorStage] || [];
+      var allJCsForLock = getJobCards({orderRef: orderRef});
+      if (!Array.isArray(allJCsForLock)) allJCsForLock = [];
+
+      var predJCs = allJCsForLock.filter(function(jc) {
+        return predMovements.indexOf(jc.movement) >= 0;
+      });
+
+      if (predJCs.length === 0) {
+        return {
+          success: false,
+          error: predecessorStage + ' has no job cards yet for this order. ' +
+                 'Issue and complete ' + predecessorStage + ' first.'
+        };
+      }
+
+      var predIncomplete = predJCs.filter(function(jc) {
+        var st = safeStr(jc.status).toUpperCase();
+        return st === 'ISSUED' || st === 'PARTIAL';
+      });
+      if (predIncomplete.length > 0) {
+        return {
+          success: false,
+          error: predecessorStage + ' still has ' + predIncomplete.length +
+                 ' open job card(s). Complete ' + predecessorStage +
+                 ' before issuing ' + currentStage + '.'
+        };
+      }
+
+      // Pairs cap: cannot issue more than predecessor received
+      var predReceived = 0;
+      allJCsForLock.forEach(function(jc) {
+        if (predMovements.indexOf(jc.movement) >= 0) {
+          var st = safeStr(jc.status).toUpperCase();
+          if (st === 'COMPLETE' || st === 'PAYMENT_PENDING' || st === 'PAID') {
+            predReceived += safeNum(jc.pairsReceived);
+          }
+        }
+      });
+
+      var thisStageMovements = STAGE_OWN_MOVEMENTS[currentStage] || [];
+      var thisStageAlreadyIssued = 0;
+      allJCsForLock.forEach(function(jc) {
+        if (thisStageMovements.indexOf(jc.movement) >= 0) {
+          var st = safeStr(jc.status).toUpperCase();
+          if (st !== 'CANCELLED') thisStageAlreadyIssued += safeNum(jc.pairsIssued);
+        }
+      });
+
+      var availableForThisStage = predReceived - thisStageAlreadyIssued;
+      if (pairsIssued > availableForThisStage) {
+        return {
+          success: false,
+          error: 'Cannot issue ' + pairsIssued + ' pairs. ' + predecessorStage +
+                 ' completed ' + predReceived + ' pairs, and ' +
+                 thisStageAlreadyIssued + ' already issued for ' + currentStage +
+                 '. Maximum available: ' + availableForThisStage + ' pairs.'
+        };
+      }
+    }
+    // If predecessorStage is null, this is the first active stage for
+    // this order — no lock, draws against order lot size (existing
+    // validation elsewhere already caps against order balance)
   }
 
   var jobCardId;
@@ -208,6 +241,69 @@ function issueJobCard(data) {
   var issueResult = { success: true, jobCardId: jobCardId };
   if (wipWarning) issueResult.warning = 'WIP entry not created: ' + wipWarning;
   return issueResult;
+}
+
+function issueJobCardBatch(data) {
+  var _user = getUserInfo();
+  if (_user.role !== 'store' && _user.role !== 'admin')
+    return { success:false, error:'Not authorised' };
+
+  var orderRef       = safeStr(data.orderRef       || '').trim();
+  var store          = safeStr(data.store          || '').trim();
+  var movement       = safeStr(data.movement       || '').trim();
+  var items          = Array.isArray(data.items) ? data.items : [];
+  var expectedReturn = safeStr(data.expectedReturn || '').trim();
+  var notes          = safeStr(data.notes          || '').trim();
+
+  if (!orderRef)      return { success:false, error:'orderRef is required' };
+  if (!items.length)  return { success:false, error:'At least one activity-contractor row is required' };
+  if (!expectedReturn) return { success:false, error:'expectedReturn is required' };
+
+  var batchId = 'BATCH-' + new Date().getFullYear() + '-' +
+                Utilities.getUuid().slice(0,8);
+
+  var results = [];
+  var anyFailed = false;
+
+  for (var i = 0; i < items.length; i++) {
+    var item = items[i];
+    var singleResult = issueJobCard({
+      orderRef:       orderRef,
+      workOrder:      data.workOrder,
+      store:          store,
+      movement:       movement,
+      contractorId:   item.contractorId,
+      pairsIssued:    item.pairsIssued,
+      sizeBreakdown:  data.sizeBreakdown,
+      expectedReturn: expectedReturn,
+      notes:          notes,
+      activityName:   item.activityName
+    });
+    if (singleResult.success) {
+      try {
+        var ws = ensureJobCardsSheet();
+        var lastRow = ws.getLastRow();
+        var idCol = ws.getRange(2, 1, lastRow-1, 1).getValues();
+        for (var r = 0; r < idCol.length; r++) {
+          if (safeStr(idCol[r][0]).trim() === singleResult.jobCardId) {
+            ws.getRange(r+2, 16).setValue(batchId); // column P
+            break;
+          }
+        }
+      } catch(tagErr) {}
+      results.push({ activityName: item.activityName, jobCardId: singleResult.jobCardId, success: true });
+    } else {
+      anyFailed = true;
+      results.push({ activityName: item.activityName, success: false, error: singleResult.error });
+    }
+  }
+
+  return {
+    success: !anyFailed,
+    batchId: batchId,
+    results: results,
+    partialSuccess: results.some(function(r){ return r.success; }) && anyFailed
+  };
 }
 
 function receiveJobCard(data) {
