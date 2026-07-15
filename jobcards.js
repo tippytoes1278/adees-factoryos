@@ -121,31 +121,6 @@ function issueJobCard(data) {
       var allJCsForLock = getJobCards({orderRef: orderRef});
       if (!Array.isArray(allJCsForLock)) allJCsForLock = [];
 
-      var predJCs = allJCsForLock.filter(function(jc) {
-        return predMovements.indexOf(jc.movement) >= 0;
-      });
-
-      if (predJCs.length === 0) {
-        return {
-          success: false,
-          error: predecessorStage + ' has no job cards yet for this order. ' +
-                 'Issue and complete ' + predecessorStage + ' first.'
-        };
-      }
-
-      var predIncomplete = predJCs.filter(function(jc) {
-        var st = safeStr(jc.status).toUpperCase();
-        return st === 'ISSUED' || st === 'PARTIAL';
-      });
-      if (predIncomplete.length > 0) {
-        return {
-          success: false,
-          error: predecessorStage + ' still has ' + predIncomplete.length +
-                 ' open job card(s). Complete ' + predecessorStage +
-                 ' before issuing ' + currentStage + '.'
-        };
-      }
-
       // Pairs cap: cannot issue more than predecessor received
       var predReceived = 0;
       allJCsForLock.forEach(function(jc) {
@@ -177,9 +152,43 @@ function issueJobCard(data) {
         };
       }
     }
-    // If predecessorStage is null, this is the first active stage for
-    // this order — no lock, draws against order lot size (existing
-    // validation elsewhere already caps against order balance)
+    if (!predecessorStage) {
+      // First active stage — cap against order lot size
+      var ss = SpreadsheetApp.openById(SHEET_ID);
+      var oi = ss.getSheetByName('ORDER_INDEX');
+      var orderLotSize = 0;
+      if (oi && oi.getLastRow() > 3) {
+        var oiRows = oi.getRange(4, 1, oi.getLastRow()-3, 9).getValues();
+        for (var oiR = 0; oiR < oiRows.length; oiR++) {
+          if (safeStr(oiRows[oiR][1]).trim() === orderRef) {
+            orderLotSize = safeNum(oiRows[oiR][8]);
+            break;
+          }
+        }
+      }
+      if (orderLotSize > 0) {
+        var firstStageMovements = STAGE_OWN_MOVEMENTS[currentStage] || [];
+        var firstStageJCs = getJobCards({orderRef: orderRef});
+        if (!Array.isArray(firstStageJCs)) firstStageJCs = [];
+        var firstStageAlreadyIssued = 0;
+        firstStageJCs.forEach(function(jc) {
+          if (firstStageMovements.indexOf(jc.movement) >= 0) {
+            var st = safeStr(jc.status).toUpperCase();
+            if (st !== 'CANCELLED') firstStageAlreadyIssued += safeNum(jc.pairsIssued);
+          }
+        });
+        var availableFirstStage = orderLotSize - firstStageAlreadyIssued;
+        if (pairsIssued > availableFirstStage) {
+          return {
+            success: false,
+            error: 'Cannot issue ' + pairsIssued + ' pairs. Order lot size is ' +
+                   orderLotSize + ', and ' + firstStageAlreadyIssued +
+                   ' already issued for ' + currentStage +
+                   '. Maximum available: ' + availableFirstStage + ' pairs.'
+          };
+        }
+      }
+    }
   }
 
   var jobCardId;
