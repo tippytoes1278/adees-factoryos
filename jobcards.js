@@ -478,3 +478,100 @@ function getOpenJobCards(store) {
     return { success: false, error: e.message };
   }
 }
+
+function getMaxIssuableForStage(orderRef, movement) {
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var STAGE_ORDER = ['Cutting','Preparation','Fitter','Lasting','Packing','Dispatch'];
+    var STAGE_DEPT_KEY = {
+      'Cutting':'cutting','Preparation':'prep','Fitter':'fitter',
+      'Lasting':'lasting','Packing':'finishing','Dispatch':'dispatch'
+    };
+    var STAGE_OWN_MOVEMENTS = {
+      'Cutting':['Cutting IN'],
+      'Preparation':['Preparation IN'],
+      'Fitter':['Fitter IN'],
+      'Lasting':['Upper IN','Lasting IN'],
+      'Packing':['Packing IN'],
+      'Dispatch':['Dispatch IN']
+    };
+    var MOVEMENT_TO_STAGE = {
+      'Cutting IN':'Cutting','Preparation IN':'Preparation',
+      'Fitter IN':'Fitter','Upper IN':'Lasting','Lasting IN':'Lasting',
+      'Packing IN':'Packing','Dispatch IN':'Dispatch'
+    };
+
+    var currentStage = MOVEMENT_TO_STAGE[movement] || '';
+    if (!currentStage) return { success:true, maxIssuable:0, source:'unknown' };
+
+    var currentStageIdx = STAGE_ORDER.indexOf(currentStage);
+    var orderActRes = getApprovedActivitiesForArticle(orderRef);
+    var orderActiveDepts = {};
+    if (orderActRes && orderActRes.success && Array.isArray(orderActRes.activities)) {
+      orderActRes.activities.forEach(function(a) {
+        var dk = safeStr(a.dept).toLowerCase();
+        Object.keys(STAGE_DEPT_KEY).forEach(function(stageName) {
+          if (STAGE_DEPT_KEY[stageName] === dk) orderActiveDepts[stageName] = true;
+        });
+      });
+    }
+
+    var predecessorStage = null;
+    for (var si = currentStageIdx - 1; si >= 0; si--) {
+      if (orderActiveDepts[STAGE_ORDER[si]]) { predecessorStage = STAGE_ORDER[si]; break; }
+    }
+
+    var allJCs = getJobCards({orderRef: orderRef});
+    if (!Array.isArray(allJCs)) allJCs = [];
+
+    var thisStageMovements = STAGE_OWN_MOVEMENTS[currentStage] || [];
+    var thisStageAlreadyIssued = 0;
+    allJCs.forEach(function(jc) {
+      if (thisStageMovements.indexOf(jc.movement) >= 0) {
+        var st = safeStr(jc.status).toUpperCase();
+        if (st !== 'CANCELLED') thisStageAlreadyIssued += safeNum(jc.pairsIssued);
+      }
+    });
+
+    if (predecessorStage) {
+      var predMovements = STAGE_OWN_MOVEMENTS[predecessorStage] || [];
+      var predReceived = 0;
+      allJCs.forEach(function(jc) {
+        if (predMovements.indexOf(jc.movement) >= 0) {
+          var st = safeStr(jc.status).toUpperCase();
+          if (st === 'COMPLETE' || st === 'PAYMENT_PENDING' || st === 'PAID') {
+            predReceived += safeNum(jc.pairsReceived);
+          }
+        }
+      });
+      return {
+        success:true,
+        maxIssuable: Math.max(0, predReceived - thisStageAlreadyIssued),
+        source: predecessorStage + ' received',
+        predReceived: predReceived,
+        alreadyIssued: thisStageAlreadyIssued
+      };
+    } else {
+      var oi = ss.getSheetByName('ORDER_INDEX');
+      var orderLotSize = 0;
+      if (oi && oi.getLastRow() > 3) {
+        var oiRows = oi.getRange(4, 1, oi.getLastRow()-3, 9).getValues();
+        for (var oiR = 0; oiR < oiRows.length; oiR++) {
+          if (safeStr(oiRows[oiR][1]).trim() === orderRef) {
+            orderLotSize = safeNum(oiRows[oiR][8]);
+            break;
+          }
+        }
+      }
+      return {
+        success:true,
+        maxIssuable: Math.max(0, orderLotSize - thisStageAlreadyIssued),
+        source:'order lot size',
+        orderLotSize: orderLotSize,
+        alreadyIssued: thisStageAlreadyIssued
+      };
+    }
+  } catch(e) {
+    return { success:false, error:e.message, maxIssuable:0 };
+  }
+}

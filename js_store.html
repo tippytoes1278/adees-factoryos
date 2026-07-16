@@ -225,8 +225,10 @@ function renderWIP(c){
   pairsGrp.appendChild(el('label',{cls:'form-label',text:'Pairs to Issue'}));
   var pairsInput=el('input',{cls:'form-input',type:'number',min:'1',step:'1',placeholder:'0'});
   var balanceEl=el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:4px',text:'Order balance: — pairs'});
+  var stageBalanceEl=el('div',{style:'font-size:13px;font-weight:600;color:var(--fos-accent);margin-top:4px',text:''});
   pairsGrp.appendChild(pairsInput);
   pairsGrp.appendChild(balanceEl);
+  pairsGrp.appendChild(stageBalanceEl);
   formCard.appendChild(pairsGrp);
 
   // 6. Size Breakdown
@@ -407,6 +409,17 @@ function renderWIP(c){
         })
         .getApprovedActivitiesForArticle(selectedOrderRef);
     }
+    google.script.run
+      .withSuccessHandler(function(res){
+        if(res&&res.success){
+          stageBalanceEl.textContent='Max issuable for this stage: '+res.maxIssuable+' pairs ('+res.source+')';
+          stageBalanceEl.style.color=res.maxIssuable>0?'var(--fos-accent)':'var(--fos-danger)';
+        } else {
+          stageBalanceEl.textContent='';
+        }
+      })
+      .withFailureHandler(function(){stageBalanceEl.textContent='';})
+      .getMaxIssuableForStage(selectedOrderRef, selectedMovement);
   }
 
   function applyActivityCheck(res,deptKey){
@@ -438,7 +451,7 @@ function renderWIP(c){
   };
 
   storeSel.onchange=function(){selectedStore=storeSel.value;populateMovements();};
-  movSel.onchange=function(){selectedMovement=movSel.value;populateContractors();checkDeptActivities();};
+  movSel.onchange=function(){selectedMovement=movSel.value;stageBalanceEl.textContent='';populateContractors();checkDeptActivities();};
   ctrSel.onchange=function(){selectedContractorId=ctrSel.value;};
 
   issueBtn.onclick=function(){
