@@ -96,11 +96,16 @@ function getDashboardData(ss) {
   var orders = [];
   var redCount = 0, completeCount = 0;
   var oiBomMap = {};
+  var oiArticleMap = {};
   try {
     var oiSd = ss.getSheetByName('ORDER_INDEX');
     if (oiSd && oiSd.getLastRow() > 3)
-      oiSd.getRange(4, 1, oiSd.getLastRow()-3, 2).getValues().forEach(function(r) {
-        var sn = safeStr(r[1]); if (sn) oiBomMap[sn] = safeStr(r[0]);
+      oiSd.getRange(4, 1, oiSd.getLastRow()-3, 3).getValues().forEach(function(r) {
+        var sn = safeStr(r[1]);
+        if (sn) {
+          oiBomMap[sn] = safeStr(r[0]);
+          oiArticleMap[sn] = safeStr(r[2]);
+        }
       });
   } catch(e) {}
   try {
@@ -113,7 +118,9 @@ function getDashboardData(ss) {
         var cumul  = safeNum(r[6]);
         var status = safeStr(r[8]);
         orders.push({
-          sheet:r[0], article:safeStr(r[1]), customer:safeStr(r[2]),
+          sheet:r[0],
+          article: safeStr(r[1]) || oiArticleMap[safeStr(r[0])] || '',
+          customer:safeStr(r[2]),
           orderQty:oQty, prior:safeNum(r[4]),
           thisWeek:safeNum(r[5]), cumul:cumul,
           remaining:safeNum(r[7]), status:status, bom:oiBomMap[safeStr(r[0])]||''
