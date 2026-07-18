@@ -224,7 +224,7 @@ function renderWIP(c){
   var pairsGrp=el('div',{cls:'form-group'});
   pairsGrp.appendChild(el('label',{cls:'form-label',text:'Pairs to Issue'}));
   var pairsInput=el('input',{cls:'form-input',type:'number',min:'1',step:'1',placeholder:'0'});
-  var balanceEl=el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:4px',text:'Order balance: — pairs'});
+  var balanceEl=el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:4px',text:'Order lot size: — pairs'});
   var stageBalanceEl=el('div',{style:'font-size:13px;font-weight:600;color:var(--fos-accent);margin-top:4px',text:''});
   pairsGrp.appendChild(pairsInput);
   pairsGrp.appendChild(balanceEl);
@@ -446,7 +446,7 @@ function renderWIP(c){
     var art=arts.filter(function(a){return a.sheet===selectedOrderRef;})[0];
     selectedWorkOrder=art?(art.bom||''):'';
     selectedOrderQty=art?(parseInt(art.orderQty,10)||0):0;
-    balanceEl.textContent=selectedOrderQty>0?'Order balance: '+selectedOrderQty+' pairs':'Order balance: — pairs';
+    balanceEl.textContent=selectedOrderQty>0?'Order lot size: '+selectedOrderQty+' pairs':'Order lot size: — pairs';
     loadSizeBreakdown(selectedOrderRef);
   };
 

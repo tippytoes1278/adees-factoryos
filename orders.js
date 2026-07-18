@@ -384,15 +384,27 @@ function getOrderSizes(orderRef) {
     var ref = safeStr(orderRef).trim();
     for (var i = 0; i < data.length; i++) {
       var r = data[i];
-      // col A (index 0) = workOrder/WO-...; col B (index 1) = artSheet/ART-...
       if (safeStr(r[0]).trim() === ref || safeStr(r[1]).trim() === ref) {
+        var rawSizeCol = r[16]; // col Q (index 16) = raw sizeBreakdown JSON written by createOrder
         var sizes = {};
         var totalQty = 0;
-        _SIZES_RANGE.forEach(function(s, si) {
-          var qty = safeNum(r[17 + si]);  // size cols start at col R (index 17)
-          if (qty > 0) { sizes[String(s)] = qty; totalQty += qty; }
-        });
-        return { sizes: sizes, totalQty: totalQty };
+        try {
+          var parsed = JSON.parse(safeStr(rawSizeCol));
+          if (parsed && typeof parsed === 'object') {
+            Object.keys(parsed).forEach(function(k) {
+              var qty = safeNum(parsed[k]);
+              if (qty > 0) { sizes[k] = qty; totalQty += qty; }
+            });
+          }
+        } catch(pe) {}
+        // Fallback: legacy orders that only have numeric size columns (R–AO)
+        if (Object.keys(sizes).length === 0) {
+          _SIZES_RANGE.forEach(function(s, si) {
+            var qty = safeNum(r[17 + si]);
+            if (qty > 0) { sizes[String(s)] = qty; totalQty += qty; }
+          });
+        }
+        return { success: true, sizes: sizes, totalQty: totalQty };
       }
     }
     return { success: false, error: 'Order not found' };
