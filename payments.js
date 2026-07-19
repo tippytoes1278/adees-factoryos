@@ -264,12 +264,47 @@ function getDashboardData(ss) {
     periodList = Object.keys(pidMap).sort().map(function(k){ return pidMap[k]; });
   } catch(e) {}
 
+  // CEO dashboard: real production pipeline (outstanding pairs per stage) and
+  // delivery-risk (overdue open job cards), both from the job-card model.
+  var MOVEMENT_STAGE_D = {
+    'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter',
+    'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finishing','Dispatch IN':'dispatch'
+  };
+  var pipeline = { cutting:0, prep:0, fitter:0, lasting:0, finishing:0, dispatch:0 };
+  var deliveryRisk = [];
+  try {
+    var _jcsD = getJobCards({});
+    if (Array.isArray(_jcsD)) {
+      var _todayD = new Date(); _todayD.setHours(0,0,0,0);
+      _jcsD.forEach(function(jc) {
+        var st = safeStr(jc.status).toUpperCase();
+        if (st !== 'ISSUED' && st !== 'PARTIAL') return;
+        var bal = safeNum(jc.pairsIssued) - safeNum(jc.pairsReceived);
+        if (bal <= 0) return;
+        var stage = MOVEMENT_STAGE_D[safeStr(jc.movement).trim()];
+        if (stage) pipeline[stage] += bal;
+        if (jc.expectedReturn) {
+          var er = new Date(jc.expectedReturn);
+          if (!isNaN(er.getTime())) {
+            er.setHours(0,0,0,0);
+            if (er < _todayD) deliveryRisk.push({
+              orderRef: safeStr(jc.orderRef), movement: safeStr(jc.movement),
+              balance: bal, daysOverdue: Math.floor((_todayD - er) / 86400000)
+            });
+          }
+        }
+      });
+    }
+  } catch(e) {}
+  deliveryRisk.sort(function(a,b){ return b.daysOverdue - a.daysOverdue; });
+
   var _dashResult = {
     weeklyPayout:weeklyPayout, approvalStatus:approvalStatus,
     weekEnding:weekEnding, orders:orders, redCount:redCount,
     completeCount:completeCount, mismatches:mismatches,
     pendingCount:pendingCount, totalOrders:orders.length,
-    contractorSummary:contractorSummary, periodList:periodList
+    contractorSummary:contractorSummary, periodList:periodList,
+    pipeline:pipeline, deliveryRisk:deliveryRisk
   };
   try {
     CacheService.getScriptCache()
@@ -725,9 +760,10 @@ function getCompletedUnpaidJobCards() {
       'Dispatch IN':    'dispatch'
     };
 
+    var paidMapC = _paidPairsMap(ss);
     var ws = ensureJobCardsSheet();
     if (ws.getLastRow() < 2) return [];
-    var rows = ws.getRange(2, 1, ws.getLastRow()-1, 15).getValues();
+    var rows = ws.getRange(2, 1, ws.getLastRow()-1, 17).getValues();
     var result = [];
 
     rows.forEach(function(r) {
@@ -758,6 +794,16 @@ function getCompletedUnpaidJobCards() {
         }
       } catch(ae) {}
 
+      // Per-contractor payment lines. New department cards carry ASSIGNMENTS
+      // (one line per contractor, paid only their activities' rate); legacy
+      // single-contractor cards fall back to the whole department rate.
+      var assignments = [];
+      try { assignments = JSON.parse(safeStr(r[16])) || []; } catch(e) {}
+      // Per-contractor payable lines, net of any advances already paid on this card.
+      var lines = _cardContractorLines(r, ctrNameById, paidMapC, ss).filter(function(l){ return l.payablePairs > 0; });
+      if (!lines.length) return;   // complete card already fully paid via advances
+      var cardTotal = lines.reduce(function(s, l){ return s + l.amount; }, 0);
+
       result.push({
         jobCardId:      jobCardId,
         orderRef:       orderRef,
@@ -770,8 +816,10 @@ function getCompletedUnpaidJobCards() {
         pairsReceived:  pairsReceived,
         department:     deptKey,
         activities:     activities,
+        assignments:    Array.isArray(assignments) ? assignments : [],
+        lines:          lines,
         ratePerPair:    ratePerPair,
-        totalAmount:    ratePerPair * pairsReceived,
+        totalAmount:    cardTotal,
         article:        oiEntry.article  || '',
         color:          oiEntry.color    || '',
         customer:       oiEntry.customer || '',
@@ -928,6 +976,136 @@ function submitJobCardPayment(data) {
   }
 }
 
+// Pay a whole completed department card in one action. Writes one PAYMENT_HISTORY
+// row per contractor on the card (each paid only their assigned activities' rate),
+// all sharing one PAYMENT_ID, then flips the card to PAYMENT_PENDING.
+// Legacy single-contractor cards (no ASSIGNMENTS) pay the full department rate.
+function submitCardPayment(data) {
+  var jobCardId = safeStr(data.jobCardId || '').trim();
+  var periodId  = safeStr(data.periodId  || '').trim();
+  var notes     = safeStr(data.notes     || '').trim();
+  if (!jobCardId) return { success:false, error:'jobCardId is required' };
+  if (!periodId)  return { success:false, error:'periodId is required' };
+
+  var MOVEMENT_DEPT_KEY = {
+    'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter',
+    'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finishing','Dispatch IN':'dispatch'
+  };
+
+  var lock = LockService.getPublicLock();
+  try {
+    lock.waitLock(10000);
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+
+    var ctrNameById = {};
+    try {
+      var mc = ss.getSheetByName('MASTER_CONTRACTORS');
+      if (mc && mc.getLastRow() >= 4)
+        mc.getRange(4, 1, mc.getLastRow()-3, 2).getValues().forEach(function(r) {
+          var id = safeStr(r[0]).trim(); if (id) ctrNameById[id] = safeStr(r[1]).trim() || id;
+        });
+    } catch(e) {}
+
+    var orderInfo = {};
+    try {
+      var oi = ss.getSheetByName('ORDER_INDEX');
+      if (oi && oi.getLastRow() >= 4)
+        oi.getRange(4, 1, oi.getLastRow()-3, 5).getValues().forEach(function(r) {
+          var sh = safeStr(r[1]).trim(); if (sh) orderInfo[sh] = { customer: safeStr(r[4]).trim() };
+        });
+    } catch(e) {}
+
+    var jcWs = ensureJobCardsSheet();
+    var jcRows = jcWs.getLastRow() > 1 ? jcWs.getRange(2, 1, jcWs.getLastRow()-1, 17).getValues() : [];
+    var targetRow = -1, r = null;
+    for (var i = 0; i < jcRows.length; i++) {
+      if (safeStr(jcRows[i][0]).trim() === jobCardId) { targetRow = i + 2; r = jcRows[i]; break; }
+    }
+    if (targetRow < 0)                          return { success:false, error:'Job card not found: ' + jobCardId };
+    if (safeStr(r[13]).trim() !== 'COMPLETE')   return { success:false, error:'Job card ' + jobCardId + ' is not COMPLETE (status: ' + safeStr(r[13]) + ')' };
+
+    var orderRef      = safeStr(r[1]).trim();
+    var pairsCol      = safeNum(r[6]);
+    var pairsReceived = safeNum(r[7]);
+    var movement      = safeStr(r[4]).trim();
+    var deptKey       = MOVEMENT_DEPT_KEY[movement] || '';
+    var customer      = (orderInfo[orderRef] || {}).customer || '';
+
+    var assignments = [];
+    try { assignments = JSON.parse(safeStr(r[16])) || []; } catch(e) {}
+
+    // Per-contractor amounts
+    var lines = [];
+    if (Array.isArray(assignments) && assignments.length) {
+      var byCtr = {};
+      assignments.forEach(function(a) {
+        var cid = safeStr(a.contractorId).trim();
+        if (!cid) return;
+        if (!byCtr[cid]) byCtr[cid] = 0;
+        byCtr[cid] += safeNum(a.rate) + safeNum(a.comm);
+      });
+      Object.keys(byCtr).forEach(function(cid) { lines.push({ contractorId:cid, ratePerPair:byCtr[cid] }); });
+    } else {
+      var legacyCid = safeStr(r[5]).trim();
+      var rate = 0;
+      try {
+        var ar = getApprovedActivitiesForArticle(orderRef);
+        if (ar && ar.success && Array.isArray(ar.activities))
+          ar.activities.filter(function(a){ return !deptKey || safeStr(a.dept).toLowerCase().trim().indexOf(deptKey) >= 0; })
+                       .forEach(function(a){ rate += safeNum(a.rate) + safeNum(a.comm); });
+      } catch(e) {}
+      lines.push({ contractorId:legacyCid, ratePerPair:rate });
+    }
+    if (!lines.length) return { success:false, error:'No contractor assignments on this card' };
+
+    // PAYMENT_HISTORY sheet + unique PAYMENT_ID
+    var ph = ss.getSheetByName('PAYMENT_HISTORY');
+    if (!ph) {
+      ph = ss.insertSheet('PAYMENT_HISTORY');
+      ph.getRange(1, 1, 1, 12).setValues([[
+        'PeriodID','Article','Customer','Contractor','Qty','Amount',
+        'ApprovedBy','Date','Contractor_ID','Job_Card_Ref','Department','Payment_ID'
+      ]]);
+    }
+    var existingPayIds = {};
+    if (ph.getLastRow() > 1)
+      ph.getRange(2, 12, ph.getLastRow()-1, 1).getValues().forEach(function(x) {
+        var pid = safeStr(x[0]).trim(); if (pid) existingPayIds[pid] = true;
+      });
+    var paySeqStr = String(Object.keys(existingPayIds).length + 1); while (paySeqStr.length < 3) paySeqStr = '0' + paySeqStr;
+    var PAYMENT_ID = 'PAY-' + new Date().getFullYear() + '-' + paySeqStr;
+
+    // Net out any prior advances: pay only pairs not already paid per contractor.
+    var paidMap = _paidPairsMap(ss);
+    var totalAmount = 0;
+    lines.forEach(function(l) {
+      var alreadyPaid = paidMap[jobCardId + '||' + l.contractorId] || 0;
+      var payable = pairsReceived - alreadyPaid;
+      if (payable <= 0) return;   // already covered by advances
+      var amount = safeNum(l.ratePerPair) * payable;
+      ph.appendRow([
+        periodId, orderRef, customer, ctrNameById[l.contractorId] || l.contractorId,
+        payable, amount, '', new Date(),
+        l.contractorId, jobCardId, deptKey, PAYMENT_ID
+      ]);
+      totalAmount += amount;
+    });
+
+    // Flip card to PAYMENT_PENDING (STATUS is column 14)
+    jcWs.getRange(targetRow, 14).setValue('PAYMENT_PENDING');
+    SpreadsheetApp.flush();
+    try { CacheService.getScriptCache().remove('dashboardData_' + CONFIG.ENV); } catch(ce) {}
+    try { CacheService.getScriptCache().remove('storeScreenData_' + CONFIG.ENV); } catch(ce) {}
+
+    return { success:true, paymentId:PAYMENT_ID, jobCardId:jobCardId, contractors:lines.length,
+             pairs:pairsReceived, totalAmount:totalAmount };
+  } catch(e) {
+    return { success:false, error:e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function getPaymentBatches(filters) {
   try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
@@ -955,6 +1133,7 @@ function getPaymentBatches(filters) {
           _dateMs:        dv instanceof Date ? dv.getTime() : 0,
           status:         safeStr(r[6]).trim() ? 'APPROVED' : 'PENDING',
           lines:          [],
+          _seenJC:        {},
           totalPairs:     0,
           totalAmount:    0
         };
@@ -963,19 +1142,26 @@ function getPaymentBatches(filters) {
 
       var pairs  = safeNum(r[4]);
       var amount = safeNum(r[5]);
+      var lineJc = safeStr(r[9]).trim();
       batchMap[paymentId].lines.push({
-        jobCardId:  safeStr(r[9]).trim(),
-        orderRef:   safeStr(r[1]).trim(),
-        customer:   safeStr(r[2]).trim(),
-        department: safeStr(r[10]).trim(),
-        pairs:      pairs,
-        amount:     amount
+        jobCardId:      lineJc,
+        orderRef:       safeStr(r[1]).trim(),
+        customer:       safeStr(r[2]).trim(),
+        contractorName: safeStr(r[3]).trim(),
+        department:     safeStr(r[10]).trim(),
+        pairs:          pairs,
+        amount:         amount
       });
-      batchMap[paymentId].totalPairs  += pairs;
+      // Count physical pairs once per job card (a department card can have several
+      // contractor rows, all for the same pairs); amount always sums.
+      if (!batchMap[paymentId]._seenJC[lineJc]) {
+        batchMap[paymentId].totalPairs += pairs;
+        batchMap[paymentId]._seenJC[lineJc] = true;
+      }
       batchMap[paymentId].totalAmount += amount;
     });
 
-    var result = batchOrder.map(function(pid) { return batchMap[pid]; });
+    var result = batchOrder.map(function(pid) { var b = batchMap[pid]; delete b._seenJC; return b; });
 
     if (filters) {
       if (filters.periodId)     result = result.filter(function(b){ return b.periodId     === safeStr(filters.periodId); });
@@ -1023,7 +1209,10 @@ function approvePaymentBatch(paymentId) {
     var jcWs = ensureJobCardsSheet();
     if (jcWs.getLastRow() > 1) {
       jcWs.getRange(2, 1, jcWs.getLastRow()-1, 14).getValues().forEach(function(r, i) {
-        if (jobCardIds.indexOf(safeStr(r[0]).trim()) >= 0) jcWs.getRange(i + 2, 14).setValue('PAID');
+        // Only a final payment (card PAYMENT_PENDING) becomes PAID; advance batches
+        // leave the card open (still ISSUED/PARTIAL).
+        if (jobCardIds.indexOf(safeStr(r[0]).trim()) >= 0 && safeStr(r[13]).toUpperCase() === 'PAYMENT_PENDING')
+          jcWs.getRange(i + 2, 14).setValue('PAID');
       });
     }
 
@@ -1066,7 +1255,10 @@ function rejectPaymentBatch(paymentId, reason) {
     var jcWs = ensureJobCardsSheet();
     if (jcWs.getLastRow() > 1) {
       jcWs.getRange(2, 1, jcWs.getLastRow()-1, 14).getValues().forEach(function(r, i) {
-        if (jobCardIds.indexOf(safeStr(r[0]).trim()) >= 0) jcWs.getRange(i + 2, 14).setValue('COMPLETE');
+        // Only revert a final payment (card PAYMENT_PENDING) back to COMPLETE; a
+        // rejected advance leaves the card open and frees its pairs for re-payment.
+        if (jobCardIds.indexOf(safeStr(r[0]).trim()) >= 0 && safeStr(r[13]).toUpperCase() === 'PAYMENT_PENDING')
+          jcWs.getRange(i + 2, 14).setValue('COMPLETE');
       });
     }
 
@@ -1075,6 +1267,193 @@ function rejectPaymentBatch(paymentId, reason) {
     return { success: true };
   } catch(e) {
     return { success: false, error: e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ── PARTIAL-CARD ADVANCES — Phase 7 ──────────────────────────────────────────
+// An advance is a partial payment against a still-open (ISSUED/PARTIAL) card for
+// pairs already returned. It reuses PAYMENT_HISTORY + the normal approval flow;
+// the final payment pays only the remaining (un-advanced) pairs, so nothing is
+// double-paid. Netting is per job card + contractor. No floating balances.
+
+// Pairs already paid (advance or final, non-rejected) per jobCard+contractor.
+function _paidPairsMap(ss) {
+  var map = {};
+  var ph = ss.getSheetByName('PAYMENT_HISTORY');
+  if (ph && ph.getLastRow() > 1) {
+    ph.getRange(2, 1, ph.getLastRow()-1, 12).getValues().forEach(function(r) {
+      if (safeStr(r[6]).trim().indexOf('REJECTED:') === 0) return;
+      var jcId = safeStr(r[9]).trim(), cid = safeStr(r[8]).trim();
+      if (!jcId || !cid) return;
+      map[jcId + '||' + cid] = (map[jcId + '||' + cid] || 0) + safeNum(r[4]);
+    });
+  }
+  return map;
+}
+
+// Per-contractor payable lines for a card, netting pairs already paid.
+function _cardContractorLines(r, ctrNameById, paidMap, ss) {
+  var MDK = {'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter','Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finishing','Dispatch IN':'dispatch'};
+  var jobCardId = safeStr(r[0]).trim();
+  var orderRef  = safeStr(r[1]).trim();
+  var deptKey   = MDK[safeStr(r[4]).trim()] || '';
+  var pairsReceived = safeNum(r[7]);
+  var assignments = [];
+  try { assignments = JSON.parse(safeStr(r[16])) || []; } catch(e) {}
+  var byCtr = {};
+  if (Array.isArray(assignments) && assignments.length) {
+    assignments.forEach(function(a) {
+      var cid = safeStr(a.contractorId).trim(); if (!cid) return;
+      if (!byCtr[cid]) byCtr[cid] = { ratePerPair:0, activities:[] };
+      byCtr[cid].ratePerPair += safeNum(a.rate) + safeNum(a.comm);
+      byCtr[cid].activities.push(safeStr(a.activity));
+    });
+  } else {
+    var cid = safeStr(r[5]).trim();
+    var rate = 0;
+    try {
+      var ar = getApprovedActivitiesForArticle(orderRef, ss);
+      if (ar && ar.success && Array.isArray(ar.activities))
+        ar.activities.filter(function(a){ return !deptKey || safeStr(a.dept).toLowerCase().trim().indexOf(deptKey) >= 0; })
+                     .forEach(function(a){ rate += safeNum(a.rate) + safeNum(a.comm); });
+    } catch(e) {}
+    byCtr[cid] = { ratePerPair:rate, activities:[] };
+  }
+  var lines = [];
+  Object.keys(byCtr).forEach(function(cid) {
+    var alreadyPaid = paidMap[jobCardId + '||' + cid] || 0;
+    var payablePairs = pairsReceived - alreadyPaid;
+    if (payablePairs < 0) payablePairs = 0;
+    lines.push({
+      contractorId: cid, contractorName: ctrNameById[cid] || cid,
+      ratePerPair: byCtr[cid].ratePerPair, activities: byCtr[cid].activities,
+      alreadyPaidPairs: alreadyPaid, payablePairs: payablePairs,
+      amount: byCtr[cid].ratePerPair * payablePairs
+    });
+  });
+  return lines;
+}
+
+function _ctrNameMap(ss) {
+  var m = {};
+  try {
+    var mc = ss.getSheetByName('MASTER_CONTRACTORS');
+    if (mc && mc.getLastRow() >= 4)
+      mc.getRange(4, 1, mc.getLastRow()-3, 2).getValues().forEach(function(r) {
+        var id = safeStr(r[0]).trim(); if (id) m[id] = safeStr(r[1]).trim() || id;
+      });
+  } catch(e) {}
+  return m;
+}
+
+function _orderInfoMap(ss) {
+  var m = {};
+  try {
+    var oi = ss.getSheetByName('ORDER_INDEX');
+    if (oi && oi.getLastRow() >= 4)
+      oi.getRange(4, 1, oi.getLastRow()-3, 5).getValues().forEach(function(r) {
+        var sh = safeStr(r[1]).trim();
+        if (sh) m[sh] = { article: safeStr(r[2]).trim(), color: safeStr(r[3]).trim(), customer: safeStr(r[4]).trim() };
+      });
+  } catch(e) {}
+  return m;
+}
+
+// Open (ISSUED/PARTIAL) cards with received pairs not yet paid — advance candidates.
+function getAdvanceableJobCards() {
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var ctrNameById = _ctrNameMap(ss);
+    var orderInfo   = _orderInfoMap(ss);
+    var paidMap     = _paidPairsMap(ss);
+    var ws = ensureJobCardsSheet(ss);
+    if (ws.getLastRow() < 2) return [];
+    var rows = ws.getRange(2, 1, ws.getLastRow()-1, 17).getValues();
+    var result = [];
+    rows.forEach(function(r) {
+      if (safeStr(r[0]).trim() === '') return;
+      var status = safeStr(r[13]).toUpperCase();
+      if (status !== 'ISSUED' && status !== 'PARTIAL') return;
+      if (safeNum(r[7]) <= 0) return;
+      var lines = _cardContractorLines(r, ctrNameById, paidMap, ss).filter(function(l){ return l.payablePairs > 0; });
+      if (!lines.length) return;
+      var oiEntry = orderInfo[safeStr(r[1]).trim()] || {};
+      result.push({
+        jobCardId: safeStr(r[0]).trim(), orderRef: safeStr(r[1]).trim(),
+        store: safeStr(r[3]).trim(), movement: safeStr(r[4]).trim(),
+        pairsIssued: safeNum(r[6]), pairsReceived: safeNum(r[7]),
+        article: oiEntry.article || '', color: oiEntry.color || '', customer: oiEntry.customer || '',
+        status: status, lines: lines, totalAmount: lines.reduce(function(s,l){ return s + l.amount; }, 0)
+      });
+    });
+    return result;
+  } catch(e) { return { success:false, error:e.message }; }
+}
+
+// Pay an advance against an open card for the pairs received-so-far (net of prior
+// payments). Records ADV- rows in PAYMENT_HISTORY (pending approval); does NOT
+// change the card status — the card stays open for more work.
+function submitCardAdvance(data) {
+  var jobCardId = safeStr(data.jobCardId || '').trim();
+  var periodId  = safeStr(data.periodId  || '').trim();
+  if (!jobCardId) return { success:false, error:'jobCardId is required' };
+  if (!periodId)  return { success:false, error:'periodId is required' };
+  var MDK = {'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter','Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finishing','Dispatch IN':'dispatch'};
+  var lock = LockService.getPublicLock();
+  try {
+    lock.waitLock(10000);
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var ctrNameById = _ctrNameMap(ss);
+    var orderInfo   = _orderInfoMap(ss);
+    var paidMap     = _paidPairsMap(ss);
+    var jcWs = ensureJobCardsSheet(ss);
+    var rows = jcWs.getLastRow() > 1 ? jcWs.getRange(2, 1, jcWs.getLastRow()-1, 17).getValues() : [];
+    var r = null;
+    for (var i = 0; i < rows.length; i++) { if (safeStr(rows[i][0]).trim() === jobCardId) { r = rows[i]; break; } }
+    if (!r) return { success:false, error:'Job card not found: ' + jobCardId };
+    var status = safeStr(r[13]).toUpperCase();
+    if (status !== 'ISSUED' && status !== 'PARTIAL')
+      return { success:false, error:'Advances are only for open cards. ' + jobCardId + ' is ' + status + ' — use Pay Card instead.' };
+    if (safeNum(r[7]) <= 0) return { success:false, error:'No pairs received yet on this card' };
+    var lines = _cardContractorLines(r, ctrNameById, paidMap, ss).filter(function(l){ return l.payablePairs > 0 && l.ratePerPair > 0; });
+    if (!lines.length) return { success:false, error:'Nothing to advance — received pairs already paid, or rate not set' };
+
+    var orderRef = safeStr(r[1]).trim();
+    var deptKey  = MDK[safeStr(r[4]).trim()] || '';
+    var customer = (orderInfo[orderRef] || {}).customer || '';
+
+    var ph = ss.getSheetByName('PAYMENT_HISTORY');
+    if (!ph) {
+      ph = ss.insertSheet('PAYMENT_HISTORY');
+      ph.getRange(1, 1, 1, 12).setValues([[
+        'PeriodID','Article','Customer','Contractor','Qty','Amount',
+        'ApprovedBy','Date','Contractor_ID','Job_Card_Ref','Department','Payment_ID'
+      ]]);
+    }
+    var advSeq = 0;
+    if (ph.getLastRow() > 1)
+      ph.getRange(2, 12, ph.getLastRow()-1, 1).getValues().forEach(function(x) {
+        var m = safeStr(x[0]).match(/^ADV-\d{4}-(\d+)$/); if (m) { var n = parseInt(m[1],10); if (n > advSeq) advSeq = n; }
+      });
+    var seqStr = String(advSeq + 1); while (seqStr.length < 3) seqStr = '0' + seqStr;
+    var ADVANCE_ID = 'ADV-' + new Date().getFullYear() + '-' + seqStr;
+
+    var totalAmount = 0;
+    lines.forEach(function(l) {
+      ph.appendRow([
+        periodId, orderRef, customer, l.contractorName,
+        l.payablePairs, l.amount, '', new Date(),
+        l.contractorId, jobCardId, deptKey, ADVANCE_ID
+      ]);
+      totalAmount += l.amount;
+    });
+    SpreadsheetApp.flush();
+    try { CacheService.getScriptCache().remove('dashboardData_' + CONFIG.ENV); } catch(ce) {}
+    return { success:true, advanceId:ADVANCE_ID, jobCardId:jobCardId, contractors:lines.length, totalAmount:totalAmount };
+  } catch(e) {
+    return { success:false, error:e.message };
   } finally {
     lock.releaseLock();
   }

@@ -547,7 +547,7 @@ function renderPayment(c){
   // Header
   var hdr=el('div',{style:'margin-bottom:16px'});
   hdr.appendChild(el('div',{style:'font-family:var(--fos-font-display);font-size:22px;font-weight:700;color:var(--fos-accent)',text:'Process Payment'}));
-  hdr.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-top:2px',text:'Select completed job cards to submit for payment'}));
+  hdr.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-top:2px',text:'Pay completed cards, or advance against pairs already returned'}));
   c.appendChild(hdr);
 
   var jcs=D.completedJobCards;
@@ -558,170 +558,148 @@ function renderPayment(c){
   var artByRef={};arts.forEach(function(a){artByRef[a.sheet]=a;});
   var ctrById={};contractors.forEach(function(ct){ctrById[ct.ctrId]=ct;});
 
+  // ── Advances: open cards with pairs already returned but not yet paid ──
+  var advCards=Array.isArray(D.advanceable)?D.advanceable:[];
+  if(advCards.length){
+    c.appendChild(el('div',{style:'font-size:11px;font-weight:600;letter-spacing:0.08em;color:var(--fos-ink-secondary);text-transform:uppercase;margin:4px 0 8px',text:'Advances — pairs returned so far'}));
+    advCards.forEach(function(jc){
+      var art=artByRef[jc.orderRef];
+      var artName=art?(art.article||jc.orderRef):jc.orderRef;
+      var lines=Array.isArray(jc.lines)?jc.lines:[];
+      var total=typeof jc.totalAmount==='number'?jc.totalAmount:lines.reduce(function(s,l){return s+(l.amount||0);},0);
+      var rateOk=lines.length>0&&lines.every(function(l){return safeNum(l.ratePerPair)>0;});
+      var card=el('div',{cls:'fos-card',style:'margin-bottom:12px;padding:0;overflow:hidden;border-left:3px solid var(--fos-warning)'});
+      var ch=el('div',{style:'padding:12px 16px;background:var(--fos-bg);border-bottom:1px solid var(--fos-border)'});
+      ch.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:jc.jobCardId+' · '+(jc.status||'')}));
+      ch.appendChild(el('div',{style:'font-size:15px;font-weight:600;color:var(--fos-ink);margin-top:2px',text:artName}));
+      ch.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:(jc.movement||'')+' · '+jc.pairsReceived+' of '+jc.pairsIssued+' pairs returned'}));
+      card.appendChild(ch);
+      var lw=el('div');
+      lines.forEach(function(l){
+        var rate=safeNum(l.ratePerPair);
+        var rw=el('div',{style:'display:flex;justify-content:space-between;gap:8px;padding:10px 16px;border-bottom:0.5px solid var(--fos-border)'});
+        var lft=el('div',{style:'flex:1;min-width:0'});
+        lft.appendChild(el('div',{style:'font-size:14px;color:var(--fos-ink)',text:l.contractorName||l.contractorId}));
+        lft.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:rate>0?('₹'+rate.toFixed(2)+'/pair × '+l.payablePairs+' unpaid'+(l.alreadyPaidPairs?(' ('+l.alreadyPaidPairs+' already paid)'):'')):'Rate not set'}));
+        rw.appendChild(lft);
+        rw.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:14px;font-weight:700;color:var(--fos-accent);flex-shrink:0',text:'₹'+safeNum(l.amount).toFixed(2)}));
+        lw.appendChild(rw);
+      });
+      card.appendChild(lw);
+      var ft=el('div',{style:'display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--fos-bg)'});
+      ft.appendChild(el('div',{style:'flex:1;font-size:12px;color:var(--fos-ink-secondary)',text:'Advance now'}));
+      ft.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:15px;font-weight:700;color:var(--fos-ink)',text:'₹'+total.toFixed(2)}));
+      var advBtn=el('button',{cls:'primary-btn',text:'Pay Advance',style:'width:auto;padding:10px 16px;font-size:13px;border-radius:10px;flex-shrink:0'});
+      advBtn.disabled=!rateOk;
+      ft.appendChild(advBtn);
+      card.appendChild(ft);
+      c.appendChild(card);
+      (function(theJc,btn,amount,ok){
+        btn.onclick=function(){
+          if(!ok){toast('Some contractors have no rate — check activity setup',true);return;}
+          btn.disabled=true;btn.textContent='Advancing...';
+          google.script.run
+            .withSuccessHandler(function(rr){
+              if(rr&&rr.success){
+                toast('Advance '+theJc.jobCardId+' — ₹'+safeNum(rr.totalAmount||amount).toFixed(2)+(rr.advanceId?' · '+rr.advanceId:''));
+                D.completedJobCards=null;D.advanceable=null;loadTab('payment');
+              } else { btn.disabled=false;btn.textContent='Pay Advance';toast((rr&&rr.error)?rr.error:'Advance failed',true); }
+            })
+            .withFailureHandler(function(e){btn.disabled=false;btn.textContent='Pay Advance';toast((e&&e.message)||'Error submitting advance',true);})
+            .submitCardAdvance({jobCardId:theJc.jobCardId,periodId:ENTRY_PERIOD?ENTRY_PERIOD.periodId:'PAY-'+new Date().toISOString().slice(0,10),notes:''});
+        };
+      })(jc,advBtn,total,rateOk);
+    });
+  }
+
   if(!jcs.length){
-    var emptyWrap=el('div',{style:'text-align:center;padding:60px 20px'});
-    emptyWrap.appendChild(el('div',{style:'font-size:36px;color:var(--fos-success);margin-bottom:12px',text:'✓'}));
-    emptyWrap.appendChild(el('div',{style:'font-size:15px;font-weight:600;color:var(--fos-ink)',text:'No completed job cards pending payment'}));
-    emptyWrap.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-top:4px',text:'All paid up!'}));
-    c.appendChild(emptyWrap);
+    if(!advCards.length){
+      var emptyWrap=el('div',{style:'text-align:center;padding:60px 20px'});
+      emptyWrap.appendChild(el('div',{style:'font-size:36px;color:var(--fos-success);margin-bottom:12px',text:'✓'}));
+      emptyWrap.appendChild(el('div',{style:'font-size:15px;font-weight:600;color:var(--fos-ink)',text:'No job cards pending payment'}));
+      emptyWrap.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-top:4px',text:'All paid up!'}));
+      c.appendChild(emptyWrap);
+    }
     return;
   }
 
-  // Group by contractor
-  var groupMap={},groupOrder=[];
+  c.appendChild(el('div',{style:'font-size:11px;font-weight:600;letter-spacing:0.08em;color:var(--fos-ink-secondary);text-transform:uppercase;margin:12px 0 8px',text:'Completed — final payment'}));
+  // One card per completed department job card; pay the whole card in one action.
   jcs.forEach(function(jc){
-    var cid=jc.contractorId;
-    if(!groupMap[cid]){groupMap[cid]={contractorId:cid,cards:[]};groupOrder.push(cid);}
-    groupMap[cid].cards.push(jc);
-  });
+    var art=artByRef[jc.orderRef];
+    var artName=art?(art.article||jc.orderRef):jc.orderRef;
+    var artColor=(art&&(art.color||art.colour))||jc.color||'';
+    var pairs=jc.pairsReceived||jc.pairsIssued||0;
+    var lines=Array.isArray(jc.lines)?jc.lines:[];
+    var total=typeof jc.totalAmount==='number'?jc.totalAmount:lines.reduce(function(s,l){return s+(l.amount||0);},0);
+    var rateOk=lines.length>0&&lines.every(function(l){return safeNum(l.ratePerPair)>0;});
 
-  groupOrder.forEach(function(cid){
-    var group=groupMap[cid];
-    var cards=group.cards;
-    var ctr=ctrById[cid];
-    var ctrName=ctr?ctr.name:cid;
-    var totalPairs=cards.reduce(function(s,jc){return s+(jc.pairsReceived||jc.pairsIssued||0);},0);
-
-    var selected={};cards.forEach(function(jc){selected[jc.jobCardId]=false;});
-    var rowEls={};
-
-    // Contractor card
     var cCard=el('div',{cls:'fos-card',style:'margin-bottom:16px;padding:0;overflow:hidden'});
 
-    // Contractor header row
-    var cHdr=el('div',{style:'display:flex;align-items:center;gap:10px;padding:14px 16px;background:var(--fos-bg);border-bottom:1px solid var(--fos-border)'});
-    var allChk=el('input');allChk.type='checkbox';allChk.style.cssText='width:18px;height:18px;flex-shrink:0;cursor:pointer';
-    cHdr.appendChild(allChk);
-    var cNameWrap=el('div',{style:'flex:1;min-width:0'});
-    cNameWrap.appendChild(el('div',{style:'font-size:16px;font-weight:700;color:var(--fos-ink)',text:ctrName}));
-    cNameWrap.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:cid}));
-    cHdr.appendChild(cNameWrap);
-    cHdr.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);text-align:right;flex-shrink:0',text:cards.length+' job card'+(cards.length!==1?'s':'')+' · '+totalPairs+' pairs total'}));
+    var cHdr=el('div',{style:'padding:14px 16px;background:var(--fos-bg);border-bottom:1px solid var(--fos-border)'});
+    cHdr.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:jc.jobCardId}));
+    cHdr.appendChild(el('div',{style:'font-size:16px;font-weight:700;color:var(--fos-ink);margin-top:2px',text:artName+(artColor?' · '+artColor:'')}));
+    cHdr.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:2px',text:(jc.store||'')+(jc.movement?' · '+jc.movement:'')+' · '+pairs+' pairs'}));
     cCard.appendChild(cHdr);
 
-    // Job card rows
-    var rowsWrap=el('div');
-    cards.forEach(function(jc){
-      var art=artByRef[jc.orderRef];
-      var artName=art?(art.article||jc.orderRef):jc.orderRef;
-      var artColor=art?(art.color||art.colour||''):'';
-      var pairs=jc.pairsReceived||jc.pairsIssued||0;
-      var rate=typeof jc.ratePerPair==='number'?jc.ratePerPair:0;
-      var amount=pairs*rate;
-
-      var row=el('div',{style:'display:flex;align-items:flex-start;gap:10px;padding:12px 16px;border-bottom:0.5px solid var(--fos-border)'});
-      var chk=el('input');chk.type='checkbox';chk.style.cssText='width:18px;height:18px;flex-shrink:0;cursor:pointer;margin-top:2px';
-      row.appendChild(chk);
-
-      var info=el('div',{style:'flex:1;min-width:0'});
-      info.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:12px;color:var(--fos-ink-secondary);margin-bottom:2px',text:jc.jobCardId}));
-      info.appendChild(el('div',{style:'font-size:14px;font-weight:500;color:var(--fos-ink);margin-bottom:2px',text:artName+(artColor?' · '+artColor:'')}));
-      info.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-bottom:2px',text:(jc.store||'')+(jc.movement?' · '+jc.movement:'')}));
-      var rateDisplay='';
+    var linesWrap=el('div');
+    lines.forEach(function(l){
+      var rate=safeNum(l.ratePerPair);
+      var row=el('div',{style:'display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:11px 16px;border-bottom:0.5px solid var(--fos-border)'});
+      var left=el('div',{style:'flex:1;min-width:0'});
+      left.appendChild(el('div',{style:'font-size:14px;font-weight:500;color:var(--fos-ink)',text:l.contractorName||l.contractorId}));
+      var actTxt=(l.activities&&l.activities.length)?l.activities.join(', '):'';
+      if(actTxt)left.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:1px',text:actTxt}));
+      var _pp=(l.payablePairs!==undefined?l.payablePairs:pairs);
+      left.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:rate>0?('₹'+rate.toFixed(2)+'/pair × '+_pp+(l.alreadyPaidPairs?(' ('+l.alreadyPaidPairs+' advanced)'):'')):'Rate not set'}));
+      row.appendChild(left);
+      var amt=el('div',{style:'text-align:right;flex-shrink:0;padding-top:2px'});
       if(rate>0){
-        var baseRate=0,commRate=0;
-        if(jc.activities&&jc.activities.length){
-          jc.activities.forEach(function(a){baseRate+=safeNum(a.rate);commRate+=safeNum(a.comm);});
-        }
-        if(commRate>0){
-          rateDisplay='₹'+baseRate.toFixed(2)+'/pr + ₹'+commRate.toFixed(2)+' comm';
-        } else {
-          rateDisplay='₹'+rate.toFixed(2)+'/pair';
-        }
+        amt.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:14px;font-weight:700;color:var(--fos-accent)',text:'₹'+safeNum(l.amount).toFixed(2)}));
       } else {
-        rateDisplay='Rate not set';
+        amt.appendChild(el('div',{style:'font-size:11px;color:var(--fos-warning);max-width:100px;text-align:right;line-height:1.4',text:'Rate not set — check activity setup'}));
       }
-      info.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:'Pairs: '+pairs+'  ·  '+rateDisplay}));
-      row.appendChild(info);
-
-      var amtWrap=el('div',{style:'text-align:right;flex-shrink:0;padding-top:2px'});
-      if(rate===0){
-        amtWrap.appendChild(el('div',{style:'font-size:11px;color:var(--fos-warning);max-width:90px;text-align:right;line-height:1.4',text:'Rate not set — check activity setup'}));
-      } else {
-        amtWrap.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:14px;font-weight:700;color:var(--fos-accent)',text:'₹'+amount.toFixed(2)}));
-      }
-      row.appendChild(amtWrap);
-      rowsWrap.appendChild(row);
-
-      rowEls[jc.jobCardId]={chk:chk,pairs:pairs,rate:rate,amount:amount,row:row};
-      chk.onchange=function(){selected[jc.jobCardId]=chk.checked;updateSubtotal();};
+      row.appendChild(amt);
+      linesWrap.appendChild(row);
     });
-    cCard.appendChild(rowsWrap);
+    cCard.appendChild(linesWrap);
 
-    // Contractor subtotal row
-    var subRow=el('div',{style:'display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--fos-bg);border-top:1px solid var(--fos-border);flex-wrap:wrap'});
-    var selCountEl=el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);flex:1;min-width:100px'});
-    var subAmtEl=el('div',{style:'font-family:var(--fos-font-mono);font-size:15px;font-weight:700;color:var(--fos-ink)'});
-    var submitBtn=el('button',{cls:'primary-btn',text:'Submit Payment',style:'width:auto;padding:10px 16px;font-size:13px;border-radius:10px;flex-shrink:0'});
-    submitBtn.disabled=true;
-    subRow.appendChild(selCountEl);
-    subRow.appendChild(subAmtEl);
-    subRow.appendChild(submitBtn);
-    cCard.appendChild(subRow);
+    var foot=el('div',{style:'display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--fos-bg);border-top:1px solid var(--fos-border)'});
+    foot.appendChild(el('div',{style:'flex:1;font-size:13px;color:var(--fos-ink-secondary)',text:lines.length+' contractor'+(lines.length!==1?'s':'')}));
+    foot.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:15px;font-weight:700;color:var(--fos-ink)',text:'₹'+total.toFixed(2)}));
+    var payBtn=el('button',{cls:'primary-btn',text:'Pay Card',style:'width:auto;padding:10px 16px;font-size:13px;border-radius:10px;flex-shrink:0'});
+    payBtn.disabled=!rateOk;
+    foot.appendChild(payBtn);
+    cCard.appendChild(foot);
+    c.appendChild(cCard);
 
-    function updateSubtotal(){
-      var selIds=Object.keys(selected).filter(function(id){return selected[id];});
-      var selCount=selIds.length;
-      var subTotal=selIds.reduce(function(s,id){var r=rowEls[id];return s+(r?r.amount:0);},0);
-      var allRateOk=selIds.every(function(id){var r=rowEls[id];return r&&r.rate>0;});
-      selCountEl.textContent='Selected: '+selCount+' of '+cards.length+' cards';
-      subAmtEl.textContent=selCount>0?'₹'+subTotal.toFixed(2):'';
-      submitBtn.disabled=!(selCount>0&&allRateOk);
-      allChk.checked=selCount>0&&selCount===cards.length;
-      allChk.indeterminate=selCount>0&&selCount<cards.length;
-    }
-    updateSubtotal();
-
-    allChk.onchange=function(){
-      cards.forEach(function(jc){
-        selected[jc.jobCardId]=allChk.checked;
-        rowEls[jc.jobCardId].chk.checked=allChk.checked;
-      });
-      updateSubtotal();
-    };
-
-    // Submit handler — one per contractor group
-    (function(grpCid,grpCards,grpCtrName,grpSelected,grpRowEls,grpSubmitBtn){
-      grpSubmitBtn.onclick=function(){
-        var selIds=Object.keys(grpSelected).filter(function(id){return grpSelected[id];});
-        if(!selIds.length){toast('Select at least one job card',true);return;}
-        var allRateOk=selIds.every(function(id){var r=grpRowEls[id];return r&&r.rate>0;});
-        if(!allRateOk){toast('Some selected cards have no rate set — check activity setup',true);return;}
-        var selPairs=selIds.reduce(function(s,id){var r=grpRowEls[id];return s+(r?r.pairs:0);},0);
-        var selTotal=selIds.reduce(function(s,id){var r=grpRowEls[id];return s+(r?r.amount:0);},0);
-        var msg='Submit payment for '+grpCtrName+'?\n'+selIds.length+' job card'+(selIds.length!==1?'s':'')+' · '+selPairs+' pairs · ₹'+selTotal.toFixed(2)+' total';
-        // Submit proceeds directly
+    (function(theJc,btn,amount,ok){
+      btn.onclick=function(){
+        if(!ok){toast('Some contractors have no rate — check activity setup',true);return;}
+        btn.disabled=true;btn.textContent='Paying...';
         var payload={
-          contractorId:grpCid,
-          jobCardIds:selIds,
+          jobCardId:theJc.jobCardId,
           periodId:ENTRY_PERIOD?ENTRY_PERIOD.periodId:'PAY-'+new Date().toISOString().slice(0,10),
           notes:''
         };
-        grpSubmitBtn.disabled=true;
-        grpSubmitBtn.textContent='Submitting...';
         google.script.run
-          .withSuccessHandler(function(r){
-            if(r&&r.success){
-              var payRef=r.paymentId||r.periodId||'';
-              toast('Payment submitted'+(payRef?' — '+payRef:'')+' · '+selIds.length+' job card'+(selIds.length!==1?'s':'')+' · ₹'+selTotal.toFixed(2));
-              D.completedJobCards=(D.completedJobCards||[]).filter(function(jc){return selIds.indexOf(jc.jobCardId)===-1;});
+          .withSuccessHandler(function(rr){
+            if(rr&&rr.success){
+              toast('Paid '+theJc.jobCardId+' — ₹'+safeNum(rr.totalAmount||amount).toFixed(2)+(rr.paymentId?' · '+rr.paymentId:''));
+              D.completedJobCards=(D.completedJobCards||[]).filter(function(x){return x.jobCardId!==theJc.jobCardId;});
               renderPayment(c);
             } else {
-              grpSubmitBtn.disabled=false;
-              grpSubmitBtn.textContent='Submit Payment';
-              toast((r&&r.error)?r.error:'Payment submission failed',true);
+              btn.disabled=false;btn.textContent='Pay Card';
+              toast((rr&&rr.error)?rr.error:'Payment failed',true);
             }
           })
           .withFailureHandler(function(e){
-            grpSubmitBtn.disabled=false;
-            grpSubmitBtn.textContent='Submit Payment';
+            btn.disabled=false;btn.textContent='Pay Card';
             toast((e&&e.message)?e.message:'Error submitting payment',true);
           })
-          .submitJobCardPayment(payload);
+          .submitCardPayment(payload);
       };
-    })(cid,cards,ctrName,selected,rowEls,submitBtn);
-
-    c.appendChild(cCard);
+    })(jc,payBtn,total,rateOk);
   });
 }
 

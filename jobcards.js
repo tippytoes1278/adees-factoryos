@@ -1,7 +1,7 @@
 // ── JOB CARDS ─────────────────────────────────────────────────────────────────
 
-function ensureJobCardsSheet() {
-  var ss = SpreadsheetApp.openById(SHEET_ID);
+function ensureJobCardsSheet(ss) {
+  if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
   var ws = ss.getSheetByName('JOB_CARDS');
   if (!ws) {
     ws = ss.insertSheet('JOB_CARDS');
@@ -10,9 +10,12 @@ function ensureJobCardsSheet() {
       'JOB_CARD_ID','ORDER_REF','WORK_ORDER','STORE','MOVEMENT',
       'CONTRACTOR_ID','PAIRS_ISSUED','PAIRS_RECEIVED','SIZE_BREAKDOWN',
       'ISSUED_BY','ISSUED_AT','EXPECTED_RETURN','RECEIVED_AT','STATUS','NOTES',
-      'BATCH_ID'
+      'BATCH_ID','ASSIGNMENTS'
     ]);
     ws.setFrozenRows(1);
+  } else if (safeStr(ws.getRange(1, 17).getValue()) === '') {
+    // Existing sheet predates the one-card model — label the ASSIGNMENTS column once.
+    ws.getRange(1, 17).setValue('ASSIGNMENTS');
   }
   return ws;
 }
@@ -247,9 +250,146 @@ function issueJobCard(data) {
     else try { generateDailyReport(); } catch(e) {}
   } catch(wipErr) { wipWarning = wipErr.message; }
 
+  try { CacheService.getScriptCache().remove('storeScreenData_' + CONFIG.ENV); } catch(ce) {}
+  try { CacheService.getScriptCache().remove('dashboardData_' + CONFIG.ENV); } catch(ce) {}
   var issueResult = { success: true, jobCardId: jobCardId };
   if (wipWarning) issueResult.warning = 'WIP entry not created: ' + wipWarning;
   return issueResult;
+}
+
+// One-card-per-department issue: a single job card carries `pairs` for the whole
+// department (one movement, one WIP entry, one stage-cap consumption) plus a list
+// of {activity, contractorId} assignments for per-contractor payment.
+function issueDepartmentJobCard(data) {
+  var _user = getUserInfo();
+  if (_user.role !== 'store' && _user.role !== 'admin') return { success:false, error:'Not authorised' };
+
+  var STORE_MOVEMENT_MAP = {
+    'Upper Store':             ['Cutting IN','Cutting OUT','Preparation IN','Preparation OUT','Fitter IN','Fitter OUT'],
+    'Lasting & Packing Store': ['Upper IN','Lasting IN','Lasting OUT','Packing IN','Packing OUT'],
+    'Dispatch Store':          ['Dispatch IN','Dispatch OUT']
+  };
+  var DEPT_KEY = {
+    'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter',
+    'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finishing','Dispatch IN':'dispatch'
+  };
+
+  var orderRef       = safeStr(data.orderRef       || '').trim();
+  var workOrder      = safeStr(data.workOrder      || '').trim();
+  var store          = safeStr(data.store          || '').trim();
+  var movement       = safeStr(data.movement       || '').trim();
+  var pairs          = safeNum(data.pairs);
+  var assignments    = Array.isArray(data.assignments) ? data.assignments : [];
+  var sizeBreakdown  = data.sizeBreakdown || {};
+  var expectedReturn = safeStr(data.expectedReturn || '').trim();
+  var notes          = safeStr(data.notes          || '').trim();
+
+  if (!orderRef)                                                       return { success:false, error:'orderRef is required' };
+  if (!STORE_MOVEMENT_MAP[store])                                      return { success:false, error:'Invalid store: ' + store };
+  if (STORE_MOVEMENT_MAP[store].indexOf(movement) < 0)                return { success:false, error:'Invalid movement for store: ' + movement };
+  if (!assignments.length)                                            return { success:false, error:'At least one activity-contractor assignment is required' };
+  if (!pairs || pairs <= 0 || Math.floor(pairs) !== pairs)            return { success:false, error:'pairs must be a positive integer' };
+  if (!expectedReturn)                                                return { success:false, error:'expectedReturn is required' };
+
+  // Resolve approved activity rates for this order + department
+  var deptKey = DEPT_KEY[movement] || '';
+  var approvedByName = {};
+  try {
+    var ar = getApprovedActivitiesForArticle(orderRef);
+    if (ar && ar.success && Array.isArray(ar.activities)) {
+      ar.activities.forEach(function(a) {
+        if (!deptKey || safeStr(a.dept).toLowerCase().indexOf(deptKey) === 0)
+          approvedByName[safeStr(a.activityName)] = { rate:safeNum(a.rate), comm:safeNum(a.comm), dept:safeStr(a.dept) };
+      });
+    }
+  } catch(e) {}
+  if (!Object.keys(approvedByName).length)
+    return { success:false, error:'No approved activities for this department on order ' + orderRef + '. Ask Arvind to set up and approve activities first.' };
+
+  // Normalise assignments; every activity must be approved and have a contractor
+  var normAssign = [];
+  for (var i = 0; i < assignments.length; i++) {
+    var an  = safeStr(assignments[i].activityName || assignments[i].activity).trim();
+    var cid = safeStr(assignments[i].contractorId).trim();
+    if (!an || !cid) continue;
+    var meta = approvedByName[an];
+    if (!meta) return { success:false, error:'Activity not approved for this department: ' + an };
+    normAssign.push({ activity:an, contractorId:cid, rate:meta.rate, comm:meta.comm });
+  }
+  if (!normAssign.length) return { success:false, error:'Assign a contractor to at least one activity' };
+
+  // Stage cap — pairs move once for the whole department. Reuse the tested calc.
+  try {
+    var maxRes = getMaxIssuableForStage(orderRef, movement);
+    if (maxRes && maxRes.success && pairs > safeNum(maxRes.maxIssuable)) {
+      return { success:false, error:'Cannot issue ' + pairs + ' pairs. Maximum available for this stage: ' +
+               safeNum(maxRes.maxIssuable) + ' pairs (' + safeStr(maxRes.source) + ').' };
+    }
+  } catch(e) {}
+
+  var jobCardId;
+  var lock = LockService.getPublicLock();
+  try {
+    lock.waitLock(10000);
+    var ws       = ensureJobCardsSheet();
+    var dataRows = Math.max(0, ws.getLastRow() - 1);
+    var nextNum  = dataRows + 1;
+    var year     = new Date().getFullYear();
+    var seq      = String(nextNum); while (seq.length < 3) seq = '0' + seq;
+    jobCardId    = 'JC-' + year + '-' + seq;
+    var issuedBy = Session.getActiveUser().getEmail();
+    var now      = new Date().toISOString();
+    var primary  = normAssign[0].contractorId;  // legacy CONTRACTOR_ID col / display fallback
+    ws.appendRow([
+      jobCardId, orderRef, workOrder, store, movement, primary,
+      pairs, 0, JSON.stringify(sizeBreakdown), issuedBy,
+      now, expectedReturn, '', 'ISSUED', notes,
+      '', JSON.stringify(normAssign)
+    ]);
+    SpreadsheetApp.flush();
+  } catch(e) {
+    return { success:false, error:e.message };
+  } finally {
+    lock.releaseLock();
+  }
+
+  // Resolve current open periodId; fall back to synthetic JC date
+  var periodId = 'JC-' + new Date().toISOString().slice(0, 10);
+  try {
+    var ss2 = SpreadsheetApp.openById(SHEET_ID);
+    var pp  = ss2.getSheetByName('PAYMENT_PERIODS');
+    if (pp && pp.getLastRow() > 1) {
+      var ppV = pp.getRange(2, 1, pp.getLastRow() - 1, 7).getValues();
+      var oids = [];
+      ppV.forEach(function(r){ if (safeStr(r[6]).trim().toUpperCase() === 'OPEN') oids.push(safeStr(r[0])); });
+      oids.sort();
+      if (oids.length) periodId = oids[0];
+    }
+  } catch(pe) {}
+
+  // One IN-side WIP entry for the whole department movement
+  var wipWarning;
+  try {
+    var wipResult = saveWipEntry({
+      orderRef:    orderRef,
+      workOrder:   workOrder,
+      store:       store,
+      movement:    movement,
+      pairs:       pairs,
+      periodId:    periodId,
+      notes:       'Job Card ' + jobCardId,
+      contractors: normAssign.map(function(a){ return a.contractorId; }),
+      jobCardRef:  jobCardId
+    });
+    if (wipResult && wipResult.success === false) wipWarning = wipResult.error;
+    else try { generateDailyReport(); } catch(e) {}
+  } catch(wipErr) { wipWarning = wipErr.message; }
+
+  try { CacheService.getScriptCache().remove('storeScreenData_' + CONFIG.ENV); } catch(ce) {}
+  try { CacheService.getScriptCache().remove('dashboardData_' + CONFIG.ENV); } catch(ce) {}
+  var res = { success:true, jobCardId:jobCardId };
+  if (wipWarning) res.warning = 'WIP entry not created: ' + wipWarning;
+  return res;
 }
 
 function issueJobCardBatch(data) {
@@ -307,6 +447,8 @@ function issueJobCardBatch(data) {
     }
   }
 
+  try { CacheService.getScriptCache().remove('storeScreenData_' + CONFIG.ENV); } catch(ce) {}
+  try { CacheService.getScriptCache().remove('dashboardData_' + CONFIG.ENV); } catch(ce) {}
   return {
     success: !anyFailed,
     batchId: batchId,
@@ -422,22 +564,26 @@ function receiveJobCard(data) {
     } catch(wipErr) { rcvWarning = wipErr.message; }
   }
 
+  try { CacheService.getScriptCache().remove('storeScreenData_' + CONFIG.ENV); } catch(ce) {}
+  try { CacheService.getScriptCache().remove('dashboardData_' + CONFIG.ENV); } catch(ce) {}
   var rcvResult = { success: true, jobCardId: jobCardId, totalReceived: newReceived, pairsIssued: pairsIssued, status: newStatus };
   if (rcvWarning) rcvResult.warning = 'WIP entry not created: ' + rcvWarning;
   return rcvResult;
 }
 
-function getJobCards(filters) {
+function getJobCards(filters, ss) {
   try {
-    var ws      = ensureJobCardsSheet();
+    var ws      = ensureJobCardsSheet(ss);
     var lastRow = ws.getLastRow();
     if (lastRow < 2) return [];
-    var rows   = ws.getRange(2, 1, lastRow - 1, 15).getValues();
+    var rows   = ws.getRange(2, 1, lastRow - 1, 17).getValues();
     var result = [];
     rows.forEach(function(r) {
       if (!safeStr(r[0]).trim()) return;
       var sd = {};
       try { sd = JSON.parse(safeStr(r[8])) || {}; } catch(e) {}
+      var asg = [];
+      try { asg = JSON.parse(safeStr(r[16])) || []; } catch(e) {}
       result.push({
         jobCardId:      safeStr(r[0]),
         orderRef:       safeStr(r[1]),
@@ -453,7 +599,9 @@ function getJobCards(filters) {
         expectedReturn: safeStr(r[11]),
         receivedAt:     safeStr(r[12]),
         status:         safeStr(r[13]),
-        notes:          safeStr(r[14])
+        notes:          safeStr(r[14]),
+        batchId:        safeStr(r[15]),
+        assignments:    Array.isArray(asg) ? asg : []
       });
     });
     if (filters) {
@@ -505,7 +653,7 @@ function getMaxIssuableForStage(orderRef, movement) {
     if (!currentStage) return { success:true, maxIssuable:0, source:'unknown' };
 
     var currentStageIdx = STAGE_ORDER.indexOf(currentStage);
-    var orderActRes = getApprovedActivitiesForArticle(orderRef);
+    var orderActRes = getApprovedActivitiesForArticle(orderRef, ss);
     var orderActiveDepts = {};
     if (orderActRes && orderActRes.success && Array.isArray(orderActRes.activities)) {
       orderActRes.activities.forEach(function(a) {
@@ -521,7 +669,7 @@ function getMaxIssuableForStage(orderRef, movement) {
       if (orderActiveDepts[STAGE_ORDER[si]]) { predecessorStage = STAGE_ORDER[si]; break; }
     }
 
-    var allJCs = getJobCards({orderRef: orderRef});
+    var allJCs = getJobCards({orderRef: orderRef}, ss);
     if (!Array.isArray(allJCs)) allJCs = [];
 
     var thisStageMovements = STAGE_OWN_MOVEMENTS[currentStage] || [];

@@ -50,20 +50,24 @@ function isArtSheet(s) {
 }
 
 function getAllData() {
-  var result = { ok:true, dash:null, entry:null, wip:null, reqs:null, user:null };
+  var result = { ok:true, dash:null, entry:null, wip:null, reqs:null, jobCards:null, user:null };
   try {
     var user = getUserInfo();
     result.user = user;
     Logger.log('[getAllData] user=' + user.email + ' role=' + user.role);
     var ss = SpreadsheetApp.openById(SHEET_ID);
-    result.dash = getDashboardData(ss);
+    // dash is only rendered on admin/accounts home. Store home never reads it,
+    // so we skip the heavy getDashboardData scan on the floor-staff boot path.
     if (user.role === 'accounts') {
+      result.dash = getDashboardData(ss);
       result.entry = getEntryData(null, ss);
       result.reqs = getPendingRequests(ss);
     } else if (user.role === 'admin') {
+      result.dash = getDashboardData(ss);
       result.reqs = getPendingRequests(ss);
     } else if (user.role === 'store') {
       result.wip = getWipEntries({}, ss);
+      result.jobCards = getJobCards({});
     }
   } catch(e) {
     Logger.log('getAllData error: ' + e.message + ' | stack: ' + e.stack);

@@ -107,10 +107,10 @@ window.onload=function(){
         D.entry = allData.entry;
         D.wip   = allData.wip;
         D.reqs  = allData.reqs;
+        if(allData.jobCards) D.jobCards = allData.jobCards;
         if(allData.entry){
           CONTRACTORS  = allData.entry.contractors  || [];
           MASTER_ACTS  = allData.entry.masterActivities || [];
-          (allData.entry.articles||[]).forEach(function(a){console.log('[DIAG] boot '+a.sheet+' "'+a.article+'" → '+(a.activities?a.activities.length:0)+' activities');});
           updateNavBadge('activities',(allData.entry.pendingActsCount||0)>0);
         }
         if(allData.reqs&&allData.reqs.requests&&USER.role==='accounts'){
@@ -196,6 +196,36 @@ function updateNavBadge(tabId,show,count){
 }
 
 // ── TAB LOADER ────────────────────────────────────────────────────────────────
+// Store screens only need the lightweight article list. Admin/accounts screens
+// (payment/activities) need full getEntryData, so keep that for non-store roles.
+function _loadStoreEntry(cb){
+  if(USER&&USER.role==='store'){
+    google.script.run
+      .withSuccessHandler(function(d){D.entry=d;cb();})
+      .withFailureHandler(showErr)
+      .getArticlesLite();
+  } else {
+    google.script.run
+      .withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];cb();})
+      .withFailureHandler(showErr)
+      .getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
+  }
+}
+// One round-trip for all store-screen data (articles + contractors + enrollments +
+// job cards), server-cached with write-invalidation. Store role only.
+function _loadStoreBundle(cb){
+  google.script.run
+    .withSuccessHandler(function(d){
+      d=d||{};
+      D.entry={articles:Array.isArray(d.articles)?d.articles:[]};
+      D.contractors=Array.isArray(d.contractors)?d.contractors:[];
+      D.enrollments=Array.isArray(d.enrollments)?d.enrollments:[];
+      D.jobCards=Array.isArray(d.jobCards)?d.jobCards:[];
+      cb();
+    })
+    .withFailureHandler(showErr)
+    .getStoreScreenData();
+}
 function loadTab(id){
   TAB=id; setNav(id);
   // Use cached data if available — instant tab switch
@@ -261,7 +291,13 @@ function loadTab(id){
     } else {
       var _payLoadCards=function(){
         google.script.run
-          .withSuccessHandler(function(jcs){D.completedJobCards=Array.isArray(jcs)?jcs:[];renderTab(id);})
+          .withSuccessHandler(function(jcs){
+            D.completedJobCards=Array.isArray(jcs)?jcs:[];
+            google.script.run
+              .withSuccessHandler(function(adv){D.advanceable=Array.isArray(adv)?adv:[];renderTab(id);})
+              .withFailureHandler(function(){D.advanceable=[];renderTab(id);})
+              .getAdvanceableJobCards();
+          })
           .withFailureHandler(showErr)
           .getCompletedUnpaidJobCards();
       };
@@ -282,6 +318,11 @@ function loadTab(id){
     }
   } else if(id==='wip'){
     showLoading();
+    if(USER&&USER.role==='store'){
+      if(D.entry&&D.contractors&&D.enrollments&&D.jobCards){renderTab(id);return;}
+      _loadStoreBundle(function(){renderTab(id);});
+      return;
+    }
     var _doLoadJobCards=function(){
       google.script.run
         .withSuccessHandler(function(jcs){D.jobCards=Array.isArray(jcs)?jcs:[];renderTab(id);})
@@ -303,12 +344,7 @@ function loadTab(id){
         .getContractors();
     };
     if(D.entry){_doLoadContractors();}
-    else{
-      google.script.run
-        .withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];_doLoadContractors();})
-        .withFailureHandler(showErr)
-        .getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
-    }
+    else{ _loadStoreEntry(_doLoadContractors); }
   } else if(id==='contractors'){
     if(D.ctrs&&D.contractors&&D.enrollments){renderTab(id);return;}
     showLoading();
@@ -336,6 +372,11 @@ function loadTab(id){
     }).withFailureHandler(showErr).getMyRequests();
   } else if(id==='jobcards'){
     showLoading();
+    if(USER&&USER.role==='store'){
+      if(D.entry&&D.contractors&&D.jobCards){renderTab(id);return;}
+      _loadStoreBundle(function(){renderTab(id);});
+      return;
+    }
     var _jcLoadCards=function(){
       google.script.run
         .withSuccessHandler(function(jcs){D.jobCards=Array.isArray(jcs)?jcs:[];renderTab(id);})
@@ -350,12 +391,7 @@ function loadTab(id){
         .getContractors();
     };
     if(D.entry){_jcLoadContractors();}
-    else{
-      google.script.run
-        .withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];_jcLoadContractors();})
-        .withFailureHandler(showErr)
-        .getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
-    }
+    else{ _loadStoreEntry(_jcLoadContractors); }
   } else if(id==='payhistory'){
     showLoading();
     var _phLoadBatches=function(){
@@ -384,6 +420,11 @@ function loadTab(id){
     google.script.run.withSuccessHandler(function(g){D.wipGrid=g;renderTab(id);}).withFailureHandler(showErr).getWipGrid();
   } else if(id==='floor'){
     showLoading();
+    if(USER&&USER.role==='store'){
+      if(D.entry&&D.contractors&&D.jobCards){renderTab(id);return;}
+      _loadStoreBundle(function(){renderTab(id);});
+      return;
+    }
     var _flLoadCards=function(){
       google.script.run
         .withSuccessHandler(function(jcs){D.jobCards=Array.isArray(jcs)?jcs:[];renderTab(id);})
@@ -398,12 +439,7 @@ function loadTab(id){
         .getContractors();
     };
     if(D.entry){_flLoadContractors();}
-    else{
-      google.script.run
-        .withSuccessHandler(function(d){D.entry=d;CONTRACTORS=d.contractors||[];MASTER_ACTS=d.masterActivities||[];_flLoadContractors();})
-        .withFailureHandler(showErr)
-        .getEntryData(ENTRY_PERIOD?ENTRY_PERIOD.periodId:null);
-    }
+    else{ _loadStoreEntry(_flLoadContractors); }
   }
 }
 
@@ -414,7 +450,7 @@ function showLoading(){
 
 // Refresh: force reload from server (pull to refresh equivalent)
 function refreshTab(){
-  D.dash=null; D.entry=null; D.wip=null; D.reqs=null; D.subs=null; ENTRY_PERIOD=null; D.ctrs=null; D.myreqs=null; D.contractors=null; D.enrollments=null; D.wipGrid=null; D.jobCards=null; D.orderSizes=null; D.completedJobCards=null; D.payBatches=null;
+  D.dash=null; D.entry=null; D.wip=null; D.reqs=null; D.subs=null; ENTRY_PERIOD=null; D.ctrs=null; D.myreqs=null; D.contractors=null; D.enrollments=null; D.wipGrid=null; D.jobCards=null; D.orderSizes=null; D.completedJobCards=null; D.advanceable=null; D.payBatches=null;
   loadTab(TAB);
 }
 
@@ -505,7 +541,7 @@ function orderRowEl(o){
   var over=o.orderQty>0&&o.cumul>o.orderQty;
   var done=!over&&o.orderQty>0&&o.cumul>=o.orderQty;
   var bClass=over?'red':done?'green':o.remaining>0?'blue':'grey';
-  var bText=over?'COMPLETE':done?'DONE':o.remaining>0?(o.remaining+' left'):'NO LOT';
+  var bText=over?'OVER':done?'COMPLETE':o.remaining>0?(o.remaining+' left'):'NO LOT';
 
   var wrap=el('div',{style:'border-bottom:0.5px solid var(--fos-border)'});
   var row=el('div',{cls:'order-row',style:'padding:11px 16px;border-bottom:none'});

@@ -8,6 +8,13 @@ function getEntryData(periodId, ss) {
   }
   ensureCurrentPeriod();
   if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
+  // Read REQUESTS once and reuse across every pass below (was ~6 separate reads).
+  var _REQ = [];
+  try {
+    var _rqAll = ss.getSheetByName('REQUESTS');
+    if (_rqAll && _rqAll.getLastRow() > 3)
+      _REQ = _rqAll.getRange(4, 1, _rqAll.getLastRow()-3, 6).getValues();
+  } catch(e) {}
   var firstOpenId = '';
   try {
     var ppE = ss.getSheetByName('PAYMENT_PERIODS');
@@ -38,9 +45,10 @@ function getEntryData(periodId, ss) {
       var article  = safeStr(hdr[0]);
       var customer = safeStr(hdr[3]);
       var orderQty = safeNum(hdr[6]);
-      var status   = safeStr(ws.getRange('M7').getValue());
-      var thisWeek = safeNum(ws.getRange('M4').getValue());
-      var remaining= safeNum(ws.getRange('M6').getValue());
+      var _mCol    = ws.getRange('M4:M7').getValues();  // one read: M4,M5,M6,M7
+      var status   = safeStr(_mCol[3][0]);   // M7
+      var thisWeek = safeNum(_mCol[0][0]);   // M4
+      var remaining= safeNum(_mCol[2][0]);   // M6
 
       var actData = ws.getRange(5, 1, 45, 12).getValues();
       var activities = [];
@@ -72,18 +80,15 @@ function getEntryData(periodId, ss) {
   });
 
   try {
-    var rqSetup = ss.getSheetByName('REQUESTS');
-    if (rqSetup && rqSetup.getLastRow() > 3) {
-      rqSetup.getRange(4, 1, rqSetup.getLastRow()-3, 6).getValues().forEach(function(rr) {
-        if (safeStr(rr[3]) !== 'ACTIVITY_SETUP' || safeStr(rr[5]).toUpperCase() !== 'PENDING') return;
-        try {
-          var setupPl = JSON.parse(safeStr(rr[4]));
-          if (setupPl && setupPl.sheet)
-            for (var ai = 0; ai < articles.length; ai++)
-              if (articles[ai].sheet === setupPl.sheet) articles[ai].hasPendingSetup = true;
-        } catch(pe) {}
-      });
-    }
+    _REQ.forEach(function(rr) {
+      if (safeStr(rr[3]) !== 'ACTIVITY_SETUP' || safeStr(rr[5]).toUpperCase() !== 'PENDING') return;
+      try {
+        var setupPl = JSON.parse(safeStr(rr[4]));
+        if (setupPl && setupPl.sheet)
+          for (var ai = 0; ai < articles.length; ai++)
+            if (articles[ai].sheet === setupPl.sheet) articles[ai].hasPendingSetup = true;
+      } catch(pe) {}
+    });
   } catch(e4) {}
 
   var contractors = [];
@@ -108,24 +113,21 @@ function getEntryData(periodId, ss) {
             rowIndex: 2 + i });
       });
       try {
-        var rq2 = ss.getSheetByName('REQUESTS');
-        if (rq2 && rq2.getLastRow() > 3) {
-          rq2.getRange(4, 1, rq2.getLastRow()-3, 6).getValues().forEach(function(rr) {
-            if (safeStr(rr[3]) !== 'RATE_EDIT') return;
-            var st = safeStr(rr[5]).toUpperCase();
-            if (st !== 'PENDING' && st !== 'REJECTED') return;
-            try {
-              var pl = JSON.parse(safeStr(rr[4]));
-              if (!pl || !pl.rowIndex) return;
-              masterActivities.forEach(function(ma) {
-                if (ma.rowIndex === pl.rowIndex) {
-                  if (st === 'PENDING') { ma.hasPendingRateEdit = true; ma.pendingReqId = safeStr(rr[0]); }
-                  else { ma.hasRejectedRateEdit = true; ma.rejectedRate = pl.newRate; ma.rejectedComm = pl.newComm; ma.rejectedReqId = safeStr(rr[0]); }
-                }
-              });
-            } catch(pe) {}
-          });
-        }
+        _REQ.forEach(function(rr) {
+          if (safeStr(rr[3]) !== 'RATE_EDIT') return;
+          var st = safeStr(rr[5]).toUpperCase();
+          if (st !== 'PENDING' && st !== 'REJECTED') return;
+          try {
+            var pl = JSON.parse(safeStr(rr[4]));
+            if (!pl || !pl.rowIndex) return;
+            masterActivities.forEach(function(ma) {
+              if (ma.rowIndex === pl.rowIndex) {
+                if (st === 'PENDING') { ma.hasPendingRateEdit = true; ma.pendingReqId = safeStr(rr[0]); }
+                else { ma.hasRejectedRateEdit = true; ma.rejectedRate = pl.newRate; ma.rejectedComm = pl.newComm; ma.rejectedReqId = safeStr(rr[0]); }
+              }
+            });
+          } catch(pe) {}
+        });
       } catch(e2) {}
     }
   } catch(e) {}
@@ -142,9 +144,8 @@ function getEntryData(periodId, ss) {
 
   var articleDeptMaps = {};
   try {
-    var rqAS = ss.getSheetByName('REQUESTS');
-    if (rqAS && rqAS.getLastRow() > 3) {
-      rqAS.getRange(4, 1, rqAS.getLastRow()-3, 6).getValues().forEach(function(rr) {
+    {
+      _REQ.forEach(function(rr) {
         if (safeStr(rr[3]) !== 'ACTIVITY_SETUP' || safeStr(rr[5]).toUpperCase() !== 'APPROVED') return;
         try {
           var asPl = JSON.parse(safeStr(rr[4]));
@@ -162,9 +163,8 @@ function getEntryData(periodId, ss) {
 
   var actDeptMap = {};
   masterActivities.forEach(function(ma) { actDeptMap[ma.name] = ma.section || ''; });
-  var _batchReqsData = [];
+  var _batchReqsData = _REQ;
   var _batchDsData = [];
-  try { var _bRq = ss.getSheetByName('REQUESTS'); if (_bRq && _bRq.getLastRow() > 3) _batchReqsData = _bRq.getRange(4, 1, _bRq.getLastRow()-3, 6).getValues(); } catch(e) {}
   try { var _bDs = ss.getSheetByName('DEPT_STATUS'); if (_bDs && _bDs.getLastRow() > 1) _batchDsData = _bDs.getRange(2, 1, _bDs.getLastRow()-1, 3).getValues(); } catch(e) {}
   var _deptStatusBatch = getDeptStatusBatch(articles.map(function(a){return a.sheet;}), _batchReqsData, _batchDsData);
   articles.forEach(function(art) {
@@ -201,10 +201,9 @@ function getEntryData(periodId, ss) {
   });
 
   try {
-    var rqSer = ss.getSheetByName('REQUESTS');
-    if (rqSer && rqSer.getLastRow() > 3) {
+    if (_REQ.length) {
       var pendingEditMap = {};
-      rqSer.getRange(4, 1, rqSer.getLastRow()-3, 6).getValues().forEach(function(r) {
+      _REQ.forEach(function(r) {
         if (safeStr(r[3]) !== 'SETUP_EDIT_REQUEST' || safeStr(r[5]).toUpperCase() !== 'PENDING') return;
         try {
           var pl = JSON.parse(safeStr(r[4]));
@@ -245,23 +244,20 @@ function getEntryData(periodId, ss) {
   var pendingActivities = [];
   var pendingActsCount = 0;
   try {
-    var rqp = ss.getSheetByName('REQUESTS');
-    if (rqp && rqp.getLastRow() > 3) {
-      rqp.getRange(4, 1, rqp.getLastRow()-3, 6).getValues().forEach(function(rr) {
-        var type = safeStr(rr[3]);
-        var status = safeStr(rr[5]).toUpperCase();
-        if (status !== 'PENDING') return;
-        if (type === 'ACTIVITY_SETUP' || type === 'RATE_EDIT') pendingActsCount++;
-        if (type === 'ACTIVITY_SETUP') {
-          try {
-            var pl = JSON.parse(safeStr(rr[4]));
-            if (pl && pl.activityName) {
-              pendingActivities.push({ activityName:safeStr(pl.activityName), dept:safeStr(pl.dept), rate:safeNum(pl.rate), comm:safeNum(pl.comm) });
-            }
-          } catch(pe) {}
-        }
-      });
-    }
+    _REQ.forEach(function(rr) {
+      var type = safeStr(rr[3]);
+      var status = safeStr(rr[5]).toUpperCase();
+      if (status !== 'PENDING') return;
+      if (type === 'ACTIVITY_SETUP' || type === 'RATE_EDIT') pendingActsCount++;
+      if (type === 'ACTIVITY_SETUP') {
+        try {
+          var pl = JSON.parse(safeStr(rr[4]));
+          if (pl && pl.activityName) {
+            pendingActivities.push({ activityName:safeStr(pl.activityName), dept:safeStr(pl.dept), rate:safeNum(pl.rate), comm:safeNum(pl.comm) });
+          }
+        } catch(pe) {}
+      }
+    });
   } catch(e5) {}
   if (!week) week = getCurrentWeek();
   var _entryResult = { articles:articles, contractors:contractors, masterActivities:masterActivities, pendingActivities:pendingActivities, pendingActsCount:pendingActsCount, week:week, periods:periods };
@@ -272,6 +268,61 @@ function getEntryData(periodId, ss) {
     } catch(ce) {}
   }
   return _entryResult;
+}
+
+// Lightweight article list for the store/floor screens.
+// Same authoritative source as getEntryData (each ART sheet's B2:J2 header,
+// orderQty = H2), but ONE read per sheet and none of the activities / REQUESTS /
+// masterActivities / deptStatus work. Store screens only ever use articles[].
+// Returns the same { articles:[...] } shape store render code already expects.
+function getArticlesLite(ss) {
+  if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
+  var bomMap = {};
+  try {
+    var oi = ss.getSheetByName('ORDER_INDEX');
+    if (oi && oi.getLastRow() > 3)
+      oi.getRange(4, 1, oi.getLastRow()-3, 2).getValues().forEach(function(r) {
+        var sn = safeStr(r[1]); if (sn) bomMap[sn] = safeStr(r[0]);
+      });
+  } catch(e) {}
+  var articles = [];
+  ss.getSheets().filter(isArtSheet).forEach(function(ws) {
+    try {
+      var name = ws.getName();
+      var hdr  = ws.getRange('B2:J2').getValues()[0];  // B2..J2 in one read
+      articles.push({
+        sheet:    name,
+        article:  safeStr(hdr[0]),   // B2
+        customer: safeStr(hdr[3]),   // E2
+        orderQty: safeNum(hdr[6]),   // H2 — authoritative order/lot qty
+        bom:      bomMap[name] || ''
+      });
+    } catch(e) { Logger.log('getArticlesLite ' + ws.getName() + ': ' + e.message); }
+  });
+  return { articles: articles };
+}
+
+// One round-trip bundle for the store screens (WIP / Job Cards / Floor):
+// lite articles + contractors + active enrollments + job cards. Cached 300s under
+// storeScreenData_<ENV>; the cache is removed by issueJobCard / issueJobCardBatch /
+// receiveJobCard so a write is reflected on the next load.
+function getStoreScreenData() {
+  try {
+    var _cc = CacheService.getScriptCache();
+    var _cv = _cc.get('storeScreenData_' + CONFIG.ENV);
+    if (_cv) return JSON.parse(_cv);
+  } catch(ce) {}
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var result = { articles: [], contractors: [], enrollments: [], jobCards: [] };
+  try { var lite = getArticlesLite(ss); result.articles = (lite && lite.articles) || []; } catch(e) {}
+  try { result.contractors = getContractors(ss); } catch(e) {}
+  try { result.enrollments = getEnrollments({status:'ACTIVE'}, ss); } catch(e) {}
+  try { result.jobCards = getJobCards({}, ss); } catch(e) {}
+  try {
+    CacheService.getScriptCache()
+      .put('storeScreenData_' + CONFIG.ENV, JSON.stringify(result), 300);
+  } catch(ce) {}
+  return result;
 }
 
 function getActivitiesFromTS(sheetName) {
@@ -305,9 +356,9 @@ function getActivitiesFromTS(sheetName) {
   } catch(e) { return { success:false, error:e.message }; }
 }
 
-function getApprovedActivitiesForArticle(sheetName) {
+function getApprovedActivitiesForArticle(sheetName, ss) {
   try {
-    var ss = SpreadsheetApp.openById(SHEET_ID);
+    if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
     var rq = ss.getSheetByName('REQUESTS');
     if (!rq || rq.getLastRow() < 4) return { success:true, activities:[] };
     var data = rq.getRange(4, 1, rq.getLastRow()-3, 6).getValues();

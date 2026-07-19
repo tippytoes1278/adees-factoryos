@@ -222,8 +222,16 @@ function createOrder(payload) {
     var tz = Session.getScriptTimeZone();
     var now = Utilities.formatDate(new Date(), tz, 'dd-MMM-yyyy');
     var oi = ss.getSheetByName('ORDER_INDEX');
-    var oiCount = oi ? Math.max(oi.getLastRow() - 3, 0) : 0;
-    var bomSeq = String(oiCount + 1);
+    // WO sequence = highest existing WO number + 1 (monotonic — survives deletes,
+    // never reuses a number). Count-based numbering duplicated after a delete.
+    var maxWoSeq = 0;
+    if (oi && oi.getLastRow() > 3) {
+      oi.getRange(4, 1, oi.getLastRow() - 3, 1).getValues().forEach(function(r) {
+        var m = safeStr(r[0]).match(/^WO-\d{4}-(\d+)$/);
+        if (m) { var n = parseInt(m[1], 10) || 0; if (n > maxWoSeq) maxWoSeq = n; }
+      });
+    }
+    var bomSeq = String(maxWoSeq + 1);
     while (bomSeq.length < 3) bomSeq = '0' + bomSeq;
     var bomNumber = 'WO-' + new Date().getFullYear() + '-' + bomSeq;
     var artSheets = ss.getSheets().filter(isArtSheet);
@@ -318,40 +326,26 @@ function createOrder(payload) {
 function getOrderProgress(artSheet) {
   try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
-    var actDeptMap = {};
-    var maS = ss.getSheetByName('MASTER_ACTIVITIES');
-    if (maS && maS.getLastRow() > 1) {
-      maS.getRange(2, 1, maS.getLastRow()-1, 5).getValues().forEach(function(r) {
-        var dept = safeStr(r[0]).trim();
-        var actName = safeStr(r[1]).trim();
-        if (actName && safeStr(r[4]).trim().toUpperCase() === 'APPROVED') {
-          actDeptMap[actName.toLowerCase()] = dept;
-        }
-      });
-    }
     var ws = ss.getSheetByName(artSheet);
     if (!ws) return { error: 'Sheet not found: ' + artSheet };
     var lotSize = safeNum(ws.getRange('H2').getValue());
-    var lastRow = ws.getLastRow();
-    var deptQty = {};
-    if (lastRow >= 5) {
-      ws.getRange(5, 1, lastRow - 4, 12).getValues().forEach(function(r) {
-        var actName = safeStr(r[1]).trim();
-        var qty = safeNum(r[3]);
-        if (!actName || qty <= 0) return;
-        var dept = actDeptMap[actName.toLowerCase()] || 'unknown';
-        deptQty[dept] = (deptQty[dept] || 0) + qty;
-      });
-    }
-    var DEPT_KEY_MAP = {
-      'cutting':'cutting','preparation':'prep','fitter':'fitter',
-      'lasting':'lasting','finishing':'finish','dispatch':'dispatch'
+
+    // Progress per stage = pairs RECEIVED back through that stage's job cards
+    // (job-card model). One card per department, so no double counting.
+    var MOVEMENT_STAGE = {
+      'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter',
+      'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'
     };
     var sq = {cutting:0,prep:0,fitter:0,lasting:0,finish:0,dispatch:0};
-    Object.keys(deptQty).forEach(function(dept) {
-      var key = DEPT_KEY_MAP[dept.toLowerCase()];
-      if (key) sq[key] += deptQty[dept];
-    });
+    var jcs = getJobCards({ orderRef: artSheet });
+    if (Array.isArray(jcs)) {
+      jcs.forEach(function(jc) {
+        var stage = MOVEMENT_STAGE[safeStr(jc.movement).trim()];
+        if (!stage) return;
+        if (safeStr(jc.status).toUpperCase() === 'CANCELLED') return;
+        sq[stage] += safeNum(jc.pairsReceived);
+      });
+    }
     return {
       lotSize: lotSize,
       stages: [

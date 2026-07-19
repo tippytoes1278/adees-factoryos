@@ -21,7 +21,7 @@ function buildAdminOrderRow(o){
   var done=!over&&o.orderQty>0&&o.cumul>=o.orderQty;
   var rem=o.remaining||0;
   var bClass=over?'red':done?'green':rem>0?'blue':'grey';
-  var bText=over?'COMPLETE':done?'DONE':rem>0?(rem+' left'):'NO LOT';
+  var bText=over?'OVER':done?'COMPLETE':rem>0?(rem+' left'):'NO LOT';
   hdr.appendChild(el('span',{cls:'badge '+bClass,text:bText}));
   var det=el('div',{style:'display:none;padding:8px 0 4px;font-size:12px'});
   if(o.deptBreakdown&&o.deptBreakdown.length){
@@ -69,8 +69,9 @@ function renderAdminHome(c){
   var d=D.dash;
   var approved=d.approvalStatus&&d.approvalStatus!=='';
 
-  // 1. Pipeline tracker
-  var pt=fosPipelineTracker({cutting:12,prep:8,upper:14,lasting:10,sole:6,finishing:4});
+  // 1. Pipeline tracker — real outstanding pairs per stage (from job cards)
+  var _pl=d.pipeline||{};
+  var pt=fosPipelineTracker({cutting:_pl.cutting||0,prep:_pl.prep||0,upper:_pl.fitter||0,lasting:_pl.lasting||0,finishing:_pl.finishing||0,dispatch:_pl.dispatch||0});
   pt.classList.add('fos-light');
   c.appendChild(pt);
 
@@ -106,6 +107,51 @@ function renderAdminHome(c){
   if(d.mismatches>0)c.appendChild(alert_('yellow',d.mismatches+' WIP mismatch','Prakash qty does not match Arvind entry'));
   if(!approved)c.appendChild(alert_('yellow','Payment not approved yet','Go to Approve tab before Saturday'));
   if(approved&&d.redCount===0&&d.mismatches===0)c.appendChild(alert_('green','All clear - safe to pay','Approved: '+d.approvalStatus));
+
+  // 3b. Delivery Risk — overdue open job cards (most overdue first)
+  var risk=Array.isArray(d.deliveryRisk)?d.deliveryRisk:[];
+  if(risk.length){
+    c.appendChild(sectionTitle('Delivery Risk'));
+    var riskCard=el('div',{cls:'fos-card'});
+    var artByRefA={};(D.dash&&D.dash.orders?D.dash.orders:[]).forEach(function(o){artByRefA[o.sheet]=o;});
+    risk.slice(0,6).forEach(function(rk){
+      var o=artByRefA[rk.orderRef];
+      var name=o?(o.article||rk.orderRef):rk.orderRef;
+      var rr=el('div',{style:'display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--fos-border)'});
+      var rl=el('div',{style:'flex:1;min-width:0'});
+      rl.appendChild(el('div',{style:'font-size:14px;font-weight:500;color:var(--fos-ink)',text:name}));
+      rl.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:(rk.movement||'')+' · '+rk.balance+' pairs outstanding'}));
+      rr.appendChild(rl);
+      var days=rk.daysOverdue||0;
+      rr.appendChild(el('span',{cls:days>=8?'badge red':'badge yellow',text:days+'d overdue'}));
+      riskCard.appendChild(rr);
+    });
+    if(risk.length>6)riskCard.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);padding:8px 0 0',text:'+ '+(risk.length-6)+' more overdue'}));
+    c.appendChild(riskCard);
+  }
+
+  // 3c. Pending Approvals — with age (days since submitted)
+  var preqs=(D.reqs&&Array.isArray(D.reqs.requests)?D.reqs.requests:[]).filter(function(r){return (r.status||'').toUpperCase()==='PENDING';});
+  if(preqs.length){
+    c.appendChild(sectionTitle('Pending Approvals'));
+    var apCard=el('div',{cls:'fos-card'});
+    var _todayA=new Date();_todayA.setHours(0,0,0,0);
+    var TYPE_LBL={ACTIVITY_SETUP:'Activity setup',RATE_EDIT:'Rate change',SETUP_EDIT_REQUEST:'Setup edit',EDIT_REQUEST:'Edit',NEW_ORDER:'New order',PAYMENT:'Payment'};
+    preqs.forEach(function(r){
+      var ageD='';
+      try{var dt=new Date(r.date);if(!isNaN(dt.getTime())){dt.setHours(0,0,0,0);ageD=Math.max(0,Math.floor((_todayA-dt)/86400000))+'d';}}catch(e){}
+      var arow=el('div',{style:'display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid var(--fos-border);cursor:pointer'});
+      arow.onclick=function(){loadTab('requests');};
+      var al=el('div',{style:'flex:1;min-width:0'});
+      al.appendChild(el('div',{style:'font-size:14px;font-weight:500;color:var(--fos-ink)',text:TYPE_LBL[r.type]||r.type||'Request'}));
+      al.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:'by '+(r.submittedBy||'—')}));
+      arow.appendChild(al);
+      var badgeCls=/^\d+d$/.test(ageD)&&parseInt(ageD,10)>=3?'badge red':'badge grey';
+      arow.appendChild(el('span',{cls:badgeCls,text:ageD||'—'}));
+      apCard.appendChild(arow);
+    });
+    c.appendChild(apCard);
+  }
 
   // 4. Recently updated orders — reversed sheet order (no timestamp in data; positional fallback), capped at 8
   c.appendChild(sectionTitle('Recently Updated'));
@@ -475,7 +521,6 @@ function renderRequests(c){
   c.appendChild(sectionTitle('Pending Requests ('+pending.length+')'));
   if(!pending.length){c.appendChild(alert_('green','All clear','No pending requests'));return;}
   pending.forEach(function(r){
-    console.log('[renderRequests] pending req:', r.reqId, r.type, 'sheetCreated:', r.sheetCreated);
     var card=el('div',{cls:'req-card'});
     var rtEl=el('div',{cls:'req-type',text:r.type});
     if(r.type==='EDIT_REQUEST')rtEl.style.color='var(--fos-danger)';

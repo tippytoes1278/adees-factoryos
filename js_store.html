@@ -59,8 +59,18 @@ function renderStoreHome(c){
     c.appendChild(sKaamCard);
   }
   // ── END AAJ KA KAAM (STORE) ──────────────────────────────────
-  // Section 1: Pipeline tracker
-  var pt=fosPipelineTracker({cutting:12,prep:8,upper:14,lasting:10,sole:6,finishing:4});
+  // Section 1: Pipeline tracker — real outstanding pairs per stage from job cards
+  var _plCounts={cutting:0,prep:0,upper:0,lasting:0,finishing:0,dispatch:0};
+  var _MS={'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'upper','Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finishing','Dispatch IN':'dispatch'};
+  (Array.isArray(D.jobCards)?D.jobCards:[]).forEach(function(jc){
+    var st=(jc.status||'').toUpperCase();
+    if(st!=='ISSUED'&&st!=='PARTIAL')return;
+    var bal=(jc.pairsIssued||0)-(jc.pairsReceived||0);
+    if(bal<=0)return;
+    var stg=_MS[(jc.movement||'').trim()];
+    if(stg)_plCounts[stg]+=bal;
+  });
+  var pt=fosPipelineTracker(_plCounts);
   pt.classList.add('fos-light');
   c.appendChild(pt);
 
@@ -163,13 +173,19 @@ function renderWIP(c){
   var enrollments=D.enrollments||[];
   var contractors=D.contractors||[];
 
+  var DEPT_KEY_MAP={
+    'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter',
+    'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finishing','Dispatch IN':'dispatch'
+  };
+
   var selectedOrderRef='';
   var selectedWorkOrder='';
   var selectedOrderQty=0;
   var selectedStore='';
   var selectedMovement='';
-  var selectedContractorId='';
-  var activityCache={};
+  var activityRows=[];       // [{activityName, rate, contractorSel, pairsInput}]
+  var activityCache={};      // orderRef -> getApprovedActivitiesForArticle result
+  var maxIssuableCache={};   // orderRef||movement -> number
 
   // ── Section 1: Issue Job Card Form ────────────────────────────────────────
   var formCard=el('div',{cls:'art-item',style:'padding:16px;margin-bottom:16px'});
@@ -205,31 +221,29 @@ function renderWIP(c){
   movSel.appendChild(el('option',{value:'',text:'— Select Movement —'}));
   movGrp.appendChild(movSel);
   formCard.appendChild(movGrp);
-  var actWarnDiv=el('div',{style:'display:none;font-size:12px;margin-top:2px;margin-bottom:8px'});
-  actWarnDiv.id='wip-act-warning';
-  formCard.appendChild(actWarnDiv);
 
-  // 4. Contractor
-  var ctrGrp=el('div',{cls:'form-group'});
-  ctrGrp.appendChild(el('label',{cls:'form-label',text:'Contractor'}));
-  var ctrSel=el('select',{cls:'form-select'});
-  ctrSel.disabled=true;
-  ctrSel.appendChild(el('option',{value:'',text:'— Select Contractor —'}));
-  var noEnrollMsg=el('div',{style:'display:none;font-size:12px;color:var(--fos-danger);margin-top:6px',text:'No contractors enrolled for this department. Enroll via Accounts > Contractors.'});
-  ctrGrp.appendChild(ctrSel);
-  ctrGrp.appendChild(noEnrollMsg);
-  formCard.appendChild(ctrGrp);
+  // Order lot-size hint
+  var balanceEl=el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin:-4px 0 10px',text:'Order lot size: — pairs'});
+  formCard.appendChild(balanceEl);
 
-  // 5. Pairs to Issue
+  // 4. Pairs to Issue — one value for the whole department; applies to every activity below
   var pairsGrp=el('div',{cls:'form-group'});
   pairsGrp.appendChild(el('label',{cls:'form-label',text:'Pairs to Issue'}));
-  var pairsInput=el('input',{cls:'form-input',type:'number',min:'1',step:'1',placeholder:'0'});
-  var balanceEl=el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:4px',text:'Order lot size: — pairs'});
-  var stageBalanceEl=el('div',{style:'font-size:13px;font-weight:600;color:var(--fos-accent);margin-top:4px',text:''});
+  var pairsInput=el('input',{cls:'form-input',type:'number'});
+  pairsInput.min='1';pairsInput.step='1';pairsInput.placeholder='0';
+  var stageMaxEl=el('div',{style:'font-size:12px;font-weight:600;margin-top:4px',text:''});
   pairsGrp.appendChild(pairsInput);
-  pairsGrp.appendChild(balanceEl);
-  pairsGrp.appendChild(stageBalanceEl);
+  pairsGrp.appendChild(stageMaxEl);
   formCard.appendChild(pairsGrp);
+
+  // 5. Activities & Contractors (one row per approved activity — contractor only)
+  var actGrp=el('div',{cls:'form-group'});
+  actGrp.appendChild(el('label',{cls:'form-label',text:'Activities & Contractors'}));
+  var actMsg=el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'Select order, store and movement to load activities'});
+  var actContainer=el('div');
+  actGrp.appendChild(actMsg);
+  actGrp.appendChild(actContainer);
+  formCard.appendChild(actGrp);
 
   // 6. Size Breakdown
   var sizeGrp=el('div',{cls:'form-group'});
@@ -256,8 +270,8 @@ function renderWIP(c){
   notesGrp.appendChild(notesInput);
   formCard.appendChild(notesGrp);
 
-  // 9. Issue Job Card button
-  var issueBtn=el('button',{cls:'primary-btn',text:'Issue Job Card'});
+  // 9. Issue All button
+  var issueBtn=el('button',{cls:'primary-btn',text:'Issue All'});
   issueBtn.disabled=true;
   formCard.appendChild(issueBtn);
   c.appendChild(formCard);
@@ -309,28 +323,99 @@ function renderWIP(c){
     (STORE_MOVEMENTS[selectedStore]||[]).forEach(function(mv){movSel.appendChild(el('option',{value:mv,text:mv}));});
     movSel.disabled=!selectedStore;
     selectedMovement='';
-    populateContractors();
+    clearActivityRows();
   }
 
-  function populateContractors(){
-    ctrSel.innerHTML='';
-    ctrSel.appendChild(el('option',{value:'',text:'— Select Contractor —'}));
-    ctrSel.disabled=true;
-    noEnrollMsg.style.display='none';
-    issueBtn.disabled=false;
-    selectedContractorId='';
-    if(!selectedMovement)return;
+  function clearActivityRows(){
+    activityRows=[];
+    actContainer.innerHTML='';
+    actMsg.style.display='block';
+    actMsg.innerHTML='Select order, store and movement to load activities';
+    pairsInput.value='';
+    stageMaxEl.textContent='';
+    issueBtn.disabled=true;
+  }
+
+  // Enrolled + active contractors for the current movement's department.
+  function enrolledContractorsForMovement(){
     var dept=MOVEMENT_DEPT[selectedMovement]||'';
     var enrolled=enrollments.filter(function(e){return e.department===dept&&(e.status||'').toUpperCase()==='ACTIVE';});
-    if(!enrolled.length){noEnrollMsg.style.display='block';issueBtn.disabled=true;return;}
     var enrolledIds={};enrolled.forEach(function(e){enrolledIds[e.contractorId]=e.contractorName||e.contractorId;});
     var found=contractors.filter(function(ct){return !!enrolledIds[ct.ctrId];});
-    if(found.length){
-      found.forEach(function(ct){ctrSel.appendChild(el('option',{value:ct.ctrId,text:ct.ctrId+' — '+ct.name}));});
-    } else {
-      enrolled.forEach(function(e){ctrSel.appendChild(el('option',{value:e.contractorId,text:e.contractorId+' — '+(e.contractorName||e.contractorId)}));});
+    if(found.length)return found.map(function(ct){return {id:ct.ctrId,name:ct.name};});
+    return enrolled.map(function(e){return {id:e.contractorId,name:e.contractorName||e.contractorId};});
+  }
+
+  // Fetch max-issuable for the stage (cached per order+movement), then build rows.
+  function loadStageThenRows(){
+    if(!selectedOrderRef||!selectedMovement){clearActivityRows();return;}
+    var maxKey=selectedOrderRef+'||'+selectedMovement;
+    if(maxIssuableCache.hasOwnProperty(maxKey)){buildActivityRows();return;}
+    actMsg.style.display='block';actMsg.innerHTML='Loading activities…';actContainer.innerHTML='';
+    google.script.run
+      .withSuccessHandler(function(res){maxIssuableCache[maxKey]=(res&&res.success)?safeNum(res.maxIssuable):0;buildActivityRows();})
+      .withFailureHandler(function(){maxIssuableCache[maxKey]=0;buildActivityRows();})
+      .getMaxIssuableForStage(selectedOrderRef,selectedMovement);
+  }
+
+  // One row per approved activity for this order+department; each row has its own
+  // contractor dropdown and editable pairs (defaulting to the stage max-issuable).
+  function buildActivityRows(){
+    if(!selectedOrderRef||!selectedMovement){clearActivityRows();return;}
+    var deptKey=DEPT_KEY_MAP[selectedMovement]||'';
+    var ctrOpts=enrolledContractorsForMovement();
+    var maxKey=selectedOrderRef+'||'+selectedMovement;
+    var maxDefault=maxIssuableCache.hasOwnProperty(maxKey)?maxIssuableCache[maxKey]:null;
+
+    var doRender=function(actRes){
+      activityRows=[];
+      actContainer.innerHTML='';
+      stageMaxEl.textContent='';
+      var acts=[];
+      if(actRes&&actRes.success&&Array.isArray(actRes.activities)){
+        acts=actRes.activities.filter(function(a){return (a.dept||'').toLowerCase().indexOf(deptKey)===0;});
+      }
+      if(!acts.length){
+        actMsg.style.display='block';
+        actMsg.innerHTML='<span style="color:var(--fos-danger)">⚠ No approved activities for '+(MOVEMENT_DEPT[selectedMovement]||selectedMovement)+' on this order. Contact Arvind to set up activities.</span>';
+        pairsInput.value='';issueBtn.disabled=true;return;
+      }
+      if(!ctrOpts.length){
+        actMsg.style.display='block';
+        actMsg.innerHTML='<span style="color:var(--fos-danger)">No contractors enrolled for '+(MOVEMENT_DEPT[selectedMovement]||selectedMovement)+'. Enroll via Accounts &gt; Contractors.</span>';
+        pairsInput.value='';issueBtn.disabled=true;return;
+      }
+      actMsg.style.display='none';
+      if(typeof maxDefault==='number'){
+        stageMaxEl.textContent='Max issuable for this stage: '+maxDefault+' pairs';
+        stageMaxEl.style.color=maxDefault>0?'var(--fos-accent)':'var(--fos-danger)';
+        pairsInput.value=maxDefault>0?String(maxDefault):'';
+      }
+      acts.forEach(function(a){
+        var row=el('div',{style:'border:0.5px solid var(--fos-border);border-radius:10px;padding:10px;margin-bottom:8px;background:var(--fos-surface)'});
+        var hdr=el('div',{style:'display:flex;align-items:center;justify-content:space-between;margin-bottom:6px'});
+        hdr.appendChild(el('div',{style:'font-size:13px;font-weight:600;color:var(--fos-ink)',text:a.activityName}));
+        var _rc=safeNum(a.comm)>0?('₹'+safeNum(a.rate).toFixed(2)+' + ₹'+safeNum(a.comm).toFixed(2)+' comm'):('₹'+safeNum(a.rate).toFixed(2)+'/pair');
+        hdr.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:_rc}));
+        row.appendChild(hdr);
+        var cSel=el('select',{cls:'form-select',style:'width:100%;font-size:13px;padding:8px 10px'});
+        cSel.appendChild(el('option',{value:'',text:'— Contractor —'}));
+        ctrOpts.forEach(function(o){cSel.appendChild(el('option',{value:o.id,text:o.id+' — '+o.name}));});
+        row.appendChild(cSel);
+        actContainer.appendChild(row);
+        activityRows.push({activityName:a.activityName,rate:safeNum(a.rate),contractorSel:cSel});
+      });
+      issueBtn.disabled=false;
+    };
+
+    if(activityCache[selectedOrderRef]){doRender(activityCache[selectedOrderRef]);}
+    else{
+      actMsg.style.display='block';actMsg.innerHTML='Loading activities…';actContainer.innerHTML='';
+      google.script.run
+        .withSuccessHandler(function(res){activityCache[selectedOrderRef]=res;if(selectedMovement)doRender(res);})
+        .withFailureHandler(function(){actMsg.style.display='block';actMsg.innerHTML='<span style="color:var(--fos-danger)">Could not load activities</span>';})
+        .getApprovedActivitiesForArticle(selectedOrderRef);
     }
-    ctrSel.disabled=false;
   }
 
   function loadSizeBreakdown(orderRef){
@@ -383,63 +468,6 @@ function renderWIP(c){
     return result;
   }
 
-  function checkDeptActivities(){
-    actWarnDiv.innerHTML='';
-    actWarnDiv.style.display='none';
-    if(!selectedOrderRef||!selectedMovement)return;
-    var DEPT_KEY_MAP={
-      'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter',
-      'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finishing','Dispatch IN':'dispatch'
-    };
-    var deptKey=DEPT_KEY_MAP[selectedMovement]||'';
-    if(!deptKey)return;
-    issueBtn.disabled=true;
-    if(activityCache[selectedOrderRef]){
-      applyActivityCheck(activityCache[selectedOrderRef],deptKey);
-    } else {
-      google.script.run
-        .withSuccessHandler(function(res){
-          activityCache[selectedOrderRef]=res;
-          var curKey=DEPT_KEY_MAP[selectedMovement]||'';
-          if(curKey===deptKey)applyActivityCheck(res,deptKey);
-        })
-        .withFailureHandler(function(){
-          actWarnDiv.innerHTML='';actWarnDiv.style.display='none';
-          issueBtn.disabled=ctrSel.disabled;
-        })
-        .getApprovedActivitiesForArticle(selectedOrderRef);
-    }
-    google.script.run
-      .withSuccessHandler(function(res){
-        if(res&&res.success){
-          stageBalanceEl.textContent='Max issuable for this stage: '+res.maxIssuable+' pairs ('+res.source+')';
-          stageBalanceEl.style.color=res.maxIssuable>0?'var(--fos-accent)':'var(--fos-danger)';
-        } else {
-          stageBalanceEl.textContent='';
-        }
-      })
-      .withFailureHandler(function(){stageBalanceEl.textContent='';})
-      .getMaxIssuableForStage(selectedOrderRef, selectedMovement);
-  }
-
-  function applyActivityCheck(res,deptKey){
-    actWarnDiv.innerHTML='';
-    var deptActs=[];
-    if(res&&res.success&&Array.isArray(res.activities)){
-      deptActs=res.activities.filter(function(a){return (a.dept||'').toLowerCase().indexOf(deptKey)===0;});
-    }
-    if(deptActs.length===0){
-      actWarnDiv.innerHTML='<span style="color:var(--fos-danger)">⚠ No approved activities for '+(MOVEMENT_DEPT[selectedMovement]||selectedMovement)+' on this order. Contact Arvind to set up activities.</span>';
-      actWarnDiv.style.display='block';
-      issueBtn.disabled=true;
-    } else {
-      var totalRate=deptActs.reduce(function(s,a){return s+(a.rate||0);},0);
-      actWarnDiv.innerHTML='<span style="color:var(--fos-success)">✓ '+deptActs.length+' activit'+(deptActs.length===1?'y':'ies')+' set up · Rate: ₹'+totalRate.toFixed(2)+'/pair</span>';
-      actWarnDiv.style.display='block';
-      issueBtn.disabled=ctrSel.disabled;
-    }
-  }
-
   // ── Event handlers ────────────────────────────────────────────────────────
   orderSel.onchange=function(){
     selectedOrderRef=orderSel.value;
@@ -447,29 +475,37 @@ function renderWIP(c){
     selectedWorkOrder=art?(art.bom||''):'';
     selectedOrderQty=art?(parseInt(art.orderQty,10)||0):0;
     balanceEl.textContent=selectedOrderQty>0?'Order lot size: '+selectedOrderQty+' pairs':'Order lot size: — pairs';
+    activityCache={};       // approved activities are per-order; reset on order change
+    maxIssuableCache={};
     loadSizeBreakdown(selectedOrderRef);
+    loadStageThenRows();
   };
 
   storeSel.onchange=function(){selectedStore=storeSel.value;populateMovements();};
-  movSel.onchange=function(){selectedMovement=movSel.value;stageBalanceEl.textContent='';populateContractors();checkDeptActivities();};
-  ctrSel.onchange=function(){selectedContractorId=ctrSel.value;};
+  movSel.onchange=function(){selectedMovement=movSel.value;loadStageThenRows();};
 
   issueBtn.onclick=function(){
-    selectedContractorId=ctrSel.value;
     if(!selectedOrderRef){toast('Select an order',true);return;}
     if(!selectedStore){toast('Select a store',true);return;}
     if(!selectedMovement){toast('Select a movement',true);return;}
-    if(!selectedContractorId){toast('Select a contractor',true);return;}
     var pv=parseInt(pairsInput.value,10);
     if(!pv||pv<=0){toast('Enter pairs to issue',true);return;}
     if(!dateInput.value){toast('Enter expected return date',true);return;}
+    var assignments=[];
+    for(var i=0;i<activityRows.length;i++){
+      var r=activityRows[i];
+      var cid=r.contractorSel.value;
+      if(!cid)continue;   // activities with no contractor are skipped
+      assignments.push({activityName:r.activityName,contractorId:cid});
+    }
+    if(!assignments.length){toast('Assign a contractor to at least one activity',true);return;}
     var payload={
       orderRef:selectedOrderRef,
       workOrder:selectedWorkOrder,
       store:selectedStore,
       movement:selectedMovement,
-      contractorId:selectedContractorId,
-      pairsIssued:pv,
+      pairs:pv,
+      assignments:assignments,
       sizeBreakdown:getSizeBreakdown(),
       expectedReturn:dateInput.value,
       notes:notesInput.value.trim()
@@ -477,28 +513,28 @@ function renderWIP(c){
     issueBtn.disabled=true;issueBtn.textContent='Issuing...';
     google.script.run
       .withSuccessHandler(function(r){
-        issueBtn.disabled=false;issueBtn.textContent='Issue Job Card';
+        issueBtn.disabled=false;issueBtn.textContent='Issue All';
         if(r&&r.success){
-          toast('Issued — '+(r.jobCardId||'OK'));
+          toast('Issued '+(r.jobCardId||'job card')+' — '+assignments.length+' activit'+(assignments.length===1?'y':'ies'));
           if(r.warning)toast(r.warning,true);
-          storeSel.value='';selectedStore='';
-          populateMovements();
-          pairsInput.value='';
-          notesInput.value='';
-          var d7n=new Date();d7n.setDate(d7n.getDate()+7);dateInput.value=d7n.toISOString().slice(0,10);
-          google.script.run
-            .withSuccessHandler(function(jcs){D.jobCards=Array.isArray(jcs)?jcs:[];renderRecentlyIssued();})
-            .withFailureHandler(function(){})
-            .getJobCards({});
         } else {
           toast((r&&r.error)||'Error issuing job card',true);
+          return;   // failed — keep form so the user can fix and retry
         }
+        maxIssuableCache={};
+        storeSel.value='';selectedStore='';populateMovements();
+        notesInput.value='';
+        var d7n=new Date();d7n.setDate(d7n.getDate()+7);dateInput.value=d7n.toISOString().slice(0,10);
+        google.script.run
+          .withSuccessHandler(function(jcs){D.jobCards=Array.isArray(jcs)?jcs:[];renderRecentlyIssued();})
+          .withFailureHandler(function(){})
+          .getJobCards({});
       })
       .withFailureHandler(function(){
-        issueBtn.disabled=false;issueBtn.textContent='Issue Job Card';
+        issueBtn.disabled=false;issueBtn.textContent='Issue All';
         toast('Error issuing job card',true);
       })
-      .issueJobCard(payload);
+      .issueDepartmentJobCard(payload);
   };
 
   renderRecentlyIssued();
@@ -558,7 +594,7 @@ function renderJobCards(c){
       listWrap.appendChild(el('div',{style:'text-align:center;padding:40px;font-size:14px;color:var(--fos-ink-secondary)',text:'No job cards found'}));
       return;
     }
-    filtered.forEach(function(jc){
+    function buildCard(jc){
       var st=(jc.status||'ISSUED').toUpperCase();
       var art=artByRef[jc.orderRef];
       var artName=art?(art.article||jc.orderRef):jc.orderRef;
@@ -584,8 +620,22 @@ function renderJobCards(c){
       // Store · Movement
       card.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-bottom:2px',text:jc.store+' · '+jc.movement}));
 
-      // Contractor
-      card.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-bottom:8px',text:ctrName}));
+      // Contractor(s): show per-activity assignments for department cards; single line for legacy
+      var asg=Array.isArray(jc.assignments)?jc.assignments:[];
+      if(asg.length){
+        var asgWrap=el('div',{style:'margin-bottom:8px'});
+        asg.forEach(function(a){
+          var acn=ctrById[a.contractorId];
+          var acName=acn?acn.name:a.contractorId;
+          var arow=el('div',{style:'display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--fos-ink-secondary);padding:1px 0'});
+          arow.appendChild(el('span',{text:a.activity+' — '+acName}));
+          arow.appendChild(el('span',{style:'font-family:var(--fos-font-mono);flex-shrink:0',text:'₹'+safeNum(a.rate).toFixed(2)}));
+          asgWrap.appendChild(arow);
+        });
+        card.appendChild(asgWrap);
+      } else {
+        card.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-bottom:8px',text:ctrName}));
+      }
 
       // Progress
       var progWrap=el('div',{style:'margin-bottom:6px'});
@@ -646,8 +696,10 @@ function renderJobCards(c){
         card.appendChild(doneRow);
       }
 
-      listWrap.appendChild(card);
-    });
+      return card;
+    }
+
+    filtered.forEach(function(jc){ listWrap.appendChild(buildCard(jc)); });
   }
 
   storeFilt.onchange=function(){filterStore=storeFilt.value;renderList();};
