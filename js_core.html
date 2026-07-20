@@ -8,16 +8,22 @@ var ENTRY_REVISION_REMARK=null;
 var ACTS_REVISION_REMARK=null, ACTS_REVISION_ACTIVITY=null;
 // ── Pay-period helpers (Phase 7) ──────────────────────────────────────────────
 var PAY_PERIOD=null, PAY_SELECTED={};
+var _MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+var _DAY=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+function _iso(d){var m=('0'+(d.getMonth()+1)).slice(-2),da=('0'+d.getDate()).slice(-2);return d.getFullYear()+'-'+m+'-'+da;}
+function _dmy(x){return _DAY[x.getDay()]+' '+x.getDate()+' '+_MON[x.getMonth()];}
+// Date-range label with year (year shown once when both ends share it).
+function _rangeLabel(a,b){
+  if(a.getFullYear()===b.getFullYear()) return _dmy(a)+' – '+_dmy(b)+' '+a.getFullYear();
+  return _dmy(a)+' '+a.getFullYear()+' – '+_dmy(b)+' '+b.getFullYear();
+}
 function _payWeek(d){
   var dow=d.getDay(), back=(dow===6)?0:(dow+1);
   var sat=new Date(d.getFullYear(),d.getMonth(),d.getDate()-back);
   var fri=new Date(sat.getFullYear(),sat.getMonth(),sat.getDate()+6);
-  var MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var DAY=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   function z(n){return (n<10?'0':'')+n;}
-  function lbl(x){return DAY[x.getDay()]+' '+x.getDate()+' '+MON[x.getMonth()];}
   return {periodId:'W-'+sat.getFullYear()+z(sat.getMonth()+1)+z(sat.getDate()),
-          sat:sat, fri:fri, label:lbl(sat)+' – '+lbl(fri)};
+          sat:sat, fri:fri, custom:false, label:_rangeLabel(sat,fri)};
 }
 // Default pay period = the Sat–Fri week that just ended (the completed week).
 function _defaultPayWeek(){
@@ -25,14 +31,19 @@ function _defaultPayWeek(){
   var before=new Date(cur.sat.getFullYear(),cur.sat.getMonth(),cur.sat.getDate()-1);
   return _payWeek(before);
 }
+// Arbitrary custom range (Sat–Sat, Sat–Mon, any span). from/to = 'yyyy-mm-dd'.
+function _customPeriod(fromStr,toStr){
+  var fp=fromStr.split('-'),tp=toStr.split('-');
+  var from=new Date(+fp[0],+fp[1]-1,+fp[2]);
+  var to=new Date(+tp[0],+tp[1]-1,+tp[2]);
+  return {periodId:'R-'+fromStr+'_'+toStr, from:from, to:to, sat:from, fri:to, custom:true, label:_rangeLabel(from,to)};
+}
 function _dayKey(iso){var s=(iso||'').slice(0,10);return s||'0000-00-00';}
 function _dayLabel(iso){
   var s=(iso||'').slice(0,10).split('-');
   if(s.length!==3||s[0]==='0000')return 'Undated';
   var d=new Date(+s[0],+s[1]-1,+s[2]);
-  var MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  var DAY=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-  return DAY[d.getDay()]+' '+d.getDate()+' '+MON[d.getMonth()];
+  return _dmy(d)+' '+d.getFullYear();
 }
 var SEEN_ALERT_IDS=(function(){
   try{

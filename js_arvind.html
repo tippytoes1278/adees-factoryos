@@ -551,17 +551,39 @@ function renderPayment(c){
   hdr.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-top:2px',text:'Pick the pay period, tick the cards, pay together'}));
   c.appendChild(hdr);
 
-  // ── Pay-period picker (defaults to the week that just ended) ──
-  var pick=el('div',{style:'display:flex;align-items:center;gap:8px;margin-bottom:16px;background:var(--fos-surface);border:1px solid var(--fos-border);border-radius:10px;padding:8px'});
+  // ── Pay-period picker (defaults to the week that just ended; no future weeks) ──
+  var _curWk=_payWeek(new Date());
+  var atCurrent=(!PAY_PERIOD.custom)&&(PAY_PERIOD.sat.getTime()>=_curWk.sat.getTime());
+  var pick=el('div',{style:'display:flex;align-items:center;gap:8px;margin-bottom:10px;background:var(--fos-surface);border:1px solid var(--fos-border);border-radius:10px;padding:8px'});
   var prevW=el('button',{text:'◀',style:'padding:6px 12px;border:1px solid var(--fos-border);border-radius:8px;background:var(--fos-bg);color:var(--fos-ink);font-size:14px;cursor:pointer'});
   var plabel=el('div',{style:'flex:1;text-align:center'});
-  plabel.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);text-transform:uppercase;letter-spacing:0.06em',text:'Pay period'}));
+  plabel.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);text-transform:uppercase;letter-spacing:0.06em',text:'Pay period'+(PAY_PERIOD.custom?' (custom)':'')}));
   plabel.appendChild(el('div',{style:'font-size:14px;font-weight:700;color:var(--fos-ink)',text:PAY_PERIOD.label}));
-  var nextW=el('button',{text:'▶',style:'padding:6px 12px;border:1px solid var(--fos-border);border-radius:8px;background:var(--fos-bg);color:var(--fos-ink);font-size:14px;cursor:pointer'});
-  prevW.onclick=function(){var b=new Date(PAY_PERIOD.sat.getFullYear(),PAY_PERIOD.sat.getMonth(),PAY_PERIOD.sat.getDate()-7);PAY_PERIOD=_payWeek(b);renderPayment(c);};
-  nextW.onclick=function(){var a=new Date(PAY_PERIOD.sat.getFullYear(),PAY_PERIOD.sat.getMonth(),PAY_PERIOD.sat.getDate()+7);PAY_PERIOD=_payWeek(a);renderPayment(c);};
+  var nextW=el('button',{text:'▶',style:'padding:6px 12px;border:1px solid var(--fos-border);border-radius:8px;background:var(--fos-bg);color:'+(atCurrent?'var(--fos-ink-secondary)':'var(--fos-ink)')+';font-size:14px;opacity:'+(atCurrent?'0.4':'1')+';cursor:'+(atCurrent?'not-allowed':'pointer')});
+  nextW.disabled=atCurrent;
+  prevW.onclick=function(){var s=PAY_PERIOD.custom?_curWk.sat:PAY_PERIOD.sat;var b=new Date(s.getFullYear(),s.getMonth(),s.getDate()-7);PAY_PERIOD=_payWeek(b);renderPayment(c);};
+  nextW.onclick=function(){if(atCurrent)return;var a=new Date(PAY_PERIOD.sat.getFullYear(),PAY_PERIOD.sat.getMonth(),PAY_PERIOD.sat.getDate()+7);if(a.getTime()>_curWk.sat.getTime())a=_curWk.sat;PAY_PERIOD=_payWeek(a);renderPayment(c);};
   pick.appendChild(prevW);pick.appendChild(plabel);pick.appendChild(nextW);
   c.appendChild(pick);
+
+  // ── Custom range: Sat–Sat, Sat–Mon, any span up to today (no future) ──
+  var cr=el('div',{style:'display:flex;align-items:center;gap:6px;margin-bottom:16px;flex-wrap:wrap;font-size:13px;color:var(--fos-ink-secondary)'});
+  cr.appendChild(el('span',{text:'Or custom:'}));
+  var fromI=el('input',{type:'date',style:'padding:6px 8px;border:1px solid var(--fos-border);border-radius:6px;background:var(--fos-surface);color:var(--fos-ink);font-size:13px'});
+  var toI=el('input',{type:'date',style:'padding:6px 8px;border:1px solid var(--fos-border);border-radius:6px;background:var(--fos-surface);color:var(--fos-ink);font-size:13px'});
+  fromI.value=_iso(PAY_PERIOD.sat); toI.value=_iso(PAY_PERIOD.fri);
+  var applyBtn=el('button',{text:'Apply',style:'padding:6px 12px;border:1px solid var(--fos-border);border-radius:8px;background:var(--fos-bg);color:var(--fos-ink);font-size:13px;cursor:pointer'});
+  applyBtn.onclick=function(){
+    var today=_iso(new Date());
+    if(!fromI.value||!toI.value){toast('Pick both dates',true);return;}
+    if(toI.value<fromI.value){toast('End date is before start date',true);return;}
+    if(toI.value>today){toast('Cannot pay for a future date',true);return;}
+    PAY_PERIOD=_customPeriod(fromI.value,toI.value);renderPayment(c);
+  };
+  cr.appendChild(el('span',{text:'from'}));cr.appendChild(fromI);
+  cr.appendChild(el('span',{text:'to'}));cr.appendChild(toI);
+  cr.appendChild(applyBtn);
+  c.appendChild(cr);
 
   var jcs=D.completedJobCards;
   if(!Array.isArray(jcs)){c.appendChild(alert_('yellow','Loading...','Tap Refresh'));return;}
