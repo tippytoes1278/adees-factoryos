@@ -6,6 +6,34 @@ var ENTRY_PERIOD=null;
 var ENTRY_AUTO_OPEN_SHEET=null;
 var ENTRY_REVISION_REMARK=null;
 var ACTS_REVISION_REMARK=null, ACTS_REVISION_ACTIVITY=null;
+// ── Pay-period helpers (Phase 7) ──────────────────────────────────────────────
+var PAY_PERIOD=null, PAY_SELECTED={};
+function _payWeek(d){
+  var dow=d.getDay(), back=(dow===6)?0:(dow+1);
+  var sat=new Date(d.getFullYear(),d.getMonth(),d.getDate()-back);
+  var fri=new Date(sat.getFullYear(),sat.getMonth(),sat.getDate()+6);
+  var MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var DAY=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  function z(n){return (n<10?'0':'')+n;}
+  function lbl(x){return DAY[x.getDay()]+' '+x.getDate()+' '+MON[x.getMonth()];}
+  return {periodId:'W-'+sat.getFullYear()+z(sat.getMonth()+1)+z(sat.getDate()),
+          sat:sat, fri:fri, label:lbl(sat)+' – '+lbl(fri)};
+}
+// Default pay period = the Sat–Fri week that just ended (the completed week).
+function _defaultPayWeek(){
+  var cur=_payWeek(new Date());
+  var before=new Date(cur.sat.getFullYear(),cur.sat.getMonth(),cur.sat.getDate()-1);
+  return _payWeek(before);
+}
+function _dayKey(iso){var s=(iso||'').slice(0,10);return s||'0000-00-00';}
+function _dayLabel(iso){
+  var s=(iso||'').slice(0,10).split('-');
+  if(s.length!==3||s[0]==='0000')return 'Undated';
+  var d=new Date(+s[0],+s[1]-1,+s[2]);
+  var MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var DAY=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  return DAY[d.getDay()]+' '+d.getDate()+' '+MON[d.getMonth()];
+}
 var SEEN_ALERT_IDS=(function(){
   try{
     var _ids=JSON.parse(localStorage.getItem('fos_seen_alerts')||'[]');

@@ -543,12 +543,25 @@ function renderNO_Step2(c){
 // ── PAYMENT LIST ─────────────────────────────────────────────────────────────
 function renderPayment(c){
   c.innerHTML='';
+  if(!PAY_PERIOD) PAY_PERIOD=_defaultPayWeek();
 
   // Header
-  var hdr=el('div',{style:'margin-bottom:16px'});
+  var hdr=el('div',{style:'margin-bottom:12px'});
   hdr.appendChild(el('div',{style:'font-family:var(--fos-font-display);font-size:22px;font-weight:700;color:var(--fos-accent)',text:'Process Payment'}));
-  hdr.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-top:2px',text:'Pay completed cards, or advance against pairs already returned'}));
+  hdr.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-top:2px',text:'Pick the pay period, tick the cards, pay together'}));
   c.appendChild(hdr);
+
+  // ── Pay-period picker (defaults to the week that just ended) ──
+  var pick=el('div',{style:'display:flex;align-items:center;gap:8px;margin-bottom:16px;background:var(--fos-surface);border:1px solid var(--fos-border);border-radius:10px;padding:8px'});
+  var prevW=el('button',{text:'◀',style:'padding:6px 12px;border:1px solid var(--fos-border);border-radius:8px;background:var(--fos-bg);color:var(--fos-ink);font-size:14px;cursor:pointer'});
+  var plabel=el('div',{style:'flex:1;text-align:center'});
+  plabel.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);text-transform:uppercase;letter-spacing:0.06em',text:'Pay period'}));
+  plabel.appendChild(el('div',{style:'font-size:14px;font-weight:700;color:var(--fos-ink)',text:PAY_PERIOD.label}));
+  var nextW=el('button',{text:'▶',style:'padding:6px 12px;border:1px solid var(--fos-border);border-radius:8px;background:var(--fos-bg);color:var(--fos-ink);font-size:14px;cursor:pointer'});
+  prevW.onclick=function(){var b=new Date(PAY_PERIOD.sat.getFullYear(),PAY_PERIOD.sat.getMonth(),PAY_PERIOD.sat.getDate()-7);PAY_PERIOD=_payWeek(b);renderPayment(c);};
+  nextW.onclick=function(){var a=new Date(PAY_PERIOD.sat.getFullYear(),PAY_PERIOD.sat.getMonth(),PAY_PERIOD.sat.getDate()+7);PAY_PERIOD=_payWeek(a);renderPayment(c);};
+  pick.appendChild(prevW);pick.appendChild(plabel);pick.appendChild(nextW);
+  c.appendChild(pick);
 
   var jcs=D.completedJobCards;
   if(!Array.isArray(jcs)){c.appendChild(alert_('yellow','Loading...','Tap Refresh'));return;}
@@ -606,7 +619,7 @@ function renderPayment(c){
               } else { btn.disabled=false;btn.textContent='Pay Advance';toast((rr&&rr.error)?rr.error:'Advance failed',true); }
             })
             .withFailureHandler(function(e){btn.disabled=false;btn.textContent='Pay Advance';toast((e&&e.message)||'Error submitting advance',true);})
-            .submitCardAdvance({jobCardId:theJc.jobCardId,periodId:ENTRY_PERIOD?ENTRY_PERIOD.periodId:'PAY-'+new Date().toISOString().slice(0,10),notes:''});
+            .submitCardAdvance({jobCardId:theJc.jobCardId,periodId:PAY_PERIOD.periodId,notes:''});
         };
       })(jc,advBtn,total,rateOk);
     });
@@ -623,84 +636,124 @@ function renderPayment(c){
     return;
   }
 
-  c.appendChild(el('div',{style:'font-size:11px;font-weight:600;letter-spacing:0.08em;color:var(--fos-ink-secondary);text-transform:uppercase;margin:12px 0 8px',text:'Completed — final payment'}));
-  // One card per completed department job card; pay the whole card in one action.
-  jcs.forEach(function(jc){
-    var art=artByRef[jc.orderRef];
-    var artName=art?(art.article||jc.orderRef):jc.orderRef;
-    var artColor=(art&&(art.color||art.colour))||jc.color||'';
-    var pairs=jc.pairsReceived||jc.pairsIssued||0;
-    var lines=Array.isArray(jc.lines)?jc.lines:[];
-    var total=typeof jc.totalAmount==='number'?jc.totalAmount:lines.reduce(function(s,l){return s+(l.amount||0);},0);
-    var rateOk=lines.length>0&&lines.every(function(l){return safeNum(l.ratePerPair)>0;});
+  // ── Completed cards — grouped by receive-day, tick to pay ──
+  function cardTotalOf(jc){var ls=Array.isArray(jc.lines)?jc.lines:[];return typeof jc.totalAmount==='number'?jc.totalAmount:ls.reduce(function(s,l){return s+(l.amount||0);},0);}
+  function rateOkOf(jc){var ls=Array.isArray(jc.lines)?jc.lines:[];return ls.length>0&&ls.every(function(l){return safeNum(l.ratePerPair)>0;});}
+  function payableIds(){return jcs.filter(rateOkOf).map(function(j){return j.jobCardId;});}
+  var footBtn=null;
+  function updateFooter(){
+    var n=0,tot=0;
+    jcs.forEach(function(j){if(PAY_SELECTED[j.jobCardId]){n++;tot+=cardTotalOf(j);}});
+    if(footBtn){footBtn.textContent=n?('Pay '+n+' card'+(n!==1?'s':'')+' · ₹'+tot.toFixed(2)):'Pay Selected';footBtn.disabled=!n;}
+  }
+  var dayCbs=[], cardCbs={};
+  function syncDay(){dayCbs.forEach(function(d){d.cb.checked=d.ids.length>0&&d.ids.every(function(id){return PAY_SELECTED[id];});});}
+  function syncAll(){var p=payableIds();allCb.checked=p.length>0&&p.every(function(id){return PAY_SELECTED[id];});}
 
-    var cCard=el('div',{cls:'fos-card',style:'margin-bottom:16px;padding:0;overflow:hidden'});
+  var secHdr=el('div',{style:'display:flex;align-items:center;justify-content:space-between;margin:12px 0 8px'});
+  secHdr.appendChild(el('div',{style:'font-size:11px;font-weight:600;letter-spacing:0.08em;color:var(--fos-ink-secondary);text-transform:uppercase',text:'Completed — tick to pay'}));
+  var allWrap=el('label',{style:'display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fos-ink-secondary);cursor:pointer'});
+  var allCb=el('input',{type:'checkbox'});
+  allWrap.appendChild(allCb);allWrap.appendChild(el('span',{text:'Select all'}));
+  secHdr.appendChild(allWrap);
+  c.appendChild(secHdr);
+  allCb.onchange=function(){payableIds().forEach(function(id){PAY_SELECTED[id]=allCb.checked;if(cardCbs[id])cardCbs[id].checked=allCb.checked;});syncDay();updateFooter();};
 
-    var cHdr=el('div',{style:'padding:14px 16px;background:var(--fos-bg);border-bottom:1px solid var(--fos-border)'});
-    cHdr.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:jc.jobCardId}));
-    cHdr.appendChild(el('div',{style:'font-size:16px;font-weight:700;color:var(--fos-ink);margin-top:2px',text:artName+(artColor?' · '+artColor:'')}));
-    cHdr.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:2px',text:(jc.store||'')+(jc.movement?' · '+jc.movement:'')+' · '+pairs+' pairs'}));
-    cCard.appendChild(cHdr);
+  // group by receive-day
+  var groups={},order=[];
+  jcs.forEach(function(jc){var k=_dayKey(jc.receivedAt);if(!groups[k]){groups[k]=[];order.push(k);}groups[k].push(jc);});
+  order.sort();
 
-    var linesWrap=el('div');
-    lines.forEach(function(l){
-      var rate=safeNum(l.ratePerPair);
-      var row=el('div',{style:'display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:11px 16px;border-bottom:0.5px solid var(--fos-border)'});
-      var left=el('div',{style:'flex:1;min-width:0'});
-      left.appendChild(el('div',{style:'font-size:14px;font-weight:500;color:var(--fos-ink)',text:l.contractorName||l.contractorId}));
-      var actTxt=(l.activities&&l.activities.length)?l.activities.join(', '):'';
-      if(actTxt)left.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:1px',text:actTxt}));
-      var _pp=(l.payablePairs!==undefined?l.payablePairs:pairs);
-      left.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:rate>0?('₹'+rate.toFixed(2)+'/pair × '+_pp+(l.alreadyPaidPairs?(' ('+l.alreadyPaidPairs+' advanced)'):'')):'Rate not set'}));
-      row.appendChild(left);
-      var amt=el('div',{style:'text-align:right;flex-shrink:0;padding-top:2px'});
-      if(rate>0){
-        amt.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:14px;font-weight:700;color:var(--fos-accent)',text:'₹'+safeNum(l.amount).toFixed(2)}));
-      } else {
-        amt.appendChild(el('div',{style:'font-size:11px;color:var(--fos-warning);max-width:100px;text-align:right;line-height:1.4',text:'Rate not set — check activity setup'}));
-      }
-      row.appendChild(amt);
-      linesWrap.appendChild(row);
+  order.forEach(function(k){
+    var dayCards=groups[k];
+    var dayPayable=dayCards.filter(rateOkOf).map(function(j){return j.jobCardId;});
+    var dh=el('div',{style:'display:flex;align-items:center;gap:8px;margin:14px 0 6px'});
+    var dcb=el('input',{type:'checkbox'}); dcb.disabled=!dayPayable.length;
+    dh.appendChild(dcb);
+    dh.appendChild(el('div',{style:'font-size:13px;font-weight:700;color:var(--fos-ink)',text:_dayLabel(k)}));
+    dh.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:'· '+dayCards.length+' card'+(dayCards.length!==1?'s':'')}));
+    c.appendChild(dh);
+    dayCbs.push({cb:dcb,ids:dayPayable});
+    dcb.onchange=function(){dayPayable.forEach(function(id){PAY_SELECTED[id]=dcb.checked;if(cardCbs[id])cardCbs[id].checked=dcb.checked;});syncAll();updateFooter();};
+
+    dayCards.forEach(function(jc){
+      var art=artByRef[jc.orderRef];
+      var artName=art?(art.article||jc.orderRef):jc.orderRef;
+      var artColor=(art&&(art.color||art.colour))||jc.color||'';
+      var pairs=jc.pairsReceived||jc.pairsIssued||0;
+      var lines=Array.isArray(jc.lines)?jc.lines:[];
+      var total=cardTotalOf(jc);
+      var rateOk=rateOkOf(jc);
+
+      var cCard=el('div',{cls:'fos-card',style:'margin-bottom:12px;padding:0;overflow:hidden'});
+      var cHdr=el('div',{style:'display:flex;align-items:flex-start;gap:10px;padding:14px 16px;background:var(--fos-bg);border-bottom:1px solid var(--fos-border)'});
+      var cb=el('input',{type:'checkbox',style:'margin-top:3px;flex-shrink:0'}); cb.disabled=!rateOk; cb.checked=!!PAY_SELECTED[jc.jobCardId];
+      cardCbs[jc.jobCardId]=cb;
+      cb.onchange=function(){PAY_SELECTED[jc.jobCardId]=cb.checked;syncDay();syncAll();updateFooter();};
+      cHdr.appendChild(cb);
+      var cHdrTxt=el('div',{style:'flex:1;min-width:0'});
+      cHdrTxt.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:jc.jobCardId}));
+      cHdrTxt.appendChild(el('div',{style:'font-size:16px;font-weight:700;color:var(--fos-ink);margin-top:2px',text:artName+(artColor?' · '+artColor:'')}));
+      cHdrTxt.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:2px',text:(jc.store||'')+(jc.movement?' · '+jc.movement:'')+' · '+pairs+' pairs'}));
+      cHdr.appendChild(cHdrTxt);
+      cCard.appendChild(cHdr);
+
+      var linesWrap=el('div');
+      lines.forEach(function(l){
+        var rate=safeNum(l.ratePerPair);
+        var row=el('div',{style:'display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:11px 16px;border-bottom:0.5px solid var(--fos-border)'});
+        var left=el('div',{style:'flex:1;min-width:0'});
+        left.appendChild(el('div',{style:'font-size:14px;font-weight:500;color:var(--fos-ink)',text:l.contractorName||l.contractorId}));
+        var actTxt=(l.activities&&l.activities.length)?l.activities.join(', '):'';
+        if(actTxt)left.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:1px',text:actTxt}));
+        var _pp=(l.payablePairs!==undefined?l.payablePairs:pairs);
+        left.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:rate>0?('₹'+rate.toFixed(2)+'/pair × '+_pp+(l.alreadyPaidPairs?(' ('+l.alreadyPaidPairs+' advanced)'):'')):'Rate not set'}));
+        row.appendChild(left);
+        var amt=el('div',{style:'text-align:right;flex-shrink:0;padding-top:2px'});
+        if(rate>0){amt.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:14px;font-weight:700;color:var(--fos-accent)',text:'₹'+safeNum(l.amount).toFixed(2)}));}
+        else{amt.appendChild(el('div',{style:'font-size:11px;color:var(--fos-warning);max-width:100px;text-align:right;line-height:1.4',text:'Rate not set — check activity setup'}));}
+        row.appendChild(amt);
+        linesWrap.appendChild(row);
+      });
+      cCard.appendChild(linesWrap);
+
+      var foot=el('div',{style:'display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--fos-bg);border-top:1px solid var(--fos-border)'});
+      foot.appendChild(el('div',{style:'flex:1;font-size:13px;color:var(--fos-ink-secondary)',text:lines.length+' contractor'+(lines.length!==1?'s':'')}));
+      foot.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:15px;font-weight:700;color:var(--fos-ink)',text:'₹'+total.toFixed(2)}));
+      cCard.appendChild(foot);
+      c.appendChild(cCard);
     });
-    cCard.appendChild(linesWrap);
-
-    var foot=el('div',{style:'display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--fos-bg);border-top:1px solid var(--fos-border)'});
-    foot.appendChild(el('div',{style:'flex:1;font-size:13px;color:var(--fos-ink-secondary)',text:lines.length+' contractor'+(lines.length!==1?'s':'')}));
-    foot.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:15px;font-weight:700;color:var(--fos-ink)',text:'₹'+total.toFixed(2)}));
-    var payBtn=el('button',{cls:'primary-btn',text:'Pay Card',style:'width:auto;padding:10px 16px;font-size:13px;border-radius:10px;flex-shrink:0'});
-    payBtn.disabled=!rateOk;
-    foot.appendChild(payBtn);
-    cCard.appendChild(foot);
-    c.appendChild(cCard);
-
-    (function(theJc,btn,amount,ok){
-      btn.onclick=function(){
-        if(!ok){toast('Some contractors have no rate — check activity setup',true);return;}
-        btn.disabled=true;btn.textContent='Paying...';
-        var payload={
-          jobCardId:theJc.jobCardId,
-          periodId:ENTRY_PERIOD?ENTRY_PERIOD.periodId:'PAY-'+new Date().toISOString().slice(0,10),
-          notes:''
-        };
-        google.script.run
-          .withSuccessHandler(function(rr){
-            if(rr&&rr.success){
-              toast('Paid '+theJc.jobCardId+' — ₹'+safeNum(rr.totalAmount||amount).toFixed(2)+(rr.paymentId?' · '+rr.paymentId:''));
-              D.completedJobCards=(D.completedJobCards||[]).filter(function(x){return x.jobCardId!==theJc.jobCardId;});
-              renderPayment(c);
-            } else {
-              btn.disabled=false;btn.textContent='Pay Card';
-              toast((rr&&rr.error)?rr.error:'Payment failed',true);
-            }
-          })
-          .withFailureHandler(function(e){
-            btn.disabled=false;btn.textContent='Pay Card';
-            toast((e&&e.message)?e.message:'Error submitting payment',true);
-          })
-          .submitCardPayment(payload);
-      };
-    })(jc,payBtn,total,rateOk);
   });
+
+  syncDay();syncAll();
+
+  // Pay Selected — pays every ticked card, stamped with the chosen period
+  var payBar=el('div',{style:'position:sticky;bottom:0;background:var(--fos-surface);border-top:1px solid var(--fos-border);padding:12px 0;margin-top:8px'});
+  footBtn=el('button',{cls:'primary-btn',text:'Pay Selected',style:'width:100%;padding:14px;font-size:15px;border-radius:12px'});
+  footBtn.disabled=true;
+  payBar.appendChild(footBtn);
+  c.appendChild(payBar);
+  updateFooter();
+
+  footBtn.onclick=function(){
+    var ids=jcs.filter(function(j){return PAY_SELECTED[j.jobCardId];}).map(function(j){return j.jobCardId;});
+    if(!ids.length){toast('Tick at least one card to pay',true);return;}
+    footBtn.disabled=true;footBtn.textContent='Paying...';
+    var i=0,paid=0,failed=0;
+    (function nextPay(){
+      if(i>=ids.length){
+        toast('Paid '+paid+' card'+(paid!==1?'s':'')+(failed?(' · '+failed+' failed'):'')+' — '+PAY_PERIOD.label);
+        ids.forEach(function(id){delete PAY_SELECTED[id];});
+        D.completedJobCards=null;loadTab('payment');
+        return;
+      }
+      var id=ids[i++];
+      google.script.run
+        .withSuccessHandler(function(rr){if(rr&&rr.success)paid++;else failed++;nextPay();})
+        .withFailureHandler(function(){failed++;nextPay();})
+        .submitCardPayment({jobCardId:id,periodId:PAY_PERIOD.periodId,notes:''});
+    })();
+  };
 }
 
 // ── PAYMENT HISTORY ───────────────────────────────────────────────────────────

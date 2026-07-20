@@ -353,6 +353,55 @@ function resolveOpenPeriodId() {
   return 'W-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd');
 }
 
+// ── Pay-period helpers (Phase 7) ─────────────────────────────────────────────
+// The Sat–Fri week containing a date. Returns the canonical W- id plus the date
+// range and a human label. Accepts a Date, a 'yyyy-MM-dd'/ISO string, or nothing
+// (defaults to today).
+function satFriWeek(dateInput) {
+  var d;
+  if (dateInput instanceof Date) {
+    d = new Date(dateInput.getFullYear(), dateInput.getMonth(), dateInput.getDate());
+  } else if (typeof dateInput === 'string' && dateInput) {
+    var s = dateInput.slice(0, 10).split('-');
+    d = (s.length === 3) ? new Date(+s[0], +s[1]-1, +s[2]) : new Date();
+  } else {
+    d = new Date();
+  }
+  var dow  = d.getDay();                       // 0=Sun .. 6=Sat
+  var back = (dow === 6) ? 0 : (dow + 1);       // walk back to the week's Saturday
+  var sat  = new Date(d.getFullYear(), d.getMonth(), d.getDate() - back);
+  var fri  = new Date(sat.getFullYear(), sat.getMonth(), sat.getDate() + 6);
+  var tz   = Session.getScriptTimeZone();
+  return {
+    periodId: 'W-' + Utilities.formatDate(sat, tz, 'yyyyMMdd'),
+    fromDate: Utilities.formatDate(sat, tz, 'yyyy-MM-dd'),
+    toDate:   Utilities.formatDate(fri, tz, 'yyyy-MM-dd'),
+    label:    Utilities.formatDate(sat, tz, 'EEE d MMM') + ' – ' + Utilities.formatDate(fri, tz, 'EEE d MMM')
+  };
+}
+
+// Human date-range label for any stored period id: 'W-yyyyMMdd' or legacy
+// 'PAY-yyyy-mm-dd'. Falls back to the raw id if it matches neither.
+function formatPeriodLabel(periodId) {
+  var pid = safeStr(periodId).trim();
+  var m = /^W-(\d{4})(\d{2})(\d{2})$/.exec(pid);
+  if (m) return satFriWeek(m[1] + '-' + m[2] + '-' + m[3]).label;
+  var p = /^PAY-(\d{4})-(\d{2})-(\d{2})$/.exec(pid);
+  if (p) return satFriWeek(p[1] + '-' + p[2] + '-' + p[3]).label;
+  return pid;
+}
+
+// Resolve which period to stamp on a payment/advance from the client's explicit
+// selection. Accepts a chosen week id (W-yyyyMMdd) or a custom range id
+// (R-<from>_<to>); falls back to the current Sat–Fri week if nothing valid was
+// sent. This replaces the old "first open period" guess that could go stale.
+function _resolvePayPeriod(sel) {
+  var s = safeStr(sel).trim();
+  if (/^W-\d{8}$/.test(s)) return s;
+  if (/^R-\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  return satFriWeek(new Date()).periodId;
+}
+
 function saveEntry(sheetName, row, contractor, qty, conveyance, remarks, rate, comm, periodId) {
   var user = getUserInfo();
   if (user.role !== 'accounts' && user.role !== 'admin')
@@ -776,6 +825,7 @@ function getCompletedUnpaidJobCards() {
         customer:       oiEntry.customer || '',
         issuedAt:       issuedAt,
         expectedReturn: expectedReturn,
+        receivedAt:     safeStr(r[12]),
         status:         'COMPLETE'
       });
     });
@@ -933,7 +983,7 @@ function submitJobCardPayment(data) {
 // Legacy single-contractor cards (no ASSIGNMENTS) pay the full department rate.
 function submitCardPayment(data) {
   var jobCardId = safeStr(data.jobCardId || '').trim();
-  var periodId  = resolveOpenPeriodId();
+  var periodId  = _resolvePayPeriod(data.periodId);
   var notes     = safeStr(data.notes     || '').trim();
   if (!jobCardId) return { success:false, error:'jobCardId is required' };
 
@@ -1347,7 +1397,7 @@ function getAdvanceableJobCards() {
 // change the card status — the card stays open for more work.
 function submitCardAdvance(data) {
   var jobCardId = safeStr(data.jobCardId || '').trim();
-  var periodId  = resolveOpenPeriodId();
+  var periodId  = _resolvePayPeriod(data.periodId);
   if (!jobCardId) return { success:false, error:'jobCardId is required' };
   var MDK = {'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter','Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finishing','Dispatch IN':'dispatch'};
   var lock = LockService.getPublicLock();
