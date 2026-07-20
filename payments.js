@@ -334,6 +334,25 @@ function ensureCurrentPeriod() {
   } catch(e) { Logger.log('ensureCurrentPeriod error: ' + e.message); }
 }
 
+// Single source of truth for "the current pay period". Guarantees this week's
+// PAYMENT_PERIODS row exists, then returns the first OPEN period ID. Mirrors the
+// resolution the Job Card / WIP path uses so entry and payment can never drift.
+function resolveOpenPeriodId() {
+  ensureCurrentPeriod();
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var pp = ss.getSheetByName('PAYMENT_PERIODS');
+    if (pp && pp.getLastRow() > 1) {
+      var v = pp.getRange(2, 1, pp.getLastRow()-1, 7).getValues();
+      var open = [];
+      v.forEach(function(r){ if (safeStr(r[6]).trim().toUpperCase() === 'OPEN') open.push(safeStr(r[0])); });
+      open.sort();
+      if (open.length) return open[0];
+    }
+  } catch(e) { Logger.log('resolveOpenPeriodId: ' + e.message); }
+  return 'W-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd');
+}
+
 function saveEntry(sheetName, row, contractor, qty, conveyance, remarks, rate, comm, periodId) {
   var user = getUserInfo();
   if (user.role !== 'accounts' && user.role !== 'admin')
@@ -914,10 +933,9 @@ function submitJobCardPayment(data) {
 // Legacy single-contractor cards (no ASSIGNMENTS) pay the full department rate.
 function submitCardPayment(data) {
   var jobCardId = safeStr(data.jobCardId || '').trim();
-  var periodId  = safeStr(data.periodId  || '').trim();
+  var periodId  = resolveOpenPeriodId();
   var notes     = safeStr(data.notes     || '').trim();
   if (!jobCardId) return { success:false, error:'jobCardId is required' };
-  if (!periodId)  return { success:false, error:'periodId is required' };
 
   var MOVEMENT_DEPT_KEY = {
     'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter',
@@ -1329,9 +1347,8 @@ function getAdvanceableJobCards() {
 // change the card status — the card stays open for more work.
 function submitCardAdvance(data) {
   var jobCardId = safeStr(data.jobCardId || '').trim();
-  var periodId  = safeStr(data.periodId  || '').trim();
+  var periodId  = resolveOpenPeriodId();
   if (!jobCardId) return { success:false, error:'jobCardId is required' };
-  if (!periodId)  return { success:false, error:'periodId is required' };
   var MDK = {'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter','Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finishing','Dispatch IN':'dispatch'};
   var lock = LockService.getPublicLock();
   try {

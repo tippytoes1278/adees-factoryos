@@ -706,6 +706,18 @@ function renderPayment(c){
 // ── PAYMENT HISTORY ───────────────────────────────────────────────────────────
 function renderPayHistory(c){
   c.innerHTML='';
+  // Legacy payment rows were stamped PAY-yyyy-mm-dd (the day paid). Map them to the
+  // enclosing Sat-Fri week ID (W-yyyyMMdd) so history groups by pay period, not day.
+  function normPeriodId(pid){
+    var m=/^PAY-(\d{4})-(\d{2})-(\d{2})$/.exec(pid||'');
+    if(!m)return pid;                       // already W-*, or unknown - leave as-is
+    var d=new Date(+m[1],+m[2]-1,+m[3]);
+    var dow=d.getDay();                      // 0=Sun..6=Sat
+    var back=(dow===6)?0:(dow+1);            // walk back to the week's Saturday
+    d.setDate(d.getDate()-back);
+    var y=d.getFullYear(),mo=('0'+(d.getMonth()+1)).slice(-2),da=('0'+d.getDate()).slice(-2);
+    return 'W-'+y+mo+da;
+  }
   var batches=D.payBatches||[];
   var artMap={};
   if(D.entry&&D.entry.articles){D.entry.articles.forEach(function(a){artMap[a.sheet]=a.article||a.sheet;});}
@@ -725,7 +737,8 @@ function renderPayHistory(c){
   // Build filter option sets
   var periods=[],periodSet={},articles=[],artSet={},ctrs=[],ctrSet={};
   batches.forEach(function(b){
-    if(b.periodId&&!periodSet[b.periodId]){periodSet[b.periodId]=1;periods.push(b.periodId);}
+    var _np=normPeriodId(b.periodId);
+    if(_np&&!periodSet[_np]){periodSet[_np]=1;periods.push(_np);}
     var cid=b.contractorId||'';
     if(cid&&!ctrSet[cid]){ctrSet[cid]=1;ctrs.push(cid);}
     (b.lines||[]).forEach(function(jc){
@@ -755,14 +768,14 @@ function renderPayHistory(c){
     listWrap.innerHTML='';
     var fp=selPeriod.value,fa=selArt.value,fc=selCtr.value;
     var filtered=batches.filter(function(b){
-      if(fp&&b.periodId!==fp)return false;
+      if(fp&&normPeriodId(b.periodId)!==fp)return false;
       if(fc&&(b.contractorId||'')!==fc)return false;
       if(fa){var has=(b.lines||[]).some(function(jc){return jc.orderRef===fa;});if(!has)return false;}
       return true;
     });
     var periodGroups={},periodOrder=[];
     filtered.forEach(function(b){
-      var p=b.periodId||'Unknown';
+      var p=normPeriodId(b.periodId)||'Unknown';
       if(!periodGroups[p]){periodGroups[p]=[];periodOrder.push(p);}
       periodGroups[p].push(b);
     });
