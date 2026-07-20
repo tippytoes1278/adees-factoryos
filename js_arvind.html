@@ -585,6 +585,24 @@ function renderPayment(c){
   cr.appendChild(applyBtn);
   c.appendChild(cr);
 
+  // ── Non-standard period needs Ayush's approval (one pay run) ──
+  var _isFree=(PAY_PERIOD.periodId===_defaultPayWeek().periodId);
+  if(!_isFree){
+    var appr=el('div',{style:'display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:10px 12px;background:#FFF7E6;border:1px solid var(--fos-warning);border-radius:10px'});
+    appr.appendChild(el('div',{style:'flex:1;font-size:12px;color:var(--fos-ink)',text:'This isn\'t the current pay week — it needs Ayush\'s approval before you can pay under it (one run).'}));
+    var reqBtn=el('button',{text:'Request approval',style:'padding:8px 14px;border:none;border-radius:8px;background:var(--fos-warning);color:#fff;font-size:13px;font-weight:600;cursor:pointer;flex-shrink:0'});
+    reqBtn.onclick=function(){
+      var reason=window.prompt('Reason for this custom pay period (optional):')||'';
+      reqBtn.disabled=true;reqBtn.textContent='Requesting...';
+      google.script.run
+        .withSuccessHandler(function(){reqBtn.textContent='Requested ✓';toast('Approval request sent to Ayush — '+PAY_PERIOD.label);})
+        .withFailureHandler(function(e){reqBtn.disabled=false;reqBtn.textContent='Request approval';toast((e&&e.message)||'Could not send request',true);})
+        .submitRequest('CUSTOM_PERIOD_REQUEST',JSON.stringify({periodId:PAY_PERIOD.periodId,fromDate:_iso(PAY_PERIOD.sat),toDate:_iso(PAY_PERIOD.fri),reason:reason}));
+    };
+    appr.appendChild(reqBtn);
+    c.appendChild(appr);
+  }
+
   var jcs=D.completedJobCards;
   if(!Array.isArray(jcs)){c.appendChild(alert_('yellow','Loading...','Tap Refresh'));return;}
 
@@ -761,20 +779,19 @@ function renderPayment(c){
     var ids=jcs.filter(function(j){return PAY_SELECTED[j.jobCardId];}).map(function(j){return j.jobCardId;});
     if(!ids.length){toast('Tick at least one card to pay',true);return;}
     footBtn.disabled=true;footBtn.textContent='Paying...';
-    var i=0,paid=0,failed=0;
-    (function nextPay(){
-      if(i>=ids.length){
-        toast('Paid '+paid+' card'+(paid!==1?'s':'')+(failed?(' · '+failed+' failed'):'')+' — '+PAY_PERIOD.label);
-        ids.forEach(function(id){delete PAY_SELECTED[id];});
-        D.completedJobCards=null;loadTab('payment');
-        return;
-      }
-      var id=ids[i++];
-      google.script.run
-        .withSuccessHandler(function(rr){if(rr&&rr.success)paid++;else failed++;nextPay();})
-        .withFailureHandler(function(){failed++;nextPay();})
-        .submitCardPayment({jobCardId:id,periodId:PAY_PERIOD.periodId,notes:''});
-    })();
+    google.script.run
+      .withSuccessHandler(function(rr){
+        if(rr&&(rr.success||rr.paid>0)){
+          toast('Paid '+(rr.paid||0)+' card'+((rr.paid||0)!==1?'s':'')+(rr.failed?(' · '+rr.failed+' failed'):'')+' — ₹'+safeNum(rr.totalAmount).toFixed(2)+' · '+PAY_PERIOD.label);
+          ids.forEach(function(id){delete PAY_SELECTED[id];});
+          D.completedJobCards=null;loadTab('payment');
+        } else {
+          footBtn.disabled=false;updateFooter();
+          toast((rr&&rr.error)?rr.error:'Payment failed',true);
+        }
+      })
+      .withFailureHandler(function(e){footBtn.disabled=false;updateFooter();toast((e&&e.message)||'Error submitting pay run',true);})
+      .submitPayRun({periodId:PAY_PERIOD.periodId,jobCardIds:ids,notes:''});
   };
 }
 

@@ -238,24 +238,20 @@ function processRequest(rowNum, action, notes) {
         var cpPayload = JSON.parse(safeStr(row[4]));
         if (cpPayload && cpPayload.fromDate && cpPayload.toDate) {
           var pp = ss.getSheetByName('PAYMENT_PERIODS');
-          if (pp) {
-            if (pp.getLastRow() > 1) {
-              var ppVals = pp.getRange(2, 1, pp.getLastRow()-1, 7).getValues();
-              for (var pi = 0; pi < ppVals.length; pi++) {
-                if (safeStr(ppVals[pi][6]).trim().toUpperCase() === 'OPEN')
-                  pp.getRange(pi + 2, 7).setValue('CLOSED');
-              }
-            }
-            var cpDays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-            var cpMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-            var fmtCp = function(ds) { var p=ds.split('-'); var d=new Date(+p[0],+p[1]-1,+p[2]); return cpDays[d.getDay()]+' '+d.getDate()+' '+cpMonths[d.getMonth()]+' '+d.getFullYear(); };
-            var cpLabel = fmtCp(cpPayload.fromDate) + ' – ' + fmtCp(cpPayload.toDate);
-            var cpId = 'W-' + cpPayload.fromDate.replace(/-/g, '');
-            pp.getRange(pp.getLastRow() + 1, 1, 1, 7).setValues([[
-              cpId, 'Custom', cpLabel, cpPayload.fromDate, cpPayload.toDate,
-              cpPayload.reason || '', 'OPEN'
-            ]]);
+          if (!pp) {
+            pp = ss.insertSheet('PAYMENT_PERIODS');
+            pp.getRange(1, 1, 1, 10).setValues([['PeriodID','Type','Label','StartDate','EndDate','Reason','Status','SubmissionRow','ApprovedBy','CreatedAt']]);
           }
+          var cpDays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+          var cpMonths = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+          var fmtCp = function(ds) { var p=ds.split('-'); var d=new Date(+p[0],+p[1]-1,+p[2]); return cpDays[d.getDay()]+' '+d.getDate()+' '+cpMonths[d.getMonth()]+' '+d.getFullYear(); };
+          var cpLabel = fmtCp(cpPayload.fromDate) + ' – ' + fmtCp(cpPayload.toDate);
+          // One-time pay-run authorization for exactly the requested period.
+          var cpId = safeStr(cpPayload.periodId).trim() || ('R-' + cpPayload.fromDate + '_' + cpPayload.toDate);
+          pp.getRange(pp.getLastRow() + 1, 1, 1, 7).setValues([[
+            cpId, 'PayAuth', cpLabel, cpPayload.fromDate, cpPayload.toDate,
+            cpPayload.reason || '', 'APPROVED'
+          ]]);
         }
       } catch(pe) { Logger.log('CUSTOM_PERIOD_REQUEST error: ' + pe.message); }
     }

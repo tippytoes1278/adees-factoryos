@@ -402,6 +402,80 @@ function _resolvePayPeriod(sel) {
   return satFriWeek(new Date()).periodId;
 }
 
+// The one period Accounts may pay under WITHOUT approval: the week that just ended.
+function _serverDefaultPayWeekId() {
+  var cur = satFriWeek(new Date());          // week containing today
+  var p = cur.fromDate.split('-');           // this week's Saturday
+  var before = new Date(+p[0], +p[1]-1, +p[2]-1); // day before it → previous Friday
+  return satFriWeek(before).periodId;        // the just-ended week
+}
+function _isFreePeriod(periodId) {
+  return safeStr(periodId).trim() === _serverDefaultPayWeekId();
+}
+// Approval authorizations live in PAYMENT_PERIODS as Type='PayAuth'. Status APPROVED
+// = usable once; CONSUMED = already spent on a pay run.
+function _periodAuthorized(ss, periodId) {
+  var pp = ss.getSheetByName('PAYMENT_PERIODS');
+  if (!pp || pp.getLastRow() < 2) return false;
+  var v = pp.getRange(2, 1, pp.getLastRow()-1, 7).getValues();
+  for (var i = 0; i < v.length; i++) {
+    if (safeStr(v[i][0]).trim() === periodId &&
+        safeStr(v[i][1]).trim() === 'PayAuth' &&
+        safeStr(v[i][6]).trim().toUpperCase() === 'APPROVED') return true;
+  }
+  return false;
+}
+function _consumePeriodAuth(ss, periodId) {
+  var pp = ss.getSheetByName('PAYMENT_PERIODS');
+  if (!pp || pp.getLastRow() < 2) return false;
+  var v = pp.getRange(2, 1, pp.getLastRow()-1, 7).getValues();
+  for (var i = 0; i < v.length; i++) {
+    if (safeStr(v[i][0]).trim() === periodId &&
+        safeStr(v[i][1]).trim() === 'PayAuth' &&
+        safeStr(v[i][6]).trim().toUpperCase() === 'APPROVED') {
+      pp.getRange(i+2, 7).setValue('CONSUMED');
+      SpreadsheetApp.flush();
+      return true;
+    }
+  }
+  return false;
+}
+
+// Pay a whole run of ticked cards in one call. The free (just-ended) week pays
+// directly; any other period requires an approved, unconsumed authorization, which
+// this consumes exactly once for the run.
+function submitPayRun(data) {
+  var _u = getUserInfo();
+  if (_u.role !== 'accounts' && _u.role !== 'admin')
+    return { success:false, error:'Not authorised' };
+  var periodId = _resolvePayPeriod(data.periodId);
+  var ids = Array.isArray(data.jobCardIds) ? data.jobCardIds : [];
+  if (!ids.length) return { success:false, error:'No cards selected' };
+
+  if (!_isFreePeriod(periodId)) {
+    var lock = LockService.getPublicLock();
+    try {
+      lock.waitLock(10000);
+      var ssA = SpreadsheetApp.openById(SHEET_ID);
+      if (!_consumePeriodAuth(ssA, periodId))
+        return { success:false, error:'This pay period is not approved (or its approval was already used). Ask Ayush to approve a custom-period request first.' };
+    } catch(e) {
+      return { success:false, error:e.message };
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
+  var paid = 0, failed = 0, totalAmount = 0, results = [];
+  ids.forEach(function(id) {
+    var r = submitCardPayment({ jobCardId:id, periodId:periodId, notes:safeStr(data.notes||''), _authorized:true });
+    if (r && r.success) { paid++; totalAmount += safeNum(r.totalAmount); }
+    else failed++;
+    results.push({ jobCardId:id, success:!!(r && r.success), error:(r && r.error) || '' });
+  });
+  return { success: failed === 0, paid:paid, failed:failed, totalAmount:totalAmount, periodId:periodId, results:results };
+}
+
 function saveEntry(sheetName, row, contractor, qty, conveyance, remarks, rate, comm, periodId) {
   var user = getUserInfo();
   if (user.role !== 'accounts' && user.role !== 'admin')
@@ -986,6 +1060,8 @@ function submitCardPayment(data) {
   var periodId  = _resolvePayPeriod(data.periodId);
   var notes     = safeStr(data.notes     || '').trim();
   if (!jobCardId) return { success:false, error:'jobCardId is required' };
+  if (!data._authorized && !_isFreePeriod(periodId))
+    return { success:false, error:'This pay period needs approval — run it through an approved pay run.' };
 
   var MOVEMENT_DEPT_KEY = {
     'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter',
