@@ -7,18 +7,6 @@ function onOpen() {
     .addToUi();
 }
 
-function saveWIP(rowNum, produced) {
-  try {
-    var ss = SpreadsheetApp.openById(SHEET_ID);
-    var wr = ss.getSheetByName('WIP_RECONCILIATION');
-    wr.getRange('D'+rowNum).setValue(produced);
-    SpreadsheetApp.flush();
-    return { success:true,
-      status: safeStr(wr.getRange('G'+rowNum).getValue()),
-      diff:   safeStr(wr.getRange('F'+rowNum).getValue()) };
-  } catch(e) { return { success:false, error:e.message }; }
-}
-
 // ── WIP ENTRIES — Phase 5.1 ───────────────────────────────────────────────────
 
 function ensureWipEntriesSheet() {

@@ -131,17 +131,6 @@ function getDashboardData(ss) {
     }
   } catch(e) { Logger.log('OT error: ' + e.message); }
 
-  var mismatches = 0;
-  try {
-    var wr = ss.getSheetByName('WIP_RECONCILIATION');
-    if (wr && wr.getLastRow() > 4) {
-      var wrData = wr.getRange(5, 7, wr.getLastRow()-4, 1).getValues();
-      wrData.forEach(function(r){
-        if (safeStr(r[0]).indexOf('PAID > MADE') > -1) mismatches++;
-      });
-    }
-  } catch(e) { Logger.log('WR error: ' + e.message); }
-
   var pendingCount = 0;
   try {
     var rq = ss.getSheetByName('REQUESTS');
@@ -301,7 +290,7 @@ function getDashboardData(ss) {
   var _dashResult = {
     weeklyPayout:weeklyPayout, approvalStatus:approvalStatus,
     weekEnding:weekEnding, orders:orders, redCount:redCount,
-    completeCount:completeCount, mismatches:mismatches,
+    completeCount:completeCount,
     pendingCount:pendingCount, totalOrders:orders.length,
     contractorSummary:contractorSummary, periodList:periodList,
     pipeline:pipeline, deliveryRisk:deliveryRisk

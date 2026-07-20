@@ -79,7 +79,8 @@ function renderAdminHome(c){
   var mrow=el('div',{cls:'fos-metric-row'});
   mrow.appendChild(fosMetricEl('Payout',fmt(d.weeklyPayout),'this week','green'));
   mrow.appendChild(fosMetricEl('Orders',String(d.totalOrders),d.redCount>0?(d.redCount+' over lot'):(d.completeCount+' done'),d.redCount>0?'red':'blue'));
-  mrow.appendChild(fosMetricEl('WIP',String(d.mismatches),d.mismatches>0?'mismatch':'all matched',d.mismatches>0?'red':'blue'));
+  var _onFloor=(_pl.cutting||0)+(_pl.prep||0)+(_pl.fitter||0)+(_pl.lasting||0)+(_pl.finishing||0)+(_pl.dispatch||0);
+  mrow.appendChild(fosMetricEl('WIP',String(_onFloor),'pairs on floor','blue'));
   var pc=d.pendingCount||0;
   if(pc>0){
     var apprM=fosMetricEl('Requests',String(pc),'pending','orange');
@@ -104,9 +105,8 @@ function renderAdminHome(c){
   // 3. Alerts
   c.appendChild(sectionTitle('Alerts'));
   if(d.redCount>0)c.appendChild(alert_('red',d.redCount+' order(s) over lot cap','Review before approving payment'));
-  if(d.mismatches>0)c.appendChild(alert_('yellow',d.mismatches+' WIP mismatch','Prakash qty does not match Arvind entry'));
   if(!approved)c.appendChild(alert_('yellow','Payment not approved yet','Go to Approve tab before Saturday'));
-  if(approved&&d.redCount===0&&d.mismatches===0)c.appendChild(alert_('green','All clear - safe to pay','Approved: '+d.approvalStatus));
+  if(approved&&d.redCount===0)c.appendChild(alert_('green','All clear - safe to pay','Approved: '+d.approvalStatus));
 
   // 3b. Delivery Risk — overdue open job cards (most overdue first)
   var risk=Array.isArray(d.deliveryRisk)?d.deliveryRisk:[];
@@ -322,7 +322,6 @@ function renderApprove(c){
   }
   c.appendChild(box);
   if(d.redCount>0)c.appendChild(alert_('red','Warning: '+d.redCount+' order over lot cap','Review before approving'));
-  if(d.mismatches>0)c.appendChild(alert_('yellow',d.mismatches+' WIP mismatch','Verify before paying'));
 }
 
 // Called from js_core.html renderTab for admin 'payment' tab

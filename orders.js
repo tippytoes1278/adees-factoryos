@@ -24,13 +24,6 @@ function deleteOrder(sheetName) {
         for(var j=0;j<otD.length;j++){if(safeStr(otD[j][0])===sheetName){ot.deleteRow(j+4);break;}}
       }
     } catch(e2) { failures.push('ORDER_TRACKER: '+e2.message); }
-    try {
-      var wr = ss.getSheetByName('WIP_RECONCILIATION');
-      if (wr && wr.getLastRow()>4) {
-        var wrD=wr.getRange(5,1,wr.getLastRow()-4,1).getValues();
-        for(var k=0;k<wrD.length;k++){if(safeStr(wrD[k][0])===sheetName){wr.deleteRow(k+5);break;}}
-      }
-    } catch(e3) { failures.push('WIP_RECONCILIATION: '+e3.message); }
     SpreadsheetApp.flush();
     if (failures.length) {
       Logger.log('deleteOrder('+sheetName+'): sheet deleted but row cleanup failed — '+failures.join('; '));
@@ -125,17 +118,6 @@ function updateTrackers(ss, newName, orderId, article, color, customer, brand, s
     }
   } catch(e) { Logger.log('OT error: ' + e.message); }
 
-  try {
-    var wr = ss.getSheetByName('WIP_RECONCILIATION');
-    if (wr) {
-      var wrRow = Math.max(wr.getLastRow(), 4) + 1;
-      wr.getRange(wrRow, 1, 1, 3).setValues([[newName, displayName, 'Upper Making']]);
-      wr.getRange(wrRow, 5).setFormula("=IFERROR('"+newName+"'!Q2,0)");
-      wr.getRange(wrRow, 6).setFormula('=IF(D'+wrRow+'="","--",D'+wrRow+'-E'+wrRow+')');
-      wr.getRange(wrRow, 7).setFormula(
-        '=IF(D'+wrRow+'="","AWAITING",IF(D'+wrRow+'=E'+wrRow+',"MATCH",IF(E'+wrRow+'>D'+wrRow+',"PAID > MADE","UNDER-PAID")))');
-    }
-  } catch(e) { Logger.log('WR error: ' + e.message); }
 }
 
 function createArtTemplate() {
@@ -309,14 +291,6 @@ function createOrder(payload) {
       ot.getRange(otRow, 7).setFormula('=E'+otRow+'+F'+otRow);
       ot.getRange(otRow, 8).setFormula('=IF(D'+otRow+'="","--",D'+otRow+'-G'+otRow+')');
       ot.getRange(otRow, 9).setFormula('=IF(D'+otRow+'="","NO LOT SET",IF(G'+otRow+'>D'+otRow+',"OVER BY "&(G'+otRow+'-D'+otRow+')&" PAIRS",IF(G'+otRow+'=D'+otRow+',"LOT COMPLETE","OK - "&(D'+otRow+'-G'+otRow+')&" LEFT")))');
-    }
-    var wr = ss.getSheetByName('WIP_RECONCILIATION');
-    if (wr) {
-      var wrRow = Math.max(wr.getLastRow(), 4) + 1;
-      wr.getRange(wrRow, 1, 1, 3).setValues([[artSheet, article, 'Upper Making']]);
-      wr.getRange(wrRow, 5).setFormula("=IFERROR('"+artSheet+"'!Q2,0)");
-      wr.getRange(wrRow, 6).setFormula('=IF(D'+wrRow+'="","--",D'+wrRow+'-E'+wrRow+')');
-      wr.getRange(wrRow, 7).setFormula('=IF(D'+wrRow+'="","AWAITING",IF(D'+wrRow+'=E'+wrRow+',"MATCH",IF(E'+wrRow+'>D'+wrRow+',"PAID > MADE","UNDER-PAID")))');
     }
     SpreadsheetApp.flush();
     return { success:true, bomNumber:bomNumber, artSheet:artSheet };
