@@ -225,58 +225,6 @@ function getWipGrid() {
   }
 }
 
-function submitWipGrid(gridEntries) {
-  var STORE_MOVEMENT_MAP = {
-    'Upper Store':              ['Cutting IN','Cutting OUT','Preparation IN','Preparation OUT','Fitter IN','Fitter OUT'],
-    'Lasting & Packing Store':  ['Upper IN','Lasting IN','Lasting OUT','Packing IN','Packing OUT'],
-    'Dispatch Store':           ['Dispatch IN','Dispatch OUT']
-  };
-  var lock = LockService.getPublicLock();
-  try {
-    lock.waitLock(10000);
-    try {
-      if (!Array.isArray(gridEntries) || !gridEntries.length) throw new Error('No entries provided');
-      var ws = ensureWipEntriesSheet();
-      var today = new Date();
-      var mm = String(today.getMonth() + 1); if (mm.length < 2) mm = '0' + mm;
-      var dd = String(today.getDate());      if (dd.length < 2) dd = '0' + dd;
-      var defaultPeriodId = 'GRID-' + today.getFullYear() + '-' + mm + '-' + dd;
-      var user = getUserInfo();
-      var now  = new Date().toISOString();
-      var toInsert = [];
-      gridEntries.forEach(function(entry) {
-        var orderRef  = safeStr(entry.orderRef).trim();
-        var workOrder = safeStr(entry.workOrder  || '').trim();
-        var store     = safeStr(entry.store).trim();
-        var movement  = safeStr(entry.movement).trim();
-        var pairs     = safeNum(entry.pairs);
-        var periodId  = safeStr(entry.periodId   || defaultPeriodId).trim();
-        if (!orderRef) throw new Error('orderRef required');
-        if (!STORE_MOVEMENT_MAP[store]) throw new Error('Invalid store: ' + store);
-        if (STORE_MOVEMENT_MAP[store].indexOf(movement) < 0) throw new Error('Invalid movement for store: ' + movement);
-        if (!pairs || pairs <= 0) throw new Error('pairs must be positive for: ' + orderRef);
-        var entryType = movement.slice(-2) === 'IN' ? 'IN' : 'OUT';
-        toInsert.push([orderRef, workOrder, store, movement, entryType, pairs, periodId]);
-      });
-      var dataRows = Math.max(0, ws.getLastRow() - 1);
-      var saved = 0;
-      toInsert.forEach(function(row, i) {
-        var nextNum = dataRows + i + 1;
-        var seq = String(nextNum); while (seq.length < 3) seq = '0' + seq;
-        var wipId = 'WIP-' + today.getFullYear() + '-' + seq;
-        ws.appendRow([wipId, row[0], row[1], row[2], row[3], row[4], row[5], user.email, now, row[6], 'PENDING', 'Grid entry', '', '']);
-        saved++;
-      });
-      SpreadsheetApp.flush();
-      return { success: true, saved: saved };
-    } catch(e) {
-      return { success: false, error: e.message };
-    }
-  } finally {
-    lock.releaseLock();
-  }
-}
-
 // ── WIP_ENTRIES SCHEMA MIGRATION — Phase 5.3 ─────────────────────────────────
 
 function migrateWipEntries() {
@@ -374,58 +322,6 @@ function ensureDailyReportsSheet() {
   return ws;
 }
 
-function submitDay() {
-  var lock = LockService.getPublicLock();
-  try {
-    lock.waitLock(10000);
-    try {
-      var ss        = SpreadsheetApp.openById(SHEET_ID);
-      var email     = Session.getActiveUser().getEmail();
-      var todayDate = new Date().toISOString().slice(0, 10);
-      var now       = new Date().toISOString();
-
-      var ws      = ensureWipEntriesSheet();
-      var lastRow = ws.getLastRow();
-      if (lastRow < 2) return { success: false, error: 'No draft entries to submit' };
-
-      var rows        = ws.getRange(2, 1, lastRow - 1, 14).getValues();
-      var matchedIdxs = [];
-      rows.forEach(function(r, i) {
-        var status      = safeStr(r[10]).trim();
-        var submittedBy = safeStr(r[7]).trim();
-        var submittedAt = safeStr(r[8]).trim();
-        if (status === 'DRAFT' && submittedBy === email && submittedAt.slice(0, 10) === todayDate) {
-          matchedIdxs.push(i);
-        }
-      });
-
-      if (!matchedIdxs.length) return { success: false, error: 'No draft entries to submit' };
-
-      matchedIdxs.forEach(function(i) {
-        ws.getRange(i + 2, 11).setValue('SUBMITTED');
-      });
-
-      var entryCount = matchedIdxs.length;
-      var totalPairs = 0;
-      matchedIdxs.forEach(function(i) { totalPairs += safeNum(rows[i][6]); });
-
-      var dr       = ensureDailyReportsSheet();
-      var drRows   = Math.max(0, dr.getLastRow() - 1);
-      var nextNum  = drRows + 1;
-      var year     = new Date().getFullYear();
-      var reportId = 'DR-' + year + '-' + (String(nextNum).padStart ? String(nextNum).padStart(3,'0') : ('00'+nextNum).slice(-3));
-
-      dr.appendRow([reportId, todayDate, email, now, entryCount, totalPairs, 'SUBMITTED']);
-      SpreadsheetApp.flush();
-      return { success: true, reportId: reportId, entryCount: entryCount, totalPairs: totalPairs, date: todayDate };
-    } catch(e) {
-      return { success: false, error: e.message };
-    }
-  } finally {
-    lock.releaseLock();
-  }
-}
-
 function generateDailyReport() {
   try {
     var email     = Session.getActiveUser().getEmail();
@@ -505,38 +401,3 @@ function getDailyReports(filters) {
   }
 }
 
-function getTodaysDrafts() {
-  try {
-    var ss        = SpreadsheetApp.openById(SHEET_ID);
-    var todayDate = new Date().toISOString().slice(0, 10);
-    var ws        = ensureWipEntriesSheet();
-    var lastRow   = ws.getLastRow();
-    if (lastRow < 2) return [];
-    var rows      = ws.getRange(2, 1, lastRow - 1, 14).getValues();
-    var result    = [];
-    rows.forEach(function(r) {
-      var status      = safeStr(r[10]).trim();
-      var submittedAt = safeStr(r[8]).trim();
-      if (status !== 'DRAFT' || submittedAt.slice(0, 10) !== todayDate) return;
-      result.push({
-        wipId:       safeStr(r[0]),
-        orderRef:    safeStr(r[1]),
-        workOrder:   safeStr(r[2]),
-        store:       safeStr(r[3]),
-        movement:    safeStr(r[4]),
-        entryType:   safeStr(r[5]),
-        pairs:       safeNum(r[6]),
-        submittedBy: safeStr(r[7]),
-        submittedAt: submittedAt,
-        periodId:    safeStr(r[9]),
-        status:      status,
-        notes:       safeStr(r[11]),
-        contractors: safeStr(r[12]),
-        jobCardRef:  safeStr(r[13])
-      });
-    });
-    return result;
-  } catch(e) {
-    return { success: false, error: e.message };
-  }
-}

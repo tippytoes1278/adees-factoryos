@@ -503,63 +503,6 @@ function approveWeek(initials) {
   } catch(e) { return { success:false, error:e.message }; }
 }
 
-function getPrintSummary() {
-  var ss = SpreadsheetApp.openById(SHEET_ID);
-
-  // Build ORDER_INDEX lookup: artName → {sheetName, customer}
-  var articleToSheet = {};
-  try {
-    var oi = ss.getSheetByName('ORDER_INDEX');
-    if (oi && oi.getLastRow() > 3) {
-      oi.getRange(4, 1, oi.getLastRow()-3, 5).getValues().forEach(function(r) {
-        var sheetName = safeStr(r[1]);
-        var article   = safeStr(r[2]);
-        var customer  = safeStr(r[4]);
-        if (article) articleToSheet[article] = { sheetName:sheetName, customer:customer };
-      });
-    }
-  } catch(e) { Logger.log('PS OI: ' + e.message); }
-
-  var records = [];
-  try {
-    var ph = ss.getSheetByName('PAYMENT_HISTORY');
-    if (ph && ph.getLastRow() > 3) {
-      ph.getRange(4, 1, ph.getLastRow()-3, 8).getValues().forEach(function(r) {
-        var weekRaw    = r[0];
-        var weekEnding = weekRaw instanceof Date
-          ? Utilities.formatDate(weekRaw, Session.getScriptTimeZone(), 'dd-MMM-yyyy')
-          : safeStr(weekRaw);
-        var artName     = safeStr(r[1]);
-        var customer    = safeStr(r[2]);
-        var contractor  = safeStr(r[3]);
-        var qty         = safeNum(r[4]);
-        var amount      = safeNum(r[5]);
-        var approval    = safeStr(r[6]);
-        var archiveDate = safeStr(r[7]);
-        if (!approval || !contractor || !amount) return;
-        var oiEntry = articleToSheet[artName] || {};
-        records.push({
-          periodId:    'P-' + weekEnding.replace(/[^a-zA-Z0-9]/g, ''),
-          periodLabel: weekEnding,
-          sheetName:   oiEntry.sheetName || '',
-          article:     artName,
-          customer:    customer || oiEntry.customer || '',
-          activityName:'',
-          contractor:  contractor,
-          qty:         qty,
-          rate:        0,
-          comm:        0,
-          conv:        0,
-          amount:      amount,
-          approvedDate:archiveDate
-        });
-      });
-    }
-  } catch(e) { Logger.log('PS PH: ' + e.message); }
-
-  return records;
-}
-
 function getPaymentSubmissions() {
   var user = getUserInfo();
   if (user.role !== 'admin') return { submissions:[], pmMap:{} };
