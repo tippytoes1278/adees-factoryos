@@ -537,6 +537,18 @@ function renderWIP(c){
       assignments.push({activityName:r.activityName,contractorId:cid});
     }
     if(!assignments.length){toast('Assign a contractor to at least one activity',true);return;}
+    // Size-run override gate (7.1): if any size exceeds its remaining, require the
+    // admin override password. Non-admins are blocked outright.
+    var _overSize=false;
+    sizeContainer.querySelectorAll('input[data-size]').forEach(function(inp){
+      if(parseInt(inp.value,10)>parseInt(inp.dataset.remaining||'0',10))_overSize=true;
+    });
+    var _overridePw='';
+    if(_overSize){
+      if(!USER||USER.role!=='admin'){toast('Some sizes exceed the approved run — only Ayush can override',true);return;}
+      _overridePw=window.prompt('This exceeds the approved size run.\nEnter the admin override password to proceed:')||'';
+      if(!_overridePw){toast('Override cancelled',true);return;}
+    }
     var payload={
       orderRef:selectedOrderRef,
       workOrder:selectedWorkOrder,
@@ -546,7 +558,8 @@ function renderWIP(c){
       assignments:assignments,
       sizeBreakdown:getSizeBreakdown(),
       expectedReturn:dateInput.value,
-      notes:notesInput.value.trim()
+      notes:notesInput.value.trim(),
+      overridePassword:_overridePw
     };
     issueBtn.disabled=true;issueBtn.textContent='Issuing...';
     google.script.run

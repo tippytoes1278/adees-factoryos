@@ -414,6 +414,20 @@ function getOrderSizeBalance(orderRef, movement) {
   return { success:true, sizes:sizes, isAdmin: role === 'admin' };
 }
 
+// ── Admin override gate (Phase 7.1) ──────────────────────────────────────────
+// Two-step verification for admin overrides. The password lives in Script
+// Properties (key ADMIN_OVERRIDE_PW), never in code. Returns {success} so callers
+// can gate any sensitive override (size-run, order edits, etc.).
+function verifyAdminOverride(password) {
+  var u = getUserInfo();
+  if (u.role !== 'admin') return { success:false, error:'Not authorised' };
+  var pw = '';
+  try { pw = PropertiesService.getScriptProperties().getProperty('ADMIN_OVERRIDE_PW') || ''; } catch(e) {}
+  if (!pw) return { success:false, error:'Override password not set. Add ADMIN_OVERRIDE_PW in Script Properties.' };
+  if (safeStr(password) !== pw) return { success:false, error:'Incorrect override password' };
+  return { success:true };
+}
+
 function backfillOrderSizes() {
   try {
     var ss = SpreadsheetApp.openById(SHEET_ID);

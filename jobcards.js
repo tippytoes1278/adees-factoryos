@@ -328,22 +328,25 @@ function issueDepartmentJobCard(data) {
   } catch(e) {}
 
   // Per-size cap — can't issue more of a size than remains in the approved size run.
-  // Admin (Ayush) may override.
-  if (_user.role !== 'admin') {
-    try {
-      var _bal = getOrderSizeBalance(orderRef, movement);
-      if (_bal && _bal.success && _bal.sizes) {
-        var _over = [];
-        Object.keys(sizeBreakdown || {}).forEach(function(k) {
-          var want = safeNum(sizeBreakdown[k]);
-          var rem  = _bal.sizes[k] ? safeNum(_bal.sizes[k].remaining) : 0;
-          if (want > rem) _over.push(k + ': ' + want + ' > ' + rem + ' left');
-        });
-        if (_over.length)
+  // Admin (Ayush) may override, but only with the two-step override password (7.1).
+  try {
+    var _bal = getOrderSizeBalance(orderRef, movement);
+    if (_bal && _bal.success && _bal.sizes) {
+      var _over = [];
+      Object.keys(sizeBreakdown || {}).forEach(function(k) {
+        var want = safeNum(sizeBreakdown[k]);
+        var rem  = _bal.sizes[k] ? safeNum(_bal.sizes[k].remaining) : 0;
+        if (want > rem) _over.push(k + ': ' + want + ' > ' + rem + ' left');
+      });
+      if (_over.length) {
+        if (_user.role !== 'admin')
           return { success:false, error:'Over the approved size run — ' + _over.join(', ') + '. Ask Ayush to override.' };
+        var _ov = verifyAdminOverride(data.overridePassword);
+        if (!_ov || !_ov.success)
+          return { success:false, error:'Admin override of the size run needs the override password. ' + ((_ov && _ov.error) || '') };
       }
-    } catch(e) {}
-  }
+    }
+  } catch(e) {}
 
   var jobCardId;
   var lock = LockService.getPublicLock();
