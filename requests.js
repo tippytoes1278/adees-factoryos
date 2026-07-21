@@ -208,11 +208,16 @@ function processRequest(rowNum, action, notes) {
     var row = rq.getRange(rowNum, 1, 1, 10).getValues()[0];
     var rowStatus = safeStr(row[5]);
     if (rowStatus === 'APPROVED' || rowStatus === 'REJECTED') return { success: false, error: 'Already processed' };
+    if ((action === 'REJECT' || action === 'REVISION') && !safeStr(notes).trim())
+      return { success: false, error: 'A remark is required to reject or send back for revision' };
     var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
-    rq.getRange(rowNum, 6).setValue(action === 'REJECT' ? 'REJECTED' : 'APPROVED');
-    rq.getRange(rowNum, 7).setValue(notes || (action==='APPROVE'?'Approved':'Rejected'));
+    var newStatus = action === 'REJECT' ? 'REJECTED' : (action === 'REVISION' ? 'REVISION' : 'APPROVED');
+    rq.getRange(rowNum, 6).setValue(newStatus);
+    rq.getRange(rowNum, 7).setValue(notes || (action==='APPROVE'?'Approved':(action==='REVISION'?'Sent for revision':'Rejected')));
     rq.getRange(rowNum, 8).setValue(now);
-    rq.getRange(rowNum, 9).setValue('Yes');
+    // Revision goes back to the submitter (not a final state), so it stays actionable.
+    rq.getRange(rowNum, 9).setValue(action === 'REVISION' ? 'Revision' : 'Yes');
+    if (action === 'REVISION') return { success: true, status: 'REVISION' };
     var sheetCreated = '';
     if (action === 'APPROVE' && safeStr(row[3]) === 'ACTIVITY_SETUP') {
       try {

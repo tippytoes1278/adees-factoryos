@@ -593,6 +593,7 @@ function renderRequests(c){
     var acts=el('div',{style:'margin-top:2px'});
     var btnsDiv=el('div',{cls:'req-actions'});
     var _rjBtn=el('button',{cls:'rj-btn',text:'Reject'});
+    var _rvBtn=el('button',{text:'Revision',style:'padding:7px 12px;border-radius:8px;border:1px solid #f59e0b;background:transparent;color:#f59e0b;font-size:13px;font-weight:600;cursor:pointer'});
     if(r.type==='RATE_EDIT'){
       var ab=el('button',{cls:'ap-btn',text:'Approve'});
       (function(reqId){ab.onclick=function(){doApproveRateEdit(reqId);};})(r.reqId);
@@ -614,39 +615,57 @@ function renderRequests(c){
       (function(rowNum){ab2.onclick=function(){processReq(rowNum,'APPROVE');};})(r.rowNum);
       btnsDiv.appendChild(ab2);btnsDiv.appendChild(_rjBtn);
     }
+    btnsDiv.appendChild(_rvBtn);
     acts.appendChild(btnsDiv);
-    (function(rjBtn,bDiv,actsEl,rowNum,cardEl){
+    (function(rjBtn,rvBtn,bDiv,actsEl,rowNum,cardEl){
+      var mode='REJECT';
       var rkWrap=el('div',{style:'display:none;margin-top:8px'});
-      var rkInp=el('textarea',{placeholder:'Reason for rejection — required',style:'width:100%;background:#0f1117;border:1px solid #ef4444;border-radius:8px;padding:9px 12px;color:#e8eaf0;font-size:13px;box-sizing:border-box;margin-bottom:6px;display:block;resize:none;min-height:60px'});
+      var rkTitle=el('div',{style:'font-size:12px;font-weight:600;margin-bottom:5px;color:#e8eaf0'});
+      var rkInp=el('textarea',{placeholder:'Remark — required',style:'width:100%;background:#0f1117;border:1px solid #f59e0b;border-radius:8px;padding:9px 12px;color:#e8eaf0;font-size:13px;box-sizing:border-box;margin-bottom:6px;display:block;resize:none;min-height:60px'});
       var rkRow=el('div',{style:'display:flex;gap:8px;align-items:center'});
-      var rkConfirm=el('button',{text:'Confirm Reject',style:'flex:1;padding:9px;background:#7f1d1d;color:#fca5a5;font-size:13px;font-weight:700;border-radius:8px;border:none;cursor:not-allowed;opacity:0.4'});
+      var rkConfirm=el('button',{text:'Confirm',style:'flex:1;padding:9px;background:#7f1d1d;color:#fca5a5;font-size:13px;font-weight:700;border-radius:8px;border:none;cursor:not-allowed;opacity:0.4'});
       rkConfirm.disabled=true;
       var rkCancel=el('a',{style:'font-size:12px;color:#4a5578;cursor:pointer;text-decoration:underline',text:'Cancel'});
       rkRow.appendChild(rkConfirm);rkRow.appendChild(rkCancel);
-      rkWrap.appendChild(rkInp);rkWrap.appendChild(rkRow);
+      rkWrap.appendChild(rkTitle);rkWrap.appendChild(rkInp);rkWrap.appendChild(rkRow);
       actsEl.appendChild(rkWrap);
       rkInp.oninput=function(){var ok=!!rkInp.value.trim();rkConfirm.disabled=!ok;rkConfirm.style.opacity=ok?'1':'0.4';rkConfirm.style.cursor=ok?'pointer':'not-allowed';};
-      rjBtn.onclick=function(){bDiv.style.display='none';rkWrap.style.display='block';rkInp.focus();};
+      function openBox(m){
+        mode=m;
+        rkTitle.textContent=(m==='REVISION')?'Send back for revision — remark required':'Reject — reason required';
+        rkConfirm.textContent=(m==='REVISION')?'Send for Revision':'Confirm Reject';
+        rkInp.style.borderColor=(m==='REVISION')?'#f59e0b':'#ef4444';
+        bDiv.style.display='none';rkWrap.style.display='block';rkInp.focus();
+      }
+      rjBtn.onclick=function(){openBox('REJECT');};
+      rvBtn.onclick=function(){openBox('REVISION');};
       rkCancel.onclick=function(){rkWrap.style.display='none';bDiv.style.display='';};
       rkConfirm.onclick=function(){
         var rmk=rkInp.value.trim();if(!rmk)return;
-        rkConfirm.disabled=true;rkConfirm.textContent='Rejecting...';
+        var m=mode;
+        rkConfirm.disabled=true;rkConfirm.textContent=(m==='REVISION')?'Sending...':'Rejecting...';
         google.script.run
           .withSuccessHandler(function(res){
             if(res&&res.success){
               D.reqs=null;
               actsEl.style.display='none';
-              var rejState=el('div',{style:'margin-top:8px'});
-              rejState.appendChild(el('span',{cls:'badge red',text:'✕ Rejected'}));
-              rejState.appendChild(el('div',{style:'font-size:12px;color:#ef4444;margin-top:6px;padding:8px 10px;background:#450a0a;border-left:3px solid #ef4444;border-radius:0 6px 6px 0',text:rmk}));
-              cardEl.appendChild(rejState);
-              toast('Rejected');
-            } else{toast((res&&res.error)||'Error',true);rkConfirm.disabled=false;rkConfirm.textContent='Confirm Reject';}
+              var st=el('div',{style:'margin-top:8px'});
+              if(m==='REVISION'){
+                st.appendChild(el('span',{cls:'badge',style:'background:#78350f;color:#fcd34d;display:inline-flex;align-items:center;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:600',text:'↩ Sent for revision'}));
+                st.appendChild(el('div',{style:'font-size:12px;color:#f59e0b;margin-top:6px;padding:8px 10px;background:#451a03;border-left:3px solid #f59e0b;border-radius:0 6px 6px 0',text:rmk}));
+                toast('Sent back for revision');
+              } else {
+                st.appendChild(el('span',{cls:'badge red',text:'✕ Rejected'}));
+                st.appendChild(el('div',{style:'font-size:12px;color:#ef4444;margin-top:6px;padding:8px 10px;background:#450a0a;border-left:3px solid #ef4444;border-radius:0 6px 6px 0',text:rmk}));
+                toast('Rejected');
+              }
+              cardEl.appendChild(st);
+            } else{toast((res&&res.error)||'Error',true);rkConfirm.disabled=false;rkConfirm.textContent=(m==='REVISION')?'Send for Revision':'Confirm Reject';}
           })
-          .withFailureHandler(function(){toast('Error',true);rkConfirm.disabled=false;rkConfirm.textContent='Confirm Reject';})
-          .processRequest(rowNum,'REJECT',rmk);
+          .withFailureHandler(function(){toast('Error',true);rkConfirm.disabled=false;rkConfirm.textContent=(m==='REVISION')?'Send for Revision':'Confirm Reject';})
+          .processRequest(rowNum,m,rmk);
       };
-    })(_rjBtn,btnsDiv,acts,r.rowNum,card);
+    })(_rjBtn,_rvBtn,btnsDiv,acts,r.rowNum,card);
     card.appendChild(acts);
     c.appendChild(card);
   });

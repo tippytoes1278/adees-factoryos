@@ -185,7 +185,8 @@ function renderAlerts(c){
     var sBadge;
     if(r.status==='PENDING')sBadge=el('span',{cls:'badge grey',text:'⏳ Awaiting Approval'});
     else if(r.status==='APPROVED')sBadge=el('span',{cls:'badge green',text:'✅ Approved'});
-    else if(r.status==='REJECTED'||r.status==='REVISION'){sBadge=el('span',{cls:'badge red',text:'❌ Rejected'});}
+    else if(r.status==='REVISION'){sBadge=el('span',{cls:'badge',style:'background:#78350f;color:#fcd34d;display:inline-flex;align-items:center;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:600',text:'↩ Needs revision'});}
+    else if(r.status==='REJECTED'){sBadge=el('span',{cls:'badge red',text:'❌ Rejected'});}
     else sBadge=el('span',{cls:'badge grey',text:r.status});
     typeRow.appendChild(sBadge);
     if(r.status==='REJECTED'||r.status==='REVISION'){
