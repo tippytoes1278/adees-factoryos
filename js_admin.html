@@ -164,7 +164,7 @@ function renderAdminHome(c){
     c.appendChild(sectionTitle('Payouts by Period'));
     d.periodList.forEach(function(p){
       var pCard=el('div',{cls:'fos-card',style:'margin-bottom:8px'});
-      pCard.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary);margin-bottom:6px',text:p.periodId}));
+      pCard.appendChild(el('div',{style:'font-size:12px;font-weight:600;color:var(--fos-ink);margin-bottom:6px',text:_periodLabel(p.periodId)}));
       var pRow=el('div',{style:'display:flex;gap:16px;font-size:12px'});
       if(p.submitted)pRow.appendChild(el('span',{style:'font-family:var(--fos-font-mono);color:var(--fos-warning)',text:'Submitted: ₹'+p.submitted.toFixed(2)}));
       if(p.approved)pRow.appendChild(el('span',{style:'font-family:var(--fos-font-mono);color:var(--fos-success)',text:'Approved: ₹'+p.approved.toFixed(2)}));
@@ -266,7 +266,7 @@ function renderApprove(c){
       var top=el('div',{style:'display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px'});
       var tl=el('div');
       tl.appendChild(el('div',{style:'font-size:14px;font-weight:700;color:var(--fos-ink)',text:sub.article}));
-      tl.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-top:2px',text:(sub.customer?sub.customer+' · ':'')+sub.periodId+' · by '+sub.submittedBy}));
+      tl.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-top:2px',text:(sub.customer?sub.customer+' · ':'')+_periodLabel(sub.periodId)+' · by '+sub.submittedBy}));
       if(sub.bom)tl.appendChild(el('span',{style:'display:block;font-family:var(--fos-font-mono);font-size:0.72rem;color:var(--fos-ink-secondary);margin-top:2px',text:sub.bom}));
       top.appendChild(tl);top.appendChild(el('span',{cls:'badge yellow',text:'PENDING'}));
       card.appendChild(top);
@@ -362,7 +362,7 @@ function renderAdminPayment(c){
       var tl=el('div');
       tl.appendChild(el('div',{style:'font-size:14px;font-weight:700;color:var(--fos-ink)',text:ctrName}));
       tl.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:b.paymentId||'—'}));
-      tl.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:'Period: '+(b.periodId||'—')}));
+      tl.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:'Period: '+(b.periodId?_periodLabel(b.periodId):'—')}));
       top.appendChild(tl);
       top.appendChild(el('span',{cls:'badge yellow',text:'PENDING'}));
       bCard.appendChild(top);
@@ -479,7 +479,7 @@ function renderAdminPayment(c){
     pending2.forEach(function(sub){
       var card=el('div',{cls:'req-card',style:'margin-bottom:12px'});
       card.appendChild(el('div',{style:'font-size:14px;font-weight:500;color:var(--fos-ink)',text:sub.article||sub.sheet}));
-      card.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:sub.periodId||''}));
+      card.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:sub.periodId?_periodLabel(sub.periodId):''}));
       card.appendChild(el('div',{style:'font-size:14px;font-weight:700;color:var(--fos-success);margin-top:6px',text:'Total: ₹'+Number(sub.grandTotal||0).toFixed(2)}));
       var apBtn2=el('button',{cls:'ap-btn',text:'Approve & Lock',style:'margin-top:8px'});
       (function(reqId,btn){btn.onclick=function(){
@@ -561,7 +561,7 @@ function renderRequests(c){
       catch(epay){det.appendChild(el('div',{text:r.details}));}
     } else if(r.type==='PAYMENT_SUBMISSION'){
       if(r.psArticle)det.appendChild(el('div',{style:'font-weight:600;margin-bottom:4px',text:'Article: '+r.psArticle}));
-      if(r.psPeriodId)det.appendChild(el('div',{style:'margin-bottom:6px;color:var(--fos-ink-secondary)',text:'Period: '+r.psPeriodId}));
+      if(r.psPeriodId)det.appendChild(el('div',{style:'margin-bottom:6px;color:var(--fos-ink-secondary)',text:'Period: '+_periodLabel(r.psPeriodId)}));
       if(r.psActivities&&r.psActivities.length){
         var psTbl=el('table',{style:'width:100%;border-collapse:collapse;font-size:12px'});
         var psHdr=el('tr',{});

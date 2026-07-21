@@ -327,6 +327,24 @@ function issueDepartmentJobCard(data) {
     }
   } catch(e) {}
 
+  // Per-size cap — can't issue more of a size than remains in the approved size run.
+  // Admin (Ayush) may override.
+  if (_user.role !== 'admin') {
+    try {
+      var _bal = getOrderSizeBalance(orderRef, movement);
+      if (_bal && _bal.success && _bal.sizes) {
+        var _over = [];
+        Object.keys(sizeBreakdown || {}).forEach(function(k) {
+          var want = safeNum(sizeBreakdown[k]);
+          var rem  = _bal.sizes[k] ? safeNum(_bal.sizes[k].remaining) : 0;
+          if (want > rem) _over.push(k + ': ' + want + ' > ' + rem + ' left');
+        });
+        if (_over.length)
+          return { success:false, error:'Over the approved size run — ' + _over.join(', ') + '. Ask Ayush to override.' };
+      }
+    } catch(e) {}
+  }
+
   var jobCardId;
   var lock = LockService.getPublicLock();
   try {

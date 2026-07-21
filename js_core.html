@@ -45,6 +45,17 @@ function _dayLabel(iso){
   var d=new Date(+s[0],+s[1]-1,+s[2]);
   return _dmy(d)+' '+d.getFullYear();
 }
+// Human date-range label for any stored period id: W-yyyyMMdd, R-from_to, or legacy PAY-yyyy-mm-dd.
+function _periodLabel(pid){
+  pid=(pid||'').trim();
+  var w=/^W-(\d{4})(\d{2})(\d{2})$/.exec(pid);
+  if(w)return _payWeek(new Date(+w[1],+w[2]-1,+w[3])).label;
+  var r=/^R-(\d{4})-(\d{2})-(\d{2})_(\d{4})-(\d{2})-(\d{2})$/.exec(pid);
+  if(r)return _rangeLabel(new Date(+r[1],+r[2]-1,+r[3]),new Date(+r[4],+r[5]-1,+r[6]));
+  var p=/^PAY-(\d{4})-(\d{2})-(\d{2})$/.exec(pid);
+  if(p)return _payWeek(new Date(+p[1],+p[2]-1,+p[3])).label;
+  return pid||'Unknown';
+}
 var SEEN_ALERT_IDS=(function(){
   try{
     var _ids=JSON.parse(localStorage.getItem('fos_seen_alerts')||'[]');

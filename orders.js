@@ -381,6 +381,39 @@ function getOrderSizes(orderRef) {
   }
 }
 
+// Per-size balance for the Issue form: approved size run minus what's already been
+// issued at this movement/stage. Returns remaining per size + whether the caller
+// may override the cap (admin only).
+function getOrderSizeBalance(orderRef, movement) {
+  var base = getOrderSizes(orderRef);
+  if (!base || !base.success) return base || { success:false, error:'Order not found' };
+  var ordered = base.sizes || {};
+  var issued = {};
+  try {
+    var ws = ensureJobCardsSheet();
+    if (ws.getLastRow() > 1) {
+      var rows = ws.getRange(2, 1, ws.getLastRow()-1, 17).getValues();
+      var ref = safeStr(orderRef).trim(), mv = safeStr(movement).trim();
+      rows.forEach(function(r) {
+        if (safeStr(r[1]).trim() !== ref) return;
+        if (mv && safeStr(r[4]).trim() !== mv) return;         // same stage only
+        if (safeStr(r[13]).trim().toUpperCase() === 'CANCELLED') return;
+        var sb = {};
+        try { sb = JSON.parse(safeStr(r[8])) || {}; } catch(e) {}
+        Object.keys(sb).forEach(function(k) { issued[k] = (issued[k] || 0) + safeNum(sb[k]); });
+      });
+    }
+  } catch(e) {}
+  var sizes = {};
+  Object.keys(ordered).forEach(function(k) {
+    var o = safeNum(ordered[k]), iss = safeNum(issued[k]);
+    sizes[k] = { ordered:o, issued:iss, remaining: Math.max(0, o - iss) };
+  });
+  var role = '';
+  try { role = getUserInfo().role; } catch(e) {}
+  return { success:true, sizes:sizes, isAdmin: role === 'admin' };
+}
+
 function backfillOrderSizes() {
   try {
     var ss = SpreadsheetApp.openById(SHEET_ID);

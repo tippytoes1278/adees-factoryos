@@ -389,7 +389,7 @@ function renderWIP(c){
       if(typeof maxDefault==='number'){
         stageMaxEl.textContent='Max issuable for this stage: '+maxDefault+' pairs';
         stageMaxEl.style.color=maxDefault>0?'var(--fos-accent)':'var(--fos-danger)';
-        pairsInput.value=maxDefault>0?String(maxDefault):'';
+        if(!pairsInput.readOnly)pairsInput.value=maxDefault>0?String(maxDefault):'';
       }
       acts.forEach(function(a){
         var row=el('div',{style:'border:0.5px solid var(--fos-border);border-radius:10px;padding:10px;margin-bottom:8px;background:var(--fos-surface)'});
@@ -418,45 +418,69 @@ function renderWIP(c){
     }
   }
 
-  function loadSizeBreakdown(orderRef){
+  // Sizes depend on order AND movement (remaining is per stage), so both must be set.
+  function loadSizeBreakdown(){
     sizeContainer.innerHTML='';
-    if(!orderRef){sizeContainer.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'Select an order to load size breakdown'}));return;}
-    if(D.orderSizes&&D.orderSizes[orderRef]){renderSizeInputs(D.orderSizes[orderRef]);return;}
+    if(!selectedOrderRef){sizeContainer.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'Select an order to load sizes'}));recalcSizeTotal();return;}
+    if(!selectedMovement){sizeContainer.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'Select a movement to load sizes'}));recalcSizeTotal();return;}
+    var key=selectedOrderRef+'|'+selectedMovement;
+    if(D.orderSizes&&D.orderSizes[key]){renderSizeInputs(D.orderSizes[key]);return;}
     sizeContainer.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'Loading sizes...'}));
+    var reqO=selectedOrderRef,reqM=selectedMovement;
     google.script.run
       .withSuccessHandler(function(result){
         if(!D.orderSizes)D.orderSizes={};
-        D.orderSizes[orderRef]=result;
-        if(selectedOrderRef===orderRef)renderSizeInputs(result);
+        D.orderSizes[reqO+'|'+reqM]=result;
+        if(selectedOrderRef===reqO&&selectedMovement===reqM)renderSizeInputs(result);
       })
       .withFailureHandler(function(){
-        if(selectedOrderRef===orderRef){sizeContainer.innerHTML='';sizeContainer.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'Could not load size breakdown'}));}
+        if(selectedOrderRef===reqO&&selectedMovement===reqM){sizeContainer.innerHTML='';sizeContainer.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'Could not load sizes'}));}
       })
-      .getOrderSizes(orderRef);
+      .getOrderSizeBalance(reqO,reqM);
   }
 
   function renderSizeInputs(result){
     sizeContainer.innerHTML='';
     if(!result||result.error||!result.sizes||!Object.keys(result.sizes).length){
-      sizeContainer.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'No size breakdown available for this order'}));
+      sizeContainer.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'No size breakdown for this order'}));
+      recalcSizeTotal();
       return;
     }
-    var sizes=result.sizes;
+    var sizes=result.sizes, isAdmin=!!result.isAdmin;
     var keys=Object.keys(sizes).sort(function(a,b){return parseFloat(a)-parseFloat(b);});
     var scroll=el('div',{style:'overflow-x:auto;-webkit-overflow-scrolling:touch'});
     var row=el('div',{style:'display:inline-flex;gap:6px;min-width:min-content'});
     keys.forEach(function(k){
-      var col=el('div',{style:'display:flex;flex-direction:column;align-items:center;gap:4px'});
-      col.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);font-weight:500',text:k}));
+      var rem=safeNum(sizes[k]&&sizes[k].remaining);
+      var col=el('div',{style:'display:flex;flex-direction:column;align-items:center;gap:3px'});
+      col.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);font-weight:600',text:k}));
       var inp=el('input');
-      inp.type='number';inp.min='0';inp.step='1';inp.value=String(sizes[k]||0);
-      inp.dataset.size=k;
+      inp.type='number';inp.min='0';inp.step='1';inp.value=String(rem);
+      inp.dataset.size=k;inp.dataset.remaining=String(rem);
       inp.style.cssText='width:50px;padding:5px 4px;border:1px solid var(--fos-border);border-radius:8px;font-size:13px;text-align:center;background:var(--fos-surface);color:var(--fos-ink)';
-      col.appendChild(inp);
+      var balEl=el('div',{style:'font-size:10px;color:'+(rem>0?'var(--fos-ink-secondary)':'var(--fos-success)'),text:rem>0?(rem+' left'):'done'});
+      inp.oninput=function(){
+        var v=parseInt(inp.value,10);if(isNaN(v)||v<0)v=0;
+        if(!isAdmin&&v>rem){v=rem;inp.value=String(rem);toast('Only '+rem+' of '+k+' left — ask Ayush to override',true);}
+        if(v>rem){inp.style.borderColor='var(--fos-warning)';balEl.textContent='over by '+(v-rem);balEl.style.color='var(--fos-warning)';}
+        else{inp.style.borderColor='var(--fos-border)';balEl.textContent=rem>0?(rem+' left'):'done';balEl.style.color=rem>0?'var(--fos-ink-secondary)':'var(--fos-success)';}
+        recalcSizeTotal();
+      };
+      col.appendChild(inp);col.appendChild(balEl);
       row.appendChild(col);
     });
     scroll.appendChild(row);
     sizeContainer.appendChild(scroll);
+    recalcSizeTotal();
+  }
+
+  // Pairs to Issue = sum of the size boxes (locked when a size grid is present).
+  function recalcSizeTotal(){
+    var inputs=sizeContainer.querySelectorAll('input[data-size]');
+    if(!inputs.length){pairsInput.readOnly=false;return;}
+    var sum=0;inputs.forEach(function(inp){var v=parseInt(inp.value,10);if(v>0)sum+=v;});
+    pairsInput.value=sum>0?String(sum):'';
+    pairsInput.readOnly=true;
   }
 
   function getSizeBreakdown(){
@@ -477,12 +501,12 @@ function renderWIP(c){
     balanceEl.textContent=selectedOrderQty>0?'Order lot size: '+selectedOrderQty+' pairs':'Order lot size: — pairs';
     activityCache={};       // approved activities are per-order; reset on order change
     maxIssuableCache={};
-    loadSizeBreakdown(selectedOrderRef);
+    loadSizeBreakdown();
     loadStageThenRows();
   };
 
-  storeSel.onchange=function(){selectedStore=storeSel.value;populateMovements();};
-  movSel.onchange=function(){selectedMovement=movSel.value;loadStageThenRows();};
+  storeSel.onchange=function(){selectedStore=storeSel.value;populateMovements();loadSizeBreakdown();};
+  movSel.onchange=function(){selectedMovement=movSel.value;loadStageThenRows();loadSizeBreakdown();};
 
   issueBtn.onclick=function(){
     if(!selectedOrderRef){toast('Select an order',true);return;}
