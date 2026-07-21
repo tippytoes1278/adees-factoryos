@@ -88,13 +88,22 @@ function fosOpenHelp(){
     s='<h3>Orders</h3><ul><li>Sab active production orders ek jagah — buyer, delivery date, lot size dekho</li><li>Kisi bhi order mein jaake poori detail lo</li><li>Status filter karo — buyer, style, ya progress se</li></ul>'+
       '<h3>Approvals</h3><ul><li>Accounts team ke submissions yahan aate hain review ke liye</li><li>Approve karo ya reject karo note ke saath — team ko pata chal jayega</li></ul>'+
       '<h3>Payments</h3><ul><li>Sab outgoing aur incoming payments ka record yahan hai</li><li>Order value aur contractor records se cross-check karo</li></ul>'+
-      '<h3>Requests</h3><ul><li>Accounts team ki ad-hoc requests yahan aati hain</li><li>Resolve karo ya zaroori ho toh escalate karo</li></ul>';
+      '<h3>Requests</h3><ul><li>Accounts team ki ad-hoc requests yahan aati hain</li><li>Resolve karo ya zaroori ho toh escalate karo</li></ul>'+
+      '<h3>Karo ✅</h3><ul><li>Har request roz check karo — email aur WhatsApp pe notification aata hai</li><li>Payment approve karne se pehle pairs aur amount cross-check karo</li><li>Reject ya Revision pe hamesha reason likho — team ko samajh aayega</li><li>Purana ya custom pay period sirf zaroorat pe approve karo</li></ul>'+
+      '<h3>Mat Karo ⛔</h3><ul><li>Bina dekhe payment approve mat karo</li><li>Override password kisi ke saath share mat karo</li><li>WIPE/reset jaisa destructive kaam bina soch ke mat chalao</li></ul>';
   }else if(role==='accounts'){
     s='<h3>Entry</h3><ul><li>Roz ka kaam yahan — payments, expenses, production updates bharo</li><li>Sab entries admin ke paas approval ke liye jaati hain</li></ul>'+
       '<h3>New Order</h3><ul><li>Naya production order banao — article, buyer, brand, PO, size run, lot size</li><li>Do-step form hai taaki koi cheez miss na ho</li></ul>'+
       '<h3>Review</h3><ul><li>Jo bhi submit kiya uska status yahan dikhega</li><li>Reject hua toh yahan se fix karke resubmit karo</li></ul>'+
       '<h3>Contractors</h3><ul><li>Sab active contractors ka record aur work orders yahan hain</li><li>Kitna baaki hai, kitna paid — sab track hota hai</li></ul>'+
-      '<h3>Activities</h3><ul><li>Poori system ka audit log — kaun ne kya kiya, kab kiya</li></ul>';
+      '<h3>Activities</h3><ul><li>Poori system ka audit log — kaun ne kya kiya, kab kiya</li></ul>'+
+      '<h3>Karo ✅</h3><ul><li>New order mein size run aur lot size dhyaan se bharo</li><li>Saturday ko payment run karo — default "just-ended week" aata hai</li><li>Purane ya custom period ke liye pehle Ayush se approval maango</li><li>Reject/Revision aaye toh Alerts se fix karke dobara bhejo</li><li>Advance sirf jitna kaam hua utna hi do</li></ul>'+
+      '<h3>Mat Karo ⛔</h3><ul><li>Future date ka pay period select mat karo</li><li>Approval ke bina custom period pe payment mat karo — system rok dega</li><li>Bina contractor assign kiye kuch submit mat karo</li></ul>';
+  }else if(role==='store'){
+    s='<h3>Issue</h3><ul><li>Order aur movement select karo — har size ka balance ("X left") dikhega</li><li>Pairs to Issue apne aap sizes se add hota hai — check kar lo</li><li>Har activity ko contractor assign karo, phir "Issue All"</li></ul>'+
+      '<h3>Job Cards</h3><ul><li>Issue kiye cards yahan — time pe receive karo</li><li>Overdue cards home pe dikhte hain</li><li>Slip print karke contractor ko de sakte ho</li></ul>'+
+      '<h3>Karo ✅</h3><ul><li>Issue se pehle har size ka balance check karo</li><li>Predecessor stage receive hone ke baad hi agla stage issue karo</li><li>Job card wapas aaye toh turant receive karo</li></ul>'+
+      '<h3>Mat Karo ⛔</h3><ul><li>Size run ya lot size se zyada issue mat karo — system rok dega (sirf Ayush override kar sakta hai)</li><li>Bina receive kiye card ko complete mat maano</li></ul>';
   }else{
     s='<p style="color:var(--fos-ink-secondary);font-size:13px;padding:4px 0">Tumhare role ke liye koi guide available nahi hai.</p>';
   }

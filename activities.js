@@ -779,6 +779,7 @@ function requestActivitySetup(payload, revisionRemark) {
         batchLines.push('Last Request ID: ' + lastReqId);
         batchLines.push(''); batchLines.push('Open Factory OS to review.');
         MailApp.sendEmail('ayush@adeesexports.com', 'Factory OS — New ACTIVITY_SETUP request', batchLines.join('\n'));
+        try { _sendWhatsApp_('Factory OS — new ACTIVITY_SETUP request from ' + user.name + '. Open the app to review.'); } catch(we) {}
       } catch(mailErr) { Logger.log('notifyNewRequest_ batch mail error: ' + mailErr.message); }
     }
     try { CacheService.getScriptCache().remove('entryData_' + CONFIG.ENV); } catch(ce) {}

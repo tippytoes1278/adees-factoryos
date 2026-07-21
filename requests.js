@@ -117,6 +117,28 @@ function getMyRequests() {
   return { success:true, requests:requests };
 }
 
+// Ensure a phone value carries the whatsapp: prefix the Twilio API needs.
+function _wa_(n) { n = String(n || '').trim(); return n ? (n.indexOf('whatsapp:') === 0 ? n : 'whatsapp:' + n) : ''; }
+
+// Send a WhatsApp message via Twilio (sandbox or provisioned). Credentials live in
+// Script Properties, never in code. No-op if any property is missing.
+function _sendWhatsApp_(body) {
+  try {
+    var p   = PropertiesService.getScriptProperties();
+    var sid = p.getProperty('TWILIO_ACCOUNT_SID')  || '';
+    var tok = p.getProperty('TWILIO_AUTH_TOKEN')   || '';
+    var from = _wa_(p.getProperty('TWILIO_WHATSAPP_FROM') || '');
+    var to   = _wa_(p.getProperty('NOTIFY_WHATSAPP_TO')   || '');
+    if (!sid || !tok || !from || !to) return;
+    UrlFetchApp.fetch('https://api.twilio.com/2010-04-01/Accounts/' + sid + '/Messages.json', {
+      method: 'post',
+      headers: { Authorization: 'Basic ' + Utilities.base64Encode(sid + ':' + tok) },
+      payload: { From: from, To: to, Body: body },
+      muteHttpExceptions: true
+    });
+  } catch(e) { Logger.log('WhatsApp send error: ' + e.message); }
+}
+
 function notifyNewRequest_(reqId, type, rawDetails, submittedBy, now) {
   try {
     var pl = {};
@@ -169,6 +191,7 @@ function notifyNewRequest_(reqId, type, rawDetails, submittedBy, now) {
     lines.push('');
     lines.push('Open Factory OS to review.');
     MailApp.sendEmail('ayush@adeesexports.com', subject, lines.join('\n'));
+    try { _sendWhatsApp_('Factory OS — new ' + type + ' request from ' + submittedBy + ' (' + reqId + '). Open the app to review.'); } catch(we) {}
   } catch(mailErr) {
     Logger.log('notifyNewRequest_ mail error: ' + mailErr.message);
   }
