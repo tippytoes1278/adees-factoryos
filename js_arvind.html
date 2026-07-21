@@ -939,6 +939,19 @@ function renderPayHistory(c){
 
         var bftr=el('div',{style:'display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--fos-border);flex-wrap:wrap'});
         bftr.appendChild(el('span',{style:'font-size:13px;font-weight:700;color:var(--fos-ink)',text:'Total: '+bPairs+' pairs · ₹'+bAmt.toFixed(2)}));
+        (function(batch,cName,pairsT,amtT){
+          var pv=el('button',{style:'padding:5px 12px;background:none;color:var(--fos-accent);border:1px solid var(--fos-border);border-radius:6px;font-size:12px;font-weight:600;cursor:pointer',text:'🖨 Voucher'});
+          pv.onclick=function(){
+            var rows=(batch.lines||[]).map(function(jc){return '<tr><td>'+_esc(jc.jobCardId||'')+'</td><td>'+_esc(artMap[jc.orderRef||'']||jc.orderRef||'')+(jc.department?' · '+_esc(jc.department):'')+'</td><td class="rt">'+Number(jc.pairs||0)+'</td><td class="rt">₹'+Number(jc.amount||0).toFixed(2)+'</td></tr>';}).join('');
+            var body='<table><tr><td><b>Payment ID</b></td><td>'+_esc(batch.paymentId||'—')+'</td><td><b>Period</b></td><td>'+_esc(_periodLabel(batch.periodId))+'</td></tr>'+
+              '<tr><td><b>Contractor</b></td><td>'+_esc(cName)+'</td><td><b>Status</b></td><td>'+_esc(batch.status||'')+'</td></tr></table>'+
+              '<table><tr><th>Job Card</th><th>Article</th><th class="rt">Pairs</th><th class="rt">Amount</th></tr>'+rows+
+              '<tr class="tot"><td colspan="2">Total</td><td class="rt">'+pairsT+'</td><td class="rt">₹'+amtT.toFixed(2)+'</td></tr></table>'+
+              '<div style="margin-top:44px;display:flex;justify-content:space-between;font-size:12px"><div>_______________________<br>Contractor signature</div><div>_______________________<br>Authorised signature</div></div>';
+            printDoc('Payment Voucher — '+cName,body);
+          };
+          bftr.appendChild(pv);
+        })(b,ctrName,bPairs,bAmt);
         if(_dispStatus==='APPROVED'&&b.approvedBy){
           var apDate=b.date?(new Date(b.date)).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'2-digit'}):'';
           bftr.appendChild(el('span',{style:'font-size:11px;color:#15803d;margin-left:auto',text:'Approved by '+b.approvedBy+(apDate?' on '+apDate:'')}));

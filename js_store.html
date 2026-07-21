@@ -6,6 +6,20 @@ function renderStoreHome(c){
   var storeTasks=[];
   var allJCs=D.jobCards||[];
 
+  // Daily WIP Report (printable) — today's job-card issues and receives
+  (function(){
+    var wipBtn=el('button',{style:'padding:6px 12px;background:none;color:var(--fos-accent);border:1px solid var(--fos-border);border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;margin-bottom:14px',text:'🖨 Daily WIP Report'});
+    wipBtn.onclick=function(){
+      var tStr=new Date().toISOString().slice(0,10);
+      var todays=allJCs.filter(function(jc){return ((jc.issuedAt||'').slice(0,10)===tStr)||((jc.receivedAt||'').slice(0,10)===tStr);});
+      if(!todays.length){toast('No job card activity today',true);return;}
+      var rows=todays.map(function(jc){return '<tr><td>'+_esc(jc.jobCardId||'')+'</td><td>'+_esc(jc.orderRef||jc.workOrder||'')+'</td><td>'+_esc(jc.movement||'')+'</td><td class="rt">'+safeNum(jc.pairsIssued)+'</td><td class="rt">'+safeNum(jc.pairsReceived)+'</td><td>'+_esc(jc.status||'')+'</td></tr>';}).join('');
+      printDoc('Daily WIP Report — '+tStr,
+        '<table><tr><th>Job Card</th><th>Order</th><th>Stage</th><th class="rt">Issued</th><th class="rt">Received</th><th>Status</th></tr>'+rows+'</table>');
+    };
+    c.appendChild(wipBtn);
+  })();
+
   // Overdue job cards
   var today=new Date();
   today.setHours(0,0,0,0);
@@ -634,8 +648,27 @@ function renderJobCards(c){
       // Top row: ID + badge
       var topRow=el('div',{style:'display:flex;align-items:center;justify-content:space-between;margin-bottom:6px'});
       topRow.appendChild(el('span',{style:'font-family:var(--fos-font-mono);font-size:12px;color:var(--fos-ink-secondary)',text:jc.jobCardId}));
+      var _rightGrp=el('div',{style:'display:flex;align-items:center;gap:8px'});
       var badgeCls=st==='COMPLETE'?'badge green':st==='PARTIAL'?'badge blue':'badge yellow';
-      topRow.appendChild(el('span',{cls:badgeCls,text:st}));
+      (function(theJc,theArt,theCtr){
+        var slipBtn=el('button',{style:'padding:3px 9px;background:none;color:var(--fos-accent);border:1px solid var(--fos-border);border-radius:6px;font-size:11px;font-weight:600;cursor:pointer',text:'🖨 Slip'});
+        slipBtn.onclick=function(){
+          var asg2=Array.isArray(theJc.assignments)?theJc.assignments:[];
+          var ctrLine=asg2.length?asg2.map(function(a){var an=ctrById[a.contractorId];return _esc((an?an.name:a.contractorId)+' — '+(a.activity||a.activityName||''));}).join('<br>'):_esc(theCtr);
+          var sb=theJc.sizeBreakdown||{};
+          var sizeRows=Object.keys(sb).sort(function(a,b){return parseFloat(a)-parseFloat(b);}).map(function(k){return '<td class="rt">'+_esc(k)+'<br>'+safeNum(sb[k])+'</td>';}).join('');
+          var body='<table><tr><td><b>Job Card</b></td><td>'+_esc(theJc.jobCardId)+'</td><td><b>Date</b></td><td>'+_esc((theJc.issuedAt||'').slice(0,10))+'</td></tr>'+
+            '<tr><td><b>Article</b></td><td>'+_esc(theArt)+'</td><td><b>Return by</b></td><td>'+_esc(theJc.expectedReturn||'')+'</td></tr>'+
+            '<tr><td><b>Store · Stage</b></td><td>'+_esc(theJc.store+' · '+theJc.movement)+'</td><td><b>Pairs</b></td><td>'+safeNum(theJc.pairsIssued)+'</td></tr></table>'+
+            '<div style="font-size:13px;margin:8px 0 4px"><b>Contractor / Activity</b></div><div style="font-size:13px">'+ctrLine+'</div>'+
+            (sizeRows?'<div style="font-size:13px;margin:10px 0 4px"><b>Size breakdown</b></div><table><tr>'+sizeRows+'</tr></table>':'')+
+            '<div style="margin-top:40px;display:flex;justify-content:space-between;font-size:12px"><div>_______________<br>Issued by</div><div>_______________<br>Received by</div></div>';
+          printDoc('Job Issue Slip — '+theJc.jobCardId,body);
+        };
+        _rightGrp.appendChild(slipBtn);
+      })(jc,artName,ctrName);
+      _rightGrp.appendChild(el('span',{cls:badgeCls,text:st}));
+      topRow.appendChild(_rightGrp);
       card.appendChild(topRow);
 
       // Article name

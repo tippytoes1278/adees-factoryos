@@ -56,6 +56,14 @@ function _periodLabel(pid){
   if(p)return _payWeek(new Date(+p[1],+p[2]-1,+p[3])).label;
   return pid||'Unknown';
 }
+// ── Printables (Phase 7) ── build a clean print doc and trigger the browser print.
+function _esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function printDoc(title,bodyHtml){
+  var pa=document.getElementById('printArea');
+  if(!pa){pa=document.createElement('div');pa.id='printArea';pa.className='print-only';document.body.appendChild(pa);}
+  pa.innerHTML='<h1>'+_esc(title)+'</h1><div style="font-size:12px;color:#555;margin-bottom:12px">Adees Exports — Factory OS · '+_esc(new Date().toLocaleString())+'</div>'+bodyHtml;
+  window.print();
+}
 var SEEN_ALERT_IDS=(function(){
   try{
     var _ids=JSON.parse(localStorage.getItem('fos_seen_alerts')||'[]');
@@ -193,6 +201,7 @@ var FOS_ICONS={
   payment:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20"/></svg>',
   requests:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>',
   alerts:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/><circle cx="18" cy="5" r="3" fill="var(--fos-danger)" stroke="none"/></svg>',
+  notifications:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>',
   entry:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
   neworder:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>',
   review:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
@@ -205,9 +214,9 @@ var FOS_ICONS={
   payhistory:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v16l2-2 2 2 2-2 2 2 2-2 2 2 2-2V4z"/><path d="M8 10h8M8 14h6"/></svg>'
 };
 var NAVS={
-  admin:   [{id:'home',icon:'Home',label:'Home'},{id:'orders',icon:'Orders',label:'Orders'},{id:'payment',icon:'Pay',label:'Payment'},{id:'payhistory',icon:'Pay',label:'Pay History'},{id:'requests',icon:'Req',label:'Requests'},{id:'grid',icon:'Grid',label:'Grid'},{id:'floor',icon:'FLOOR',label:'Floor'}],
-  accounts:[{id:'home',icon:'Home',label:'Home'},{id:'neworder',icon:'New',label:'New Order'},{id:'payment',icon:'Pay',label:'Payment'},{id:'payhistory',icon:'Pay',label:'Pay History'},{id:'alerts',icon:'Alerts',label:'Alerts'},{id:'contractors',icon:'Ctrs',label:'Contractors'},{id:'activities',icon:'Acts',label:'Activities'},{id:'grid',icon:'Grid',label:'Grid'},{id:'floor',icon:'FLOOR',label:'Floor'}],
-  store:   [{id:'home',icon:'Home',label:'Home'},{id:'wip',icon:'WIP',label:'Issue'},{id:'jobcards',icon:'JC',label:'Job Cards'},{id:'grid',icon:'Grid',label:'Grid'},{id:'floor',icon:'FLOOR',label:'Floor'}],
+  admin:   [{id:'home',icon:'Home',label:'Home'},{id:'orders',icon:'Orders',label:'Orders'},{id:'payment',icon:'Pay',label:'Payment'},{id:'payhistory',icon:'Pay',label:'Pay History'},{id:'requests',icon:'Req',label:'Requests'},{id:'grid',icon:'Grid',label:'Grid'},{id:'floor',icon:'FLOOR',label:'Floor'},{id:'notifications',icon:'🔔',label:'Updates'}],
+  accounts:[{id:'home',icon:'Home',label:'Home'},{id:'neworder',icon:'New',label:'New Order'},{id:'payment',icon:'Pay',label:'Payment'},{id:'payhistory',icon:'Pay',label:'Pay History'},{id:'alerts',icon:'Alerts',label:'Alerts'},{id:'contractors',icon:'Ctrs',label:'Contractors'},{id:'activities',icon:'Acts',label:'Activities'},{id:'grid',icon:'Grid',label:'Grid'},{id:'floor',icon:'FLOOR',label:'Floor'},{id:'notifications',icon:'🔔',label:'Updates'}],
+  store:   [{id:'home',icon:'Home',label:'Home'},{id:'wip',icon:'WIP',label:'Issue'},{id:'jobcards',icon:'JC',label:'Job Cards'},{id:'grid',icon:'Grid',label:'Grid'},{id:'floor',icon:'FLOOR',label:'Floor'},{id:'notifications',icon:'🔔',label:'Updates'}],
   viewer:  [{id:'home',icon:'Home',label:'Home'}]
 };
 
@@ -278,6 +287,15 @@ function _loadStoreBundle(cb){
 }
 function loadTab(id){
   TAB=id; setNav(id);
+  if(id==='notifications'){
+    showLoading();
+    if(USER.role==='admin'){
+      google.script.run.withSuccessHandler(function(r){D.reqs=r;renderTab(id);}).withFailureHandler(showErr).getPendingRequests();
+    } else {
+      google.script.run.withSuccessHandler(function(r){D.myreqs=r;renderTab(id);}).withFailureHandler(showErr).getMyRequests();
+    }
+    return;
+  }
   // Use cached data if available — instant tab switch
   if(id==='home'||id==='orders'){
     if(USER&&USER.role==='store'&&id==='home'){
@@ -526,6 +544,41 @@ function renderTab(id){
   else if(id==='alerts'){renderAlerts(c);}
   else if(id==='grid'){renderGrid(c);}
   else if(id==='floor'){renderFloor(c);}
+  else if(id==='notifications'){renderNotifications(c);}
+}
+
+function renderNotifications(c){
+  c.innerHTML='';
+  var hdr=el('div',{style:'margin-bottom:16px'});
+  hdr.appendChild(el('div',{style:'font-family:var(--fos-font-display);font-size:22px;font-weight:700;color:var(--fos-accent)',text:'Notifications'}));
+  hdr.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-top:2px',text:'Updates and items needing your attention'}));
+  c.appendChild(hdr);
+  var items=[];
+  if(USER.role==='admin'){
+    var reqs=(D.reqs&&D.reqs.requests)?D.reqs.requests:(Array.isArray(D.reqs)?D.reqs:[]);
+    reqs.forEach(function(r){items.push({icon:'📥',color:'var(--fos-warning)',title:(r.type||'Request')+' — awaiting your approval',sub:(r.submittedBy||'')+(r.date?' · '+r.date:''),tab:'requests'});});
+    if(!items.length)items.push({icon:'✓',color:'var(--fos-success)',title:'All caught up',sub:'No requests waiting for approval'});
+  } else {
+    var mine=(D.myreqs&&D.myreqs.requests)?D.myreqs.requests:[];
+    mine.forEach(function(r){
+      var st=r.status||'';
+      if(st==='APPROVED')items.push({icon:'✅',color:'var(--fos-success)',title:(r.type||'Request')+' approved',sub:r.date||''});
+      else if(st==='REJECTED')items.push({icon:'❌',color:'var(--fos-danger)',title:(r.type||'Request')+' rejected',sub:(r.ayushNotes?'Reason: '+r.ayushNotes:'')+(r.date?' · '+r.date:''),tab:'alerts'});
+      else if(st==='REVISION')items.push({icon:'↩',color:'var(--fos-warning)',title:(r.type||'Request')+' needs revision',sub:(r.ayushNotes?'Remark: '+r.ayushNotes:'')+(r.date?' · '+r.date:''),tab:'alerts'});
+      else if(st==='PENDING')items.push({icon:'⏳',color:'var(--fos-ink-secondary)',title:(r.type||'Request')+' pending',sub:r.date||''});
+    });
+    if(!items.length)items.push({icon:'✓',color:'var(--fos-success)',title:'Nothing new',sub:'No recent updates on your requests'});
+  }
+  items.forEach(function(n){
+    var card=el('div',{cls:'fos-card',style:'display:flex;align-items:flex-start;gap:12px;padding:12px 14px;margin-bottom:8px'+(n.tab?';cursor:pointer':'')});
+    card.appendChild(el('div',{style:'font-size:20px;flex-shrink:0',text:n.icon}));
+    var tx=el('div',{style:'flex:1;min-width:0'});
+    tx.appendChild(el('div',{style:'font-size:14px;font-weight:600;color:'+(n.color||'var(--fos-ink)'),text:n.title}));
+    if(n.sub)tx.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:2px',text:n.sub}));
+    card.appendChild(tx);
+    if(n.tab){(function(t){card.onclick=function(){loadTab(t);};})(n.tab);}
+    c.appendChild(card);
+  });
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────

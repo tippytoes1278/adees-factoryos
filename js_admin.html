@@ -102,6 +102,19 @@ function renderAdminHome(c){
   }
   c.appendChild(mrow);
 
+  // Order Progress Report (printable)
+  if(Array.isArray(d.orders)&&d.orders.length){
+    var opBtn=el('button',{style:'padding:6px 12px;background:none;color:var(--fos-accent);border:1px solid var(--fos-border);border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;margin-bottom:12px',text:'🖨 Order Progress Report'});
+    opBtn.onclick=function(){
+      var rows=d.orders.map(function(o){
+        return '<tr><td>'+_esc(o.article||o.sheet||'')+(o.customer?' · '+_esc(o.customer):'')+'</td><td class="rt">'+safeNum(o.orderQty)+'</td><td class="rt">'+safeNum(o.cumul)+'</td><td class="rt">'+safeNum(o.remaining)+'</td><td>'+_esc(o.status||'')+'</td></tr>';
+      }).join('');
+      printDoc('Order Progress Report',
+        '<table><tr><th>Article / Order</th><th class="rt">Lot</th><th class="rt">Produced</th><th class="rt">Remaining</th><th>Status</th></tr>'+rows+'</table>');
+    };
+    c.appendChild(opBtn);
+  }
+
   // 3. Alerts
   c.appendChild(sectionTitle('Alerts'));
   if(d.redCount>0)c.appendChild(alert_('red',d.redCount+' order(s) over lot cap','Review before approving payment'));
