@@ -4,6 +4,11 @@ function onOpen() {
     .addItem('Run CTR-ID Migration', 'assignContractorIds')
     .addItem('Backfill Order Size Columns', 'backfillOrderSizesMenu')
     .addItem('Migrate WIP_ENTRIES Schema', 'migrateWipEntriesMenu')
+    .addSeparator()
+    .addItem('JC Contractors — Preview LIVE', 'migrateJCContractorsPreviewLive')
+    .addItem('JC Contractors — Preview DEV', 'migrateJCContractorsPreviewDev')
+    .addItem('JC Contractors — Apply LIVE', 'migrateJCContractorsApplyLive')
+    .addItem('JC Contractors — Apply DEV', 'migrateJCContractorsApplyDev')
     .addToUi();
 }
 

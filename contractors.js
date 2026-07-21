@@ -153,6 +153,93 @@ function assignContractorIds() {
   }
 }
 
+// One-time migration: rewrite contractor references on JOB_CARDS to CTR-IDs.
+// Each contractor field is resolved: already a valid CTR-ID → keep; a name that
+// matches MASTER_CONTRACTORS → replaced with its CTR-ID; anything unresolved →
+// left untouched and reported for manual review. Pass dryRun=true to preview with
+// NO writes. Handles both the primary CONTRACTOR_ID (col F) and the ASSIGNMENTS JSON
+// (col Q). Idempotent — safe to re-run (CTR-IDs are skipped).
+function migrateJobCardContractors(dryRun, targetEnv) {
+  var u = getUserInfo();
+  if (u.role !== 'admin') return { success:false, error:'Not authorised' };
+  try {
+    var _sid = (targetEnv === 'LIVE') ? CONFIG.LIVE_SHEET_ID
+             : (targetEnv === 'DEV')  ? CONFIG.DEV_SHEET_ID
+             : SHEET_ID;
+    var ss = SpreadsheetApp.openById(_sid);
+    // name(lowercased) → CTR-ID, and set of valid CTR-IDs
+    var nameToId = {}, idSet = {};
+    var mc = ss.getSheetByName('MASTER_CONTRACTORS');
+    if (mc && mc.getLastRow() >= 4) {
+      mc.getRange(4, 1, mc.getLastRow()-3, 2).getValues().forEach(function(r){
+        var id = safeStr(r[0]).trim(), nm = safeStr(r[1]).trim();
+        if (id) { idSet[id] = true; if (nm) nameToId[nm.toLowerCase()] = id; }
+      });
+    }
+    function resolve(v) {
+      var s = safeStr(v).trim();
+      if (!s) return { id:s, changed:false, ok:true };
+      if (/^CTR-\d+$/.test(s) && idSet[s]) return { id:s, changed:false, ok:true };
+      var hit = nameToId[s.toLowerCase()];
+      if (hit) return { id:hit, changed:(hit !== s), ok:true };
+      return { id:s, changed:false, ok:false };
+    }
+    var report = { success:true, dryRun:!!dryRun, env:(targetEnv || CONFIG.ENV), updated:0, alreadyOk:0, unmatched:[] };
+    var jc = ss.getSheetByName('JOB_CARDS');
+    if (jc && jc.getLastRow() > 1) {
+      var rows = jc.getRange(2, 1, jc.getLastRow()-1, 17).getValues();
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i], sheetRow = i + 2, rowChanged = false, jcId = safeStr(r[0]).trim();
+        if (!jcId) continue;
+        var pr = resolve(r[5]);
+        if (!pr.ok && safeStr(r[5]).trim()) report.unmatched.push(jcId + ' (contractor "' + safeStr(r[5]) + '")');
+        if (pr.changed) { if (!dryRun) jc.getRange(sheetRow, 6).setValue(pr.id); rowChanged = true; }
+        var asg = null;
+        try { asg = JSON.parse(safeStr(r[16])); } catch(e) {}
+        if (Array.isArray(asg) && asg.length) {
+          var asgChanged = false;
+          asg.forEach(function(a) {
+            var ar = resolve(a.contractorId);
+            if (!ar.ok && safeStr(a.contractorId).trim()) report.unmatched.push(jcId + ' (assignment "' + safeStr(a.contractorId) + '")');
+            if (ar.changed) { a.contractorId = ar.id; asgChanged = true; }
+          });
+          if (asgChanged) { if (!dryRun) jc.getRange(sheetRow, 17).setValue(JSON.stringify(asg)); rowChanged = true; }
+        }
+        if (rowChanged) report.updated++; else report.alreadyOk++;
+      }
+    }
+    var seen = {}, uniq = [];
+    report.unmatched.forEach(function(x){ if (!seen[x]) { seen[x] = 1; uniq.push(x); } });
+    report.unmatched = uniq;
+    if (!dryRun) SpreadsheetApp.flush();
+    Logger.log('migrateJobCardContractors ' + (dryRun ? '(dry-run) ' : '') +
+               '— updated: ' + report.updated + ', ok: ' + report.alreadyOk + ', unmatched: ' + report.unmatched.length);
+    return report;
+  } catch(e) {
+    return { success:false, error:e.message };
+  }
+}
+
+// Menu wrappers. Previews are read-only (safe on LIVE); apply changes data.
+function _jcMigReport(r, title) {
+  var ui = SpreadsheetApp.getUi();
+  ui.alert(title, r.success
+    ? ('Target sheet: ' + r.env + '\nUpdated: ' + r.updated + ' cards\nAlready OK: ' + r.alreadyOk +
+       '\nUnresolved (need manual review): ' + r.unmatched.length +
+       (r.unmatched.length ? ('\n\n' + r.unmatched.slice(0,30).join('\n')) : ''))
+    : ('Error: ' + r.error), ui.ButtonSet.OK);
+}
+function migrateJCContractorsPreviewLive() { _jcMigReport(migrateJobCardContractors(true, 'LIVE'), 'Preview — LIVE (no changes made)'); }
+function migrateJCContractorsPreviewDev()  { _jcMigReport(migrateJobCardContractors(true, 'DEV'),  'Preview — DEV (no changes made)'); }
+function migrateJCContractorsApplyLive() {
+  var ui = SpreadsheetApp.getUi();
+  if (ui.alert('Apply on LIVE',
+      'Back up the LIVE sheet first (File → Make a copy). This rewrites contractor references on LIVE job cards to CTR-IDs. Continue?',
+      ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
+  _jcMigReport(migrateJobCardContractors(false, 'LIVE'), 'Applied — LIVE');
+}
+function migrateJCContractorsApplyDev() { _jcMigReport(migrateJobCardContractors(false, 'DEV'), 'Applied — DEV'); }
+
 function ensureEnrollmentsSheet() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var ws = ss.getSheetByName('CONTRACTOR_ENROLLMENTS');
