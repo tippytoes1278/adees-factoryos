@@ -766,6 +766,65 @@ function renderJobCards(c){
         card.appendChild(doneRow);
       }
 
+      // ── Admin override (7.1 #3+#4): reassign contractor, fix pairs/status ──
+      if(USER&&USER.role==='admin'){
+        var _oin='width:100%;padding:7px 9px;border:1px solid var(--fos-border);border-radius:8px;font-size:13px;box-sizing:border-box;background:var(--fos-surface);color:var(--fos-ink);margin-bottom:8px';
+        var ovToggle=el('button',{text:'⚙ Override (admin)',style:'background:none;border:none;color:var(--fos-accent);font-size:12px;padding:8px 0 2px;cursor:pointer;display:block'});
+        var ovForm=el('div',{style:'display:none;margin-top:8px;padding:12px;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:10px'});
+        function ctrOptions(sel,current){
+          var o0=document.createElement('option');o0.value='';o0.textContent='— select —';sel.appendChild(o0);
+          contractors.forEach(function(ct){var o=document.createElement('option');o.value=ct.ctrId;o.textContent=(ct.name||ct.ctrId)+' ('+ct.ctrId+')';if(ct.ctrId===current)o.selected=true;sel.appendChild(o);});
+        }
+        var asg=Array.isArray(jc.assignments)?jc.assignments:[];
+        var ctrSelects=[];
+        ovForm.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px',text:'Reassign contractor'}));
+        if(asg.length){
+          asg.forEach(function(a){
+            ovForm.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:a.activity||a.activityName||''}));
+            var s=el('select',{style:_oin});ctrOptions(s,a.contractorId);ovForm.appendChild(s);
+            ctrSelects.push({activity:a.activity||a.activityName,rate:a.rate,comm:a.comm,sel:s});
+          });
+        } else {
+          var s1=el('select',{style:_oin});ctrOptions(s1,jc.contractorId);ovForm.appendChild(s1);
+          ctrSelects.push({legacy:true,sel:s1});
+        }
+        var pairRow=el('div',{style:'display:flex;gap:8px'});
+        var piW=el('div',{style:'flex:1'});piW.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'Pairs issued'}));
+        var piI=el('input',{type:'number',style:_oin});piI.value=jc.pairsIssued||0;piW.appendChild(piI);
+        var prW=el('div',{style:'flex:1'});prW.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'Pairs received'}));
+        var prI=el('input',{type:'number',style:_oin});prI.value=jc.pairsReceived||0;prW.appendChild(prI);
+        pairRow.appendChild(piW);pairRow.appendChild(prW);ovForm.appendChild(pairRow);
+        ovForm.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'Status'}));
+        var stSel=el('select',{style:_oin});
+        ['ISSUED','PARTIAL','COMPLETE','PAYMENT_PENDING','PAID','CANCELLED'].forEach(function(sv){var o=document.createElement('option');o.value=sv;o.textContent=sv;if(sv===(jc.status||'').toUpperCase())o.selected=true;stSel.appendChild(o);});
+        ovForm.appendChild(stSel);
+        var pwO=el('input',{type:'password',placeholder:'Admin override password',style:_oin.replace('var(--fos-border)','var(--fos-warning)')});
+        ovForm.appendChild(pwO);
+        var saveO=el('button',{cls:'primary-btn',text:'Save override',style:'width:100%;padding:11px;font-size:13px;border-radius:10px'});
+        ovForm.appendChild(saveO);
+        ovToggle.onclick=function(){var op=ovForm.style.display==='none';ovForm.style.display=op?'block':'none';ovToggle.textContent=op?'✕ Close override':'⚙ Override (admin)';};
+        saveO.onclick=function(){
+          var pw=pwO.value.trim();if(!pw){toast('Enter the override password',true);return;}
+          var payload={jobCardId:jc.jobCardId,overridePassword:pw};
+          if(asg.length){
+            var newAsg=ctrSelects.map(function(x){return {activity:x.activity,contractorId:x.sel.value,rate:x.rate,comm:x.comm};}).filter(function(x){return x.contractorId;});
+            if(newAsg.length)payload.assignments=newAsg;
+          } else if(ctrSelects[0].sel.value){payload.contractorId=ctrSelects[0].sel.value;}
+          if(piI.value!=='')payload.pairsIssued=parseInt(piI.value,10);
+          if(prI.value!=='')payload.pairsReceived=parseInt(prI.value,10);
+          if(stSel.value)payload.status=stSel.value;
+          saveO.disabled=true;saveO.textContent='Saving…';
+          google.script.run
+            .withSuccessHandler(function(r){
+              if(r&&r.success){toast('Job card updated — '+((r.changed||[]).join(', ')||'no change'));google.script.run.withSuccessHandler(function(jcs){D.jobCards=Array.isArray(jcs)?jcs:[];renderList();}).withFailureHandler(function(){}).getJobCards({});}
+              else{saveO.disabled=false;saveO.textContent='Save override';toast((r&&r.error)||'Update failed',true);}
+            })
+            .withFailureHandler(function(e){saveO.disabled=false;saveO.textContent='Save override';toast((e&&e.message)||'Error',true);})
+            .adminEditJobCard(payload);
+        };
+        card.appendChild(ovToggle);card.appendChild(ovForm);
+      }
+
       return card;
     }
 

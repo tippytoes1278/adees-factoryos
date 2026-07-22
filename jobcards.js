@@ -638,6 +638,73 @@ function getJobCards(filters, ss) {
   }
 }
 
+// Admin override (7.1 #3 + #4): correct a job card directly, gated by the override
+// password. Reassign contractors (assignments), fix pairs issued/received, or set
+// status. Only the fields provided change.
+function adminEditJobCard(data) {
+  var ov = verifyAdminOverride(data.overridePassword);
+  if (!ov.success) return { success:false, error: ov.error || 'Override not verified' };
+  var jobCardId = safeStr(data.jobCardId).trim();
+  if (!jobCardId) return { success:false, error:'jobCardId is required' };
+  var lock = LockService.getPublicLock();
+  try {
+    lock.waitLock(10000);
+    var ws = ensureJobCardsSheet();
+    var lastRow = ws.getLastRow();
+    if (lastRow < 2) return { success:false, error:'Job card not found' };
+    var rows = ws.getRange(2, 1, lastRow-1, 17).getValues();
+    var idx = -1;
+    for (var i = 0; i < rows.length; i++) { if (safeStr(rows[i][0]).trim() === jobCardId) { idx = i; break; } }
+    if (idx < 0) return { success:false, error:'Job card not found: ' + jobCardId };
+    var sheetRow = idx + 2;
+    var changed = [];
+
+    // Reassign contractors (department card): full assignments array replaces col 17
+    if (Array.isArray(data.assignments) && data.assignments.length) {
+      var norm = data.assignments.map(function(a) {
+        return { activity: safeStr(a.activity || a.activityName), contractorId: safeStr(a.contractorId).trim(),
+                 rate: safeNum(a.rate), comm: safeNum(a.comm) };
+      }).filter(function(a){ return a.contractorId; });
+      if (norm.length) {
+        ws.getRange(sheetRow, 17).setValue(JSON.stringify(norm));   // ASSIGNMENTS
+        ws.getRange(sheetRow, 6).setValue(norm[0].contractorId);    // CONTRACTOR_ID (display fallback)
+        changed.push('contractors');
+      }
+    } else if (data.contractorId !== undefined && safeStr(data.contractorId).trim()) {
+      ws.getRange(sheetRow, 6).setValue(safeStr(data.contractorId).trim());
+      changed.push('contractor');
+    }
+
+    // Pairs corrections
+    if (data.pairsIssued !== undefined && safeStr(data.pairsIssued) !== '') {
+      var pi = safeNum(data.pairsIssued);
+      if (pi >= 0) { ws.getRange(sheetRow, 7).setValue(pi); changed.push('pairsIssued=' + pi); }   // PAIRS_ISSUED
+    }
+    if (data.pairsReceived !== undefined && safeStr(data.pairsReceived) !== '') {
+      var prc = safeNum(data.pairsReceived);
+      if (prc >= 0) { ws.getRange(sheetRow, 8).setValue(prc); changed.push('pairsReceived=' + prc); }  // PAIRS_RECEIVED
+    }
+
+    // Status
+    if (data.status !== undefined && safeStr(data.status).trim()) {
+      var st = safeStr(data.status).trim().toUpperCase();
+      if (['ISSUED','PARTIAL','COMPLETE','PAYMENT_PENDING','PAID','CANCELLED'].indexOf(st) < 0)
+        return { success:false, error:'Invalid status: ' + st };
+      ws.getRange(sheetRow, 14).setValue(st);   // STATUS
+      changed.push('status=' + st);
+    }
+
+    if (!changed.length) return { success:false, error:'Nothing to change' };
+    SpreadsheetApp.flush();
+    ['dashboardData_','storeScreenData_'].forEach(function(k){ try { CacheService.getScriptCache().remove(k + CONFIG.ENV); } catch(e) {} });
+    return { success:true, changed:changed };
+  } catch(e) {
+    return { success:false, error:e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function getOpenJobCards(store) {
   try {
     var all = store ? getJobCards({ store: store }) : getJobCards({});
