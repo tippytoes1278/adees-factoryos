@@ -272,6 +272,9 @@ function renderOrders(c){
       form.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px',text:'Size run'}));
       var sizeWrap=el('div',{style:'margin-bottom:8px'});
       form.appendChild(sizeWrap);
+      form.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px',text:'Activity rates'}));
+      var ratesWrap=el('div',{style:'margin-bottom:8px'});
+      form.appendChild(ratesWrap);
       var pwI=el('input',{type:'password',placeholder:'Admin override password',style:_in.replace('margin-bottom:8px','margin-bottom:8px;border-color:var(--fos-warning)')});
       form.appendChild(pwI);
       var saveBtn=el('button',{cls:'primary-btn',text:'Save changes',style:'width:100%;padding:11px;font-size:13px;border-radius:10px'});
@@ -288,10 +291,34 @@ function renderOrders(c){
         });
         scroll.appendChild(row);sizeWrap.appendChild(scroll);
       }
+      function renderRatesEdit(res){
+        ratesWrap.innerHTML='';
+        var acts=(res&&res.activities)?res.activities:[];
+        if(!acts.length){ratesWrap.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:'No approved activities'}));return;}
+        acts.forEach(function(a){
+          var r=el('div',{style:'display:flex;align-items:center;gap:6px;margin-bottom:6px'});
+          var lbl=el('div',{style:'flex:1;min-width:0'});
+          lbl.appendChild(el('div',{style:'font-size:12px;font-weight:600;color:var(--fos-ink)',text:a.activityName}));
+          lbl.appendChild(el('div',{style:'font-size:10px;color:var(--fos-ink-secondary)',text:a.dept||''}));
+          r.appendChild(lbl);
+          var rt=el('input',{type:'number',style:'width:64px;padding:4px 6px;border:1px solid var(--fos-border);border-radius:6px;font-size:12px;text-align:right;background:var(--fos-surface);color:var(--fos-ink)'});
+          rt.value=a.rate||0;rt.dataset.act=a.activityName;rt.dataset.dept=a.dept||'';rt.dataset.f='rate';
+          var cm=el('input',{type:'number',style:'width:56px;padding:4px 6px;border:1px solid var(--fos-border);border-radius:6px;font-size:12px;text-align:right;background:var(--fos-surface);color:var(--fos-ink)'});
+          cm.value=a.comm||0;cm.dataset.act=a.activityName;cm.dataset.dept=a.dept||'';cm.dataset.f='comm';
+          r.appendChild(el('span',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'₹'}));r.appendChild(rt);
+          r.appendChild(el('span',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'+comm'}));r.appendChild(cm);
+          ratesWrap.appendChild(r);
+        });
+      }
       editBtn.onclick=function(){
         var opening=form.style.display==='none';form.style.display=opening?'block':'none';
         editBtn.textContent=opening?'✕ Close edit':'✎ Edit details (override)';
-        if(opening){sizeWrap.innerHTML='Loading sizes…';google.script.run.withSuccessHandler(renderSizeEdit).withFailureHandler(function(){sizeWrap.textContent='Could not load sizes';}).getOrderSizes(order.sheet);}
+        if(opening){
+          sizeWrap.innerHTML='Loading sizes…';
+          google.script.run.withSuccessHandler(renderSizeEdit).withFailureHandler(function(){sizeWrap.textContent='Could not load sizes';}).getOrderSizes(order.sheet);
+          ratesWrap.innerHTML='Loading rates…';
+          google.script.run.withSuccessHandler(renderRatesEdit).withFailureHandler(function(){ratesWrap.textContent='Could not load rates';}).getApprovedActivitiesForArticle(order.sheet);
+        }
       };
       saveBtn.onclick=function(){
         var pw=pwI.value.trim();if(!pw){toast('Enter the override password',true);return;}
@@ -300,6 +327,14 @@ function renderOrders(c){
         if(custI.value.trim()!=='')payload.customer=custI.value.trim();
         var sizeRun={};sizeWrap.querySelectorAll('input[data-size]').forEach(function(inp){var v=parseInt(inp.value,10);if(v>0)sizeRun[inp.dataset.size]=v;});
         if(Object.keys(sizeRun).length)payload.sizeRun=sizeRun;
+        var rmap={};
+        ratesWrap.querySelectorAll('input[data-act]').forEach(function(inp){
+          var key=inp.dataset.dept+'|'+inp.dataset.act;
+          if(!rmap[key])rmap[key]={activityName:inp.dataset.act,dept:inp.dataset.dept,rate:0,comm:0};
+          rmap[key][inp.dataset.f]=parseFloat(inp.value)||0;
+        });
+        var rates=Object.keys(rmap).map(function(k){return rmap[k];});
+        if(rates.length)payload.rates=rates;
         saveBtn.disabled=true;saveBtn.textContent='Saving…';
         google.script.run
           .withSuccessHandler(function(r){

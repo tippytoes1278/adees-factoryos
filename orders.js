@@ -448,7 +448,8 @@ function adminEditOrder(data) {
     var cust = hasCust ? safeStr(data.customer).trim() : null;
     var cleanSize = null;
     if (hasSize) { cleanSize = {}; Object.keys(data.sizeRun).forEach(function(k){ var q = safeNum(data.sizeRun[k]); if (q > 0) cleanSize[k] = q; }); }
-    if (!hasLot && !hasCust && !hasSize) return { success:false, error:'Nothing to change' };
+    var hasRates = Array.isArray(data.rates) && data.rates.length > 0;
+    if (!hasLot && !hasCust && !hasSize && !hasRates) return { success:false, error:'Nothing to change' };
 
     var changed = [];
     if (hasLot)  { art.getRange('H2').setValue(lotN); changed.push('lot=' + lotN); }
@@ -474,6 +475,38 @@ function adminEditOrder(data) {
         for (var j = 0; j < otV.length; j++) {
           if (safeStr(otV[j][0]).trim() === sheetName) { ot.getRange(4 + j, 3).setValue(cust); break; }
         }
+      }
+    }
+
+    // Rates: update matching activities inside this order's APPROVED ACTIVITY_SETUP
+    // payloads (the source payment reads). Matched by dept + activity name.
+    if (hasRates) {
+      var newByKey = {};
+      data.rates.forEach(function(x) {
+        var k = safeStr(x.dept).toLowerCase().trim() + '|' + safeStr(x.activityName).toLowerCase().trim();
+        newByKey[k] = { rate: safeNum(x.rate), comm: safeNum(x.comm) };
+      });
+      var rq = ss.getSheetByName('REQUESTS');
+      if (rq && rq.getLastRow() >= 4) {
+        var rqV = rq.getRange(4, 1, rq.getLastRow()-3, 6).getValues();
+        for (var k2 = 0; k2 < rqV.length; k2++) {
+          if (safeStr(rqV[k2][3]) !== 'ACTIVITY_SETUP' || safeStr(rqV[k2][5]).toUpperCase() !== 'APPROVED') continue;
+          var pl; try { pl = JSON.parse(safeStr(rqV[k2][4])); } catch(e) { continue; }
+          if (!pl || safeStr(pl.sheet) !== sheetName) continue;
+          var deptKey = safeStr(pl.dept).toLowerCase().trim();
+          var dirty = false;
+          if (Array.isArray(pl.activities)) {
+            pl.activities.forEach(function(a) {
+              var kk = deptKey + '|' + safeStr(a.activityName).toLowerCase().trim();
+              if (newByKey[kk]) { a.rate = newByKey[kk].rate; a.comm = newByKey[kk].comm; dirty = true; }
+            });
+          } else if (pl.activityName) {
+            var kk1 = deptKey + '|' + safeStr(pl.activityName).toLowerCase().trim();
+            if (newByKey[kk1]) { pl.rate = newByKey[kk1].rate; pl.comm = newByKey[kk1].comm; dirty = true; }
+          }
+          if (dirty) rq.getRange(4 + k2, 5).setValue(JSON.stringify(pl));
+        }
+        changed.push('rates');
       }
     }
     SpreadsheetApp.flush();
