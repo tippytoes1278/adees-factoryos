@@ -293,7 +293,14 @@ function renderOrders(c){
       }
       function renderRatesEdit(res){
         ratesWrap.innerHTML='';
-        var acts=(res&&res.activities)?res.activities:[];
+        var raw=(res&&res.activities)?res.activities:[];
+        // dedupe: one row per dept+activity, keeping the latest (most recent) rate
+        var seen={},acts=[];
+        raw.forEach(function(a){
+          var k=(a.dept||'').toLowerCase().trim()+'|'+(a.activityName||'').toLowerCase().trim();
+          if(seen[k]!==undefined){acts[seen[k]]=a;}
+          else{seen[k]=acts.length;acts.push(a);}
+        });
         if(!acts.length){ratesWrap.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:'No approved activities'}));return;}
         acts.forEach(function(a){
           var r=el('div',{style:'display:flex;align-items:center;gap:6px;margin-bottom:6px'});
