@@ -515,9 +515,12 @@ function adminEditOrder(data) {
   } catch(e) { return { success:false, error:e.message }; }
 }
 
-function backfillOrderSizes() {
+function backfillOrderSizes(targetEnv) {
   try {
-    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var _sid = (targetEnv === 'LIVE') ? CONFIG.LIVE_SHEET_ID
+             : (targetEnv === 'DEV')  ? CONFIG.DEV_SHEET_ID
+             : SHEET_ID;
+    var ss = SpreadsheetApp.openById(_sid);
     var oi = ss.getSheetByName('ORDER_INDEX');
     if (!oi) return { success: false, error: 'ORDER_INDEX sheet not found' };
     var rq = ss.getSheetByName('REQUESTS');
@@ -552,16 +555,19 @@ function backfillOrderSizes() {
       updated++;
     });
     SpreadsheetApp.flush();
-    return { success: true, updated: updated, skipped: skipped };
+    return { success: true, updated: updated, skipped: skipped, env: (targetEnv || CONFIG.ENV) };
   } catch(e) {
     return { success: false, error: e.message };
   }
 }
 
-function backfillOrderSizesMenu() {
-  var result = backfillOrderSizes();
+function _bfsReport(result, title) {
   var msg = result.success
-    ? 'Done. Updated: ' + result.updated + ' rows | Skipped: ' + result.skipped + ' rows'
-    : 'Error: ' + result.error;
-  SpreadsheetApp.getUi().alert('Backfill Order Sizes', msg, SpreadsheetApp.getUi().ButtonSet.OK);
+    ? ('Target: ' + result.env + '\nUpdated: ' + result.updated + ' rows | Skipped: ' + result.skipped + ' rows')
+    : ('Error: ' + result.error);
+  SpreadsheetApp.getUi().alert(title, msg, SpreadsheetApp.getUi().ButtonSet.OK);
 }
+function backfillOrderSizesLive() { _bfsReport(backfillOrderSizes('LIVE'), 'Backfill Order Sizes — LIVE'); }
+function backfillOrderSizesDev()  { _bfsReport(backfillOrderSizes('DEV'),  'Backfill Order Sizes — DEV'); }
+// Kept for backward compatibility (targets current ENV).
+function backfillOrderSizesMenu() { _bfsReport(backfillOrderSizes(), 'Backfill Order Sizes'); }
