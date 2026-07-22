@@ -428,6 +428,60 @@ function verifyAdminOverride(password) {
   return { success:true };
 }
 
+// Admin override (7.1): edit an order's details directly, gated by the override
+// password. Updates lot size (ART H2), customer (ART E2 + trackers), and/or the
+// size run (ORDER_INDEX col Q JSON). Only the fields provided are changed.
+function adminEditOrder(data) {
+  var ov = verifyAdminOverride(data.overridePassword);
+  if (!ov.success) return { success:false, error: ov.error || 'Override not verified' };
+  var sheetName = safeStr(data.sheetName).trim();
+  if (!sheetName) return { success:false, error:'sheetName is required' };
+  try {
+    var ss  = SpreadsheetApp.openById(SHEET_ID);
+    var art = ss.getSheetByName(sheetName);
+    if (!art) return { success:false, error:'Order sheet not found: ' + sheetName };
+
+    var hasLot  = (data.lot !== undefined && data.lot !== null && safeStr(data.lot) !== '');
+    var hasCust = (data.customer !== undefined && safeStr(data.customer).trim() !== '');
+    var hasSize = (data.sizeRun && typeof data.sizeRun === 'object' && Object.keys(data.sizeRun).length > 0);
+    var lotN = hasLot ? safeNum(data.lot) : null;
+    var cust = hasCust ? safeStr(data.customer).trim() : null;
+    var cleanSize = null;
+    if (hasSize) { cleanSize = {}; Object.keys(data.sizeRun).forEach(function(k){ var q = safeNum(data.sizeRun[k]); if (q > 0) cleanSize[k] = q; }); }
+    if (!hasLot && !hasCust && !hasSize) return { success:false, error:'Nothing to change' };
+
+    var changed = [];
+    if (hasLot)  { art.getRange('H2').setValue(lotN); changed.push('lot=' + lotN); }
+    if (hasCust) { art.getRange('E2').setValue(cust); changed.push('customer'); }
+
+    var oi = ss.getSheetByName('ORDER_INDEX');
+    if (oi && oi.getLastRow() >= 4) {
+      var oiV = oi.getRange(4, 1, oi.getLastRow()-3, 17).getValues();
+      for (var i = 0; i < oiV.length; i++) {
+        if (safeStr(oiV[i][1]).trim() === sheetName) {
+          var row = 4 + i;
+          if (hasLot)  oi.getRange(row, 9).setValue(lotN);      // col I = lot
+          if (hasCust) oi.getRange(row, 5).setValue(cust);      // col E = customer
+          if (hasSize) { oi.getRange(row, 17).setValue(JSON.stringify(cleanSize)); changed.push('sizeRun'); }
+          break;
+        }
+      }
+    }
+    if (hasCust) {
+      var ot = ss.getSheetByName('ORDER_TRACKER');
+      if (ot && ot.getLastRow() > 3) {
+        var otV = ot.getRange(4, 1, ot.getLastRow()-3, 1).getValues();
+        for (var j = 0; j < otV.length; j++) {
+          if (safeStr(otV[j][0]).trim() === sheetName) { ot.getRange(4 + j, 3).setValue(cust); break; }
+        }
+      }
+    }
+    SpreadsheetApp.flush();
+    ['dashboardData_', 'storeScreenData_', 'entryData_'].forEach(function(k){ try { CacheService.getScriptCache().remove(k + CONFIG.ENV); } catch(e) {} });
+    return { success:true, changed:changed };
+  } catch(e) { return { success:false, error:e.message }; }
+}
+
 function backfillOrderSizes() {
   try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
