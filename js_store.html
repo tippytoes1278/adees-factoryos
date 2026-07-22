@@ -689,6 +689,16 @@ function renderJobCards(c){
 
       // Store · Movement
       card.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary);margin-bottom:2px',text:jc.store+' · '+jc.movement}));
+      // Size breakdown (Point 3: size transparency)
+      (function(){
+        var _sb=jc.sizeBreakdown||{};
+        var _sk=Object.keys(_sb).filter(function(k){return safeNum(_sb[k])>0;}).sort(function(a,b){return parseFloat(a)-parseFloat(b);});
+        if(_sk.length){
+          var szRow=el('div',{style:'display:flex;flex-wrap:wrap;gap:5px;margin:4px 0 8px'});
+          _sk.forEach(function(k){szRow.appendChild(el('span',{style:'font-size:10px;background:var(--fos-bg);border:0.5px solid var(--fos-border);border-radius:5px;padding:2px 6px;color:var(--fos-ink-secondary)',text:k+': '+safeNum(_sb[k])}));});
+          card.appendChild(szRow);
+        }
+      })();
 
       // Contractor(s): show per-activity assignments for department cards; single line for legacy
       var asg=Array.isArray(jc.assignments)?jc.assignments:[];

@@ -628,41 +628,68 @@ function renderPayment(c){
       ch.appendChild(el('div',{style:'font-size:15px;font-weight:600;color:var(--fos-ink);margin-top:2px',text:artName}));
       ch.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:(jc.movement||'')+' · '+jc.pairsReceived+' of '+jc.pairsIssued+' pairs returned'}));
       card.appendChild(ch);
+      // Hinglish note so the person doing the advance isn't confused
+      card.appendChild(el('div',{style:'padding:8px 16px;font-size:11px;color:var(--fos-ink);background:#FFF7E6;border-bottom:1px solid var(--fos-border);line-height:1.5',text:'Advance de rahe ho: har contractor ke aage ₹ amount bharo jitna abhi dena hai. Amount pure pair ke hisaab se adjust hoga (aadha pair nahi hota) — sahi figure neeche dikhega. Kaam se zyada advance nahi de sakte.'}));
       var lw=el('div');
+      var lineStates=[];
+      var totEl=null;
+      function updateAdvTotal(){var t=0;lineStates.forEach(function(s){t+=s.pairs*s.rate;});if(totEl)totEl.textContent='₹'+t.toFixed(2);}
       lines.forEach(function(l){
         var rate=safeNum(l.ratePerPair);
-        var rw=el('div',{style:'display:flex;justify-content:space-between;gap:8px;padding:10px 16px;border-bottom:0.5px solid var(--fos-border)'});
+        var maxPairs=safeNum(l.payablePairs);
+        var st={contractorId:l.contractorId,rate:rate,pairs:maxPairs};
+        var rw=el('div',{style:'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 16px;border-bottom:0.5px solid var(--fos-border)'});
         var lft=el('div',{style:'flex:1;min-width:0'});
         lft.appendChild(el('div',{style:'font-size:14px;color:var(--fos-ink)',text:l.contractorName||l.contractorId}));
-        lft.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:rate>0?('₹'+rate.toFixed(2)+'/pair × '+l.payablePairs+' unpaid'+(l.alreadyPaidPairs?(' ('+l.alreadyPaidPairs+' already paid)'):'')):'Rate not set'}));
+        lft.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:rate>0?('₹'+rate.toFixed(2)+'/pair · '+maxPairs+' pairs unpaid'+(l.alreadyPaidPairs?(' ('+l.alreadyPaidPairs+' already paid)'):'')):'Rate not set'}));
+        var pairLbl=el('div',{style:'font-size:11px;color:var(--fos-accent);margin-top:2px',text:maxPairs+' pair'+(maxPairs!==1?'s':'')+' · ₹'+(maxPairs*rate).toFixed(2)});
+        lft.appendChild(pairLbl);
         rw.appendChild(lft);
-        rw.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:14px;font-weight:700;color:var(--fos-accent);flex-shrink:0',text:'₹'+safeNum(l.amount).toFixed(2)}));
+        var amtI=el('input',{type:'number',style:'width:82px;padding:6px 8px;border:1px solid var(--fos-border);border-radius:8px;font-size:14px;text-align:right;background:var(--fos-surface);color:var(--fos-ink);flex-shrink:0'});
+        amtI.value=(maxPairs*rate).toFixed(2);
+        if(rate<=0)amtI.disabled=true;
+        function snap(setInput){
+          var typed=parseFloat(amtI.value);if(isNaN(typed)||typed<0)typed=0;
+          var p=(rate>0)?Math.round(typed/rate):0;if(isNaN(p)||p<0)p=0;if(p>maxPairs)p=maxPairs;
+          st.pairs=p;
+          pairLbl.textContent=p+' pair'+(p!==1?'s':'')+' · ₹'+(p*rate).toFixed(2);
+          if(setInput)amtI.value=(p*rate).toFixed(2);
+          updateAdvTotal();
+        }
+        amtI.oninput=function(){snap(false);};
+        amtI.onchange=function(){snap(true);};
+        rw.appendChild(amtI);
         lw.appendChild(rw);
+        lineStates.push(st);
       });
       card.appendChild(lw);
       var ft=el('div',{style:'display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--fos-bg)'});
-      ft.appendChild(el('div',{style:'flex:1;font-size:12px;color:var(--fos-ink-secondary)',text:'Advance now'}));
-      ft.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:15px;font-weight:700;color:var(--fos-ink)',text:'₹'+total.toFixed(2)}));
+      ft.appendChild(el('div',{style:'flex:1;font-size:12px;color:var(--fos-ink-secondary)',text:'Total advance'}));
+      totEl=el('div',{style:'font-family:var(--fos-font-mono);font-size:15px;font-weight:700;color:var(--fos-ink)'});totEl.textContent='₹'+total.toFixed(2);
+      ft.appendChild(totEl);
       var advBtn=el('button',{cls:'primary-btn',text:'Pay Advance',style:'width:auto;padding:10px 16px;font-size:13px;border-radius:10px;flex-shrink:0'});
       advBtn.disabled=!rateOk;
       ft.appendChild(advBtn);
       card.appendChild(ft);
       c.appendChild(card);
-      (function(theJc,btn,amount,ok){
+      (function(theJc,btn,ok,states){
         btn.onclick=function(){
           if(!ok){toast('Some contractors have no rate — check activity setup',true);return;}
+          var linePairs={},anyPos=false;
+          states.forEach(function(s){linePairs[s.contractorId]=s.pairs;if(s.pairs>0)anyPos=true;});
+          if(!anyPos){toast('Enter an advance amount above 0',true);return;}
           btn.disabled=true;btn.textContent='Advancing...';
           google.script.run
             .withSuccessHandler(function(rr){
               if(rr&&rr.success){
-                toast('Advance '+theJc.jobCardId+' — ₹'+safeNum(rr.totalAmount||amount).toFixed(2)+(rr.advanceId?' · '+rr.advanceId:''));
+                toast('Advance '+theJc.jobCardId+' — ₹'+safeNum(rr.totalAmount).toFixed(2)+(rr.advanceId?' · '+rr.advanceId:''));
                 D.completedJobCards=null;D.advanceable=null;loadTab('payment');
               } else { btn.disabled=false;btn.textContent='Pay Advance';toast((rr&&rr.error)?rr.error:'Advance failed',true); }
             })
             .withFailureHandler(function(e){btn.disabled=false;btn.textContent='Pay Advance';toast((e&&e.message)||'Error submitting advance',true);})
-            .submitCardAdvance({jobCardId:theJc.jobCardId,periodId:PAY_PERIOD.periodId,notes:''});
+            .submitCardAdvance({jobCardId:theJc.jobCardId,periodId:PAY_PERIOD.periodId,linePairs:linePairs,notes:''});
         };
-      })(jc,advBtn,total,rateOk);
+      })(jc,advBtn,rateOk,lineStates);
     });
   }
 
@@ -736,6 +763,7 @@ function renderPayment(c){
       cHdrTxt.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:jc.jobCardId}));
       cHdrTxt.appendChild(el('div',{style:'font-size:16px;font-weight:700;color:var(--fos-ink);margin-top:2px',text:artName+(artColor?' · '+artColor:'')}));
       cHdrTxt.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:2px',text:(jc.store||'')+(jc.movement?' · '+jc.movement:'')+' · '+pairs+' pairs'}));
+      (function(){var _sb=jc.sizeBreakdown||{};var _sk=Object.keys(_sb).filter(function(k){return safeNum(_sb[k])>0;}).sort(function(a,b){return parseFloat(a)-parseFloat(b);});if(_sk.length){var szR=el('div',{style:'display:flex;flex-wrap:wrap;gap:4px;margin-top:4px'});_sk.forEach(function(k){szR.appendChild(el('span',{style:'font-size:10px;background:var(--fos-surface);border:0.5px solid var(--fos-border);border-radius:5px;padding:1px 6px;color:var(--fos-ink-secondary)',text:k+': '+safeNum(_sb[k])}));});cHdrTxt.appendChild(szR);}})();
       cHdr.appendChild(cHdrTxt);
       cCard.appendChild(cHdr);
 
@@ -930,8 +958,14 @@ function renderPayHistory(c){
           var artName=artMap[jc.orderRef||'']||(jc.orderRef||'—');
           var jcRow=el('div',{style:'display:flex;align-items:center;gap:8px;padding:6px 12px;border-top:1px solid var(--fos-border);flex-wrap:wrap'});
           jcRow.appendChild(el('span',{style:'font-family:var(--fos-font-mono,monospace);font-size:11px;color:var(--fos-ink-secondary);min-width:90px',text:jc.jobCardId||'—'}));
-          jcRow.appendChild(el('span',{style:'font-size:12px;color:var(--fos-ink);flex:1',text:artName+(jc.department?' · '+jc.department:'')}));
-          jcRow.appendChild(el('span',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:(jc.pairs||0)+' pairs · ₹'+Number(jc.amount||0).toFixed(2)}));
+          var jcMid=el('div',{style:'flex:1;min-width:0'});
+          jcMid.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink)',text:artName+(jc.department?' · '+jc.department:'')}));
+          var _iss=Number(jc.cardIssued||0),_rec=Number(jc.cardReceived||0),_cst=jc.cardStatus||'';
+          if(_iss>0||_rec>0)jcMid.appendChild(el('div',{style:'font-size:10px;color:var(--fos-ink-secondary);margin-top:1px',text:_rec+' of '+_iss+' pairs done'+(_cst?(' · '+_cst):'')}));
+          jcRow.appendChild(jcMid);
+          var jcRt=el('div',{style:'text-align:right;flex-shrink:0'});
+          jcRt.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink)',text:'Paying '+(jc.pairs||0)+' · ₹'+Number(jc.amount||0).toFixed(2)}));
+          jcRow.appendChild(jcRt);
           linesBody.appendChild(jcRow);
         });
         bCard.appendChild(linesTog);
