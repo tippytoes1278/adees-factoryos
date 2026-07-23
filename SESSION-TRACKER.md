@@ -45,7 +45,8 @@
 - **Manual cleanups done:** "Copy of ART-TEMPLATE" deleted from LIVE (verified
   template-only first).
 - **Closed:** 1.15 — no PENDING/REVISION rows remain in LIVE REQUESTS.
-- **Still open:**
+- **Committed:** 59e26e0 (9 files, +349/−20) — rollback point per protocol.
+- **Session closed 23-Jul-2026.** Carried forward to next session:
   - Arvind resubmits Punch + Hand Lasting on LIVE (real-world Issue-1 confirmation),
     then 2.13 Setup Edit Request flow. Note: master list has "Sneakers Upper Skiving
     (Men/Ladies)" under prep — no standalone "Upper Skiving".
