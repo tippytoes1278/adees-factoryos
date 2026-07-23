@@ -164,6 +164,10 @@ function notifyNewRequest_(reqId, type, rawDetails, submittedBy, now) {
       case 'SETUP_EDIT_REQUEST':
         lines.push('Setup Edit: ' + (pl.dept||'?') + ' dept on ' + (pl.sheet||'?'));
         break;
+      case 'MASTER_ACTIVITY':
+        lines.push('New Master Activity: ' + (pl.activityName||'?'));
+        lines.push('Dept: ' + (pl.dept||'?') + ' | Rate: ₹' + (pl.rate||0) + '/pr' + (pl.comm ? ' | Comm: ₹' + pl.comm + '/pr' : ''));
+        break;
       case 'ACTIVITY_SETUP':
         if (pl.activityName) {
           lines.push('New Activity: ' + pl.activityName);
@@ -214,6 +218,7 @@ function submitRequest(type, details) {
         reqId, now, user.name, type, details, 'PENDING', '', '', 'No', revHistory
       ]]);
       SpreadsheetApp.flush();
+      clearDashCache_();
       notifyNewRequest_(reqId, type, details, user.name, now);
       return { success:true, reqId:reqId };
     } catch(e) { return { success:false, error:e.message }; }
@@ -240,8 +245,26 @@ function processRequest(rowNum, action, notes) {
     rq.getRange(rowNum, 8).setValue(now);
     // Revision goes back to the submitter (not a final state), so it stays actionable.
     rq.getRange(rowNum, 9).setValue(action === 'REVISION' ? 'Revision' : 'Yes');
-    if (action === 'REVISION') return { success: true, status: 'REVISION' };
+    if (action === 'REVISION') { clearDashCache_(); return { success: true, status: 'REVISION' }; }
     var sheetCreated = '';
+    if (action === 'APPROVE' && safeStr(row[3]) === 'MASTER_ACTIVITY') {
+      try {
+        var maPayload = JSON.parse(safeStr(row[4]));
+        if (maPayload && maPayload.activityName) {
+          var maWs = ss.getSheetByName('MASTER_ACTIVITIES');
+          if (!maWs) {
+            maWs = ss.insertSheet('MASTER_ACTIVITIES');
+            maWs.getRange(1, 1, 1, 7).setValues([['Dept','ActivityName','Rate','Comm','Status','RequestedBy','RequestedDate']]);
+          }
+          maWs.getRange(maWs.getLastRow() + 1, 1, 1, 7).setValues([[
+            safeStr(maPayload.dept), safeStr(maPayload.activityName),
+            safeNum(maPayload.rate), safeNum(maPayload.comm),
+            'APPROVED', safeStr(row[2]), safeStr(row[1])
+          ]]);
+          try { CacheService.getScriptCache().remove('entryData_' + CONFIG.ENV); } catch(ce) {}
+        }
+      } catch(pe) { Logger.log('MASTER_ACTIVITY error: ' + pe.message); }
+    }
     if (action === 'APPROVE' && safeStr(row[3]) === 'ACTIVITY_SETUP') {
       try {
         var setupPayload = JSON.parse(safeStr(row[4]));
@@ -295,6 +318,7 @@ function processRequest(rowNum, action, notes) {
           rq.getRange(rowNum, 8).setValue('');
           rq.getRange(rowNum, 9).setValue('No');
           SpreadsheetApp.flush();
+          clearDashCache_();
           return { success:false, error: noResult.error };
         }
       } catch(pe) {
@@ -303,10 +327,12 @@ function processRequest(rowNum, action, notes) {
         rq.getRange(rowNum, 8).setValue('');
         rq.getRange(rowNum, 9).setValue('No');
         SpreadsheetApp.flush();
+        clearDashCache_();
         return { success:false, error: pe.message };
       }
     }
     SpreadsheetApp.flush();
+    clearDashCache_();
     return { success:true, action:action, sheetCreated:sheetCreated };
   } catch(e) { return { success:false, error:e.message }; }
 }
@@ -327,6 +353,7 @@ function rejectRequest(reqId, remark) {
         rq.getRange(i + 4, 8).setValue(now);
         rq.getRange(i + 4, 9).setValue('Yes');
         SpreadsheetApp.flush();
+        clearDashCache_();
         return { success:true };
       }
     }
@@ -361,6 +388,7 @@ function approveEditRequest(reqId) {
     rq.getRange(targetRow, 8).setValue(now);
     rq.getRange(targetRow, 9).setValue('Yes');
     SpreadsheetApp.flush();
+    clearDashCache_();
     return { success:true };
   } catch(e) { return { success:false, error:e.message }; }
 }
@@ -394,6 +422,7 @@ function approveSetupEditRequest(reqId) {
       'APPROVED', 'Setup edit unlocked', now, 'Yes', ''
     ]]);
     SpreadsheetApp.flush();
+    clearDashCache_();
     return { success: true };
   } catch(e) { return { success: false, error: e.message }; }
 }

@@ -552,6 +552,7 @@ function submitDeptActivities(sheetName, depts) {
       lastReqId = reqId;
     });
     SpreadsheetApp.flush();
+    clearDashCache_();
     return { success:true, count:depts.length, reqId:lastReqId };
   } catch(e) { return { success:false, error:e.message }; }
 }
@@ -709,6 +710,7 @@ function requestActivityRateEdit(rowIndex, newRate, newComm, revisionRemark) {
       reqId, now, user.name, 'RATE_EDIT', payload, 'PENDING', '', '', 'No', revHistory
     ]]);
     SpreadsheetApp.flush();
+    clearDashCache_();
     notifyNewRequest_(reqId, 'RATE_EDIT', payload, user.name, now);
     return { success:true, reqId:reqId };
   } catch(e) { return { success:false, error:e.message }; }
@@ -725,13 +727,18 @@ function requestActivitySetup(payload, revisionRemark) {
       var itemsArr = Array.isArray(payload) ? payload : [payload];
       for (var _ai = 0; _ai < itemsArr.length; _ai++) {
         var _item = itemsArr[_ai];
+        // Guard is per order+dept. Never match on an empty sheet: master-style
+        // payloads have no sheet, and '' === '' locked out entire departments
+        // (Issue 1, 22-Jul incident). Master activities go through
+        // requestMasterActivity(), not here.
+        if (!safeStr(_item.sheet)) continue;
         for (var _ri = 0; _ri < rqChkData.length; _ri++) {
           var _r = rqChkData[_ri];
           if (safeStr(_r[3]) !== 'ACTIVITY_SETUP') continue;
           if (safeStr(_r[5]).toUpperCase() !== 'APPROVED') continue;
           try {
             var _pl = JSON.parse(safeStr(_r[4]));
-            if (_pl && safeStr(_pl.sheet) === safeStr(_item.sheet) &&
+            if (_pl && safeStr(_pl.sheet) && safeStr(_pl.sheet) === safeStr(_item.sheet) &&
                 safeStr(_pl.dept) === safeStr(_item.dept)) {
               return {
                 success: false,
@@ -783,7 +790,86 @@ function requestActivitySetup(payload, revisionRemark) {
       } catch(mailErr) { Logger.log('notifyNewRequest_ batch mail error: ' + mailErr.message); }
     }
     try { CacheService.getScriptCache().remove('entryData_' + CONFIG.ENV); } catch(ce) {}
+    clearDashCache_();
     return { success:true, reqId:lastReqId, count:items.length };
+  } catch(e) { return { success:false, error:e.message }; }
+}
+
+// Master Activities submissions. Dedicated MASTER_ACTIVITY request type —
+// these previously went through requestActivitySetup() (the per-order
+// handler), whose order+dept guard matched '' === '' on the missing sheet
+// field and permanently locked every dept (Issue 1, 22-Jul incident).
+// items: [{dept, activityName, rate, comm}]
+function requestMasterActivity(items, revisionRemark) {
+  var user = getUserInfo();
+  try {
+    if (!Array.isArray(items)) items = [items];
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+
+    // Existing approved master activities (name+dept), for duplicate checks
+    var existing = {};
+    try {
+      var maChk = ss.getSheetByName('MASTER_ACTIVITIES');
+      if (maChk && maChk.getLastRow() > 1) {
+        maChk.getRange(2, 1, maChk.getLastRow()-1, 2).getValues().forEach(function(r) {
+          var k = safeStr(r[0]).toLowerCase() + '|' + safeStr(r[1]).trim().toLowerCase();
+          existing[k] = true;
+        });
+      }
+    } catch(me) {}
+
+    // Pending MASTER_ACTIVITY requests (name+dept), so the same activity
+    // can't be queued twice while awaiting approval
+    var pending = {};
+    var rq = ss.getSheetByName('REQUESTS');
+    if (!rq) return { success:false, error:'REQUESTS sheet not found' };
+    try {
+      if (rq.getLastRow() > 3) {
+        rq.getRange(4, 1, rq.getLastRow()-3, 6).getValues().forEach(function(r) {
+          if (safeStr(r[3]) !== 'MASTER_ACTIVITY') return;
+          if (safeStr(r[5]).toUpperCase() !== 'PENDING') return;
+          try {
+            var pl = JSON.parse(safeStr(r[4]));
+            if (pl) pending[safeStr(pl.dept).toLowerCase() + '|' + safeStr(pl.activityName).trim().toLowerCase()] = true;
+          } catch(pe) {}
+        });
+      }
+    } catch(qe) {}
+
+    // Submit what's new; report what's skipped (no all-or-nothing batches)
+    var skipped = [], createdReqs = [], lastReqId = '';
+    var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
+    items.forEach(function(item) {
+      var nm = safeStr(item.activityName).trim();
+      if (!nm) return;
+      var key = safeStr(item.dept).toLowerCase() + '|' + nm.toLowerCase();
+      if (existing[key]) { skipped.push(nm + ' (already in master list)'); return; }
+      if (pending[key])  { skipped.push(nm + ' (already pending approval)'); return; }
+      var lastRow = Math.max(rq.getLastRow(), 3) + 1;
+      var reqId = 'REQ-' + ('00' + (lastRow - 3)).slice(-3);
+      var payload = JSON.stringify({
+        dept: safeStr(item.dept), activityName: nm,
+        rate: safeNum(item.rate), comm: safeNum(item.comm)
+      });
+      rq.getRange(lastRow, 1, 1, 10).setValues([[
+        reqId, now, user.name, 'MASTER_ACTIVITY', payload, 'PENDING', '', '', 'No',
+        revisionRemark ? 'REVISION_HISTORY: ' + revisionRemark : ''
+      ]]);
+      createdReqs.push({ reqId: reqId, details: payload });
+      lastReqId = reqId;
+    });
+
+    if (!createdReqs.length) {
+      return { success:false, error: skipped.length ?
+        'Nothing submitted — ' + skipped.join('; ') :
+        'Each activity needs a name and rate' };
+    }
+    SpreadsheetApp.flush();
+    clearDashCache_();
+    createdReqs.forEach(function(r) {
+      notifyNewRequest_(r.reqId, 'MASTER_ACTIVITY', r.details, user.name, now);
+    });
+    return { success:true, reqId:lastReqId, count:createdReqs.length, skipped:skipped };
   } catch(e) { return { success:false, error:e.message }; }
 }
 
@@ -815,6 +901,7 @@ function approveRateEdit(requestId) {
     rq.getRange(targetRow, 9).setValue('Yes');
     SpreadsheetApp.flush();
     try { CacheService.getScriptCache().remove('entryData_' + CONFIG.ENV); } catch(ce) {}
+    clearDashCache_();
     return { success:true };
   } catch(e) { return { success:false, error:e.message }; }
 }
@@ -829,6 +916,7 @@ function dismissRateEdit(reqId) {
       if (safeStr(data[i][0]) === reqId) {
         rq.getRange(i + 4, 6).setValue('DISMISSED');
         SpreadsheetApp.flush();
+        clearDashCache_();
         return { success:true };
       }
     }

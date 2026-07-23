@@ -44,6 +44,13 @@ function safeStr(val) {
   return String(val);
 }
 
+// Server-only. Invalidate the cached dashboard snapshot whenever REQUESTS
+// rows are written or their status changes, so the Home pending-count tile
+// never disagrees with the live Requests tab (Issue 3, 22-Jul incident).
+function clearDashCache_() {
+  try { CacheService.getScriptCache().remove('dashboardData_' + CONFIG.ENV); } catch(e) {}
+}
+
 function isArtSheet(s) {
   var n = s.getName();
   return n.indexOf('ART-') === 0 && n !== 'ART-TEMPLATE';

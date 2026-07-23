@@ -33,6 +33,17 @@ function deleteOrder(sheetName) {
   } catch(e) { return { success:false, error:e.message }; }
 }
 
+// Next free ART-### computed from live sheet names (monotonic: max+1,
+// survives deletes, never reuses a number). Single source of truth for
+// ART numbering — do not compute ART numbers anywhere else.
+function nextArtName_(ss) {
+  var nums = ss.getSheets().filter(isArtSheet)
+    .map(function(s){ return parseInt(s.getName().replace('ART-',''))||0; });
+  var n = String(Math.max.apply(null,[0].concat(nums)) + 1);
+  while (n.length < 3) n = '0' + n;
+  return 'ART-' + n;
+}
+
 function createNewArtSheet(detailsStr) {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var parse = function(key) {
@@ -50,15 +61,17 @@ function createNewArtSheet(detailsStr) {
   var season   = parse('Season');
   var month    = parse('Month');
 
-  var artSheets = ss.getSheets().filter(isArtSheet);
-  var nums = artSheets.map(function(s){ return parseInt(s.getName().replace('ART-',''))||0; });
-  var nextNum = String(Math.max.apply(null,[0].concat(nums))+1);
-  while(nextNum.length < 3) nextNum = '0' + nextNum;
-  var newName = 'ART-' + nextNum;
+  var newName = nextArtName_(ss);
 
   var template = ss.getSheetByName('ART-TEMPLATE') || ss.getSheetByName('ART-001');
   var newSheet = template.copyTo(ss);
-  newSheet.setName(newName);
+  try {
+    newSheet.setName(newName);
+  } catch(nameErr) {
+    // Name collision: clean up the stranded template copy before rethrowing.
+    try { ss.deleteSheet(newSheet); } catch(delErr) {}
+    throw nameErr;
+  }
 
   newSheet.getRange('C5:D49').clearContent();
   newSheet.getRange('H5:H49').clearContent();
@@ -199,8 +212,18 @@ function createTS(styleName, category, season, activities) {
 
 function createOrder(payload) {
   if (safeNum(payload.lotSize) <= 0) return { success:false, error:'Lot size must be greater than 0' };
+  // Script lock: on 22-Jul two same-minute NEW_ORDER approvals both read
+  // max=ART-023 (processRequest has no lock; only submitRequest does) and
+  // collided on ART-024. Serialise all order/sheet creation.
+  var lock = LockService.getScriptLock();
   try {
-    var ss = SpreadsheetApp.openById(SHEET_ID);
+    lock.waitLock(30000);
+  } catch(lockErr) {
+    return { success:false, error:'Another order is being created right now — wait a few seconds and approve again' };
+  }
+  var ss = null, ws = null;
+  try {
+    ss = SpreadsheetApp.openById(SHEET_ID);
     var tz = Session.getScriptTimeZone();
     var now = Utilities.formatDate(new Date(), tz, 'dd-MMM-yyyy');
     var oi = ss.getSheetByName('ORDER_INDEX');
@@ -216,14 +239,19 @@ function createOrder(payload) {
     var bomSeq = String(maxWoSeq + 1);
     while (bomSeq.length < 3) bomSeq = '0' + bomSeq;
     var bomNumber = 'WO-' + new Date().getFullYear() + '-' + bomSeq;
-    var artSheets = ss.getSheets().filter(isArtSheet);
-    var nums = artSheets.map(function(s){ return parseInt(s.getName().replace('ART-',''))||0; });
-    var nextNum = String(Math.max.apply(null,[0].concat(nums))+1);
-    while (nextNum.length < 3) nextNum = '0' + nextNum;
-    var artSheet = 'ART-' + nextNum;
+    var artSheet = nextArtName_(ss);
     var template = ss.getSheetByName('ART-TEMPLATE') || ss.getSheetByName('ART-001');
-    var ws = template.copyTo(ss);
-    ws.setName(artSheet);
+    ws = template.copyTo(ss);
+    // Collision-proof rename (belt-and-braces on top of the lock): if the
+    // computed name is taken or setName throws, recompute from live sheet
+    // names and retry. Never leaves HEAD holding a "Copy of ART-TEMPLATE".
+    var renamed = false;
+    for (var _na = 0; _na < 5 && !renamed; _na++) {
+      if (_na > 0) { Utilities.sleep(200); artSheet = nextArtName_(ss); }
+      if (ss.getSheetByName(artSheet)) continue;
+      try { ws.setName(artSheet); renamed = true; } catch(nameErr) {}
+    }
+    if (!renamed) throw new Error('Could not allocate a free ART number (last tried ' + artSheet + '). Nothing was created — approve again.');
     ws.getRange('B5:B49').clearContent();
     ws.getRange('C5:F49').clearContent();
     ws.getRange('H5:H49').clearContent();
@@ -294,7 +322,49 @@ function createOrder(payload) {
     }
     SpreadsheetApp.flush();
     return { success:true, bomNumber:bomNumber, artSheet:artSheet };
-  } catch(e) { Logger.log('createOrder error: ' + e.message); return { success:false, error:e.message }; }
+  } catch(e) {
+    // If the template copy never got renamed, delete it so no stranded
+    // "Copy of ART-TEMPLATE" is left behind (22-Jul incident).
+    try {
+      if (ss && ws && ws.getName().indexOf('Copy of') === 0) ss.deleteSheet(ws);
+    } catch(cleanErr) {}
+    Logger.log('createOrder error: ' + e.message);
+    return { success:false, error:e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Read-only diagnostic. Run from the Apps Script editor: reconciles ART-*
+// sheets against ORDER_INDEX, flags orphans on both sides, stranded
+// "Copy of" sheets, and numbering gaps (old D4 orphan question).
+function auditArtSheets() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var report = { artSheets:[], orphanSheets:[], orphanIndexRows:[], strandedCopies:[], gaps:[] };
+  var names = ss.getSheets().map(function(s){ return s.getName(); });
+  names.forEach(function(n) { if (n.indexOf('Copy of') === 0) report.strandedCopies.push(n); });
+  var arts = names.filter(function(n){ return n.indexOf('ART-') === 0 && n !== 'ART-TEMPLATE'; });
+  report.artSheets = arts;
+  var idxSheets = {};
+  var oi = ss.getSheetByName('ORDER_INDEX');
+  if (oi && oi.getLastRow() > 3) {
+    oi.getRange(4, 1, oi.getLastRow()-3, 2).getValues().forEach(function(r) {
+      var sn = safeStr(r[1]);
+      if (sn) idxSheets[sn] = safeStr(r[0]);
+    });
+  }
+  arts.forEach(function(n){ if (!idxSheets[n]) report.orphanSheets.push(n); });
+  Object.keys(idxSheets).forEach(function(n){
+    if (arts.indexOf(n) < 0) report.orphanIndexRows.push(n + ' (' + idxSheets[n] + ')');
+  });
+  var nums = arts.map(function(n){ return parseInt(n.replace('ART-',''))||0; })
+    .sort(function(a,b){ return a-b; });
+  var maxN = nums.length ? nums[nums.length-1] : 0;
+  for (var i = 1; i <= maxN; i++) {
+    if (nums.indexOf(i) < 0) report.gaps.push('ART-' + ('00'+i).slice(-3));
+  }
+  Logger.log(JSON.stringify(report, null, 2));
+  return report;
 }
 
 function getOrderProgress(artSheet) {

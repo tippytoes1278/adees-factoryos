@@ -1285,11 +1285,15 @@ function renderActivities(c){
     google.script.run
       .withSuccessHandler(function(r){
         afSub.disabled=false;afSub.textContent='Submit All for Approval';
-        if(r&&r.success){toast('Submitted '+r.count+' activit'+(r.count===1?'y':'ies')+' for approval');resetActForm();D.entry=null;loadTab('activities');}
+        if(r&&r.success){
+          var msg='Submitted '+r.count+' activit'+(r.count===1?'y':'ies')+' for approval';
+          if(r.skipped&&r.skipped.length)msg+=' — skipped: '+r.skipped.join('; ');
+          toast(msg);resetActForm();D.entry=null;loadTab('activities');
+        }
         else toast((r&&r.error)||'Error',true);
       })
       .withFailureHandler(function(){afSub.disabled=false;afSub.textContent='Submit All for Approval';toast('Error',true);})
-      .requestActivitySetup(items);
+      .requestMasterActivity(items,'');
   };
   addWrap.appendChild(addBtn);addWrap.appendChild(addForm);c.appendChild(addWrap);
   if(!MASTER_ACTS.length){c.appendChild(el('div',{style:'color:#4a5578;padding:40px;text-align:center',text:'No activities — open Entry tab first'}));return;}

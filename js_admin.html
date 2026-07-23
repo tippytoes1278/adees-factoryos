@@ -149,7 +149,7 @@ function renderAdminHome(c){
     c.appendChild(sectionTitle('Pending Approvals'));
     var apCard=el('div',{cls:'fos-card'});
     var _todayA=new Date();_todayA.setHours(0,0,0,0);
-    var TYPE_LBL={ACTIVITY_SETUP:'Activity setup',RATE_EDIT:'Rate change',SETUP_EDIT_REQUEST:'Setup edit',EDIT_REQUEST:'Edit',NEW_ORDER:'New order',PAYMENT:'Payment'};
+    var TYPE_LBL={ACTIVITY_SETUP:'Activity setup',MASTER_ACTIVITY:'Master activity',RATE_EDIT:'Rate change',SETUP_EDIT_REQUEST:'Setup edit',EDIT_REQUEST:'Edit',NEW_ORDER:'New order',PAYMENT:'Payment'};
     preqs.forEach(function(r){
       var ageD='';
       try{var dt=new Date(r.date);if(!isNaN(dt.getTime())){dt.setHours(0,0,0,0);ageD=Math.max(0,Math.floor((_todayA-dt)/86400000))+'d';}}catch(e){}
@@ -657,6 +657,12 @@ function renderRequests(c){
           if(!pl2.activities||!pl2.activities.length)det.appendChild(el('div',{text:'No activities listed'}));
         }
       }catch(e2){det.appendChild(el('div',{text:r.details}));}
+    } else if(r.type==='MASTER_ACTIVITY'){
+      try{var plma=JSON.parse(r.details);
+        det.appendChild(el('div',{style:'font-weight:700;color:var(--fos-ink);margin-bottom:4px',text:'New Master Activity'}));
+        det.appendChild(el('div',{text:'Activity: '+(plma.activityName||'?')}));
+        det.appendChild(el('div',{text:'Dept: '+(plma.dept||'—')+' | Rate: ₹'+(plma.rate||0)+'/pr'+(plma.comm?' | Comm: ₹'+plma.comm+'/pr':'')}));
+      }catch(ema){det.appendChild(el('div',{text:r.details}));}
     } else if(r.type==='CUSTOM_PERIOD_REQUEST'){
       try{var pl3=JSON.parse(r.details);det.appendChild(el('div',{text:'Custom Period: '+(pl3.fromDate||'?')+' → '+(pl3.toDate||'?')}));if(pl3.reason)det.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'Reason: '+pl3.reason}));}
       catch(e3){det.appendChild(el('div',{text:r.details}));}

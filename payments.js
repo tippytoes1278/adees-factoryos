@@ -580,6 +580,7 @@ function submitArticleEntries(sheetName, periodId) {
       reqId, now, user.name, 'PAYMENT_SUBMISSION', psDetails, 'PENDING', '', '', 'No', ''
     ]]);
     SpreadsheetApp.flush();
+    clearDashCache_();
     notifyNewRequest_(reqId, 'PAYMENT_SUBMISSION', psDetails, user.name, now);
     return { success:true, count:submittedActs.length, reqId:reqId };
   } catch(e) { return { success:false, error:e.message }; }
@@ -734,6 +735,7 @@ function approvePaymentSubmission(reqId) {
     rq.getRange(targetRow, 8).setValue(now);
     rq.getRange(targetRow, 9).setValue('Yes');
     SpreadsheetApp.flush();
+    clearDashCache_();
     return { success:true, count:approvedCount };
   } catch(e) { return { success:false, error:e.message }; }
 }
