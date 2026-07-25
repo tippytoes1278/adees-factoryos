@@ -10,12 +10,13 @@ function ensureJobCardsSheet(ss) {
       'JOB_CARD_ID','ORDER_REF','WORK_ORDER','STORE','MOVEMENT',
       'CONTRACTOR_ID','PAIRS_ISSUED','PAIRS_RECEIVED','SIZE_BREAKDOWN',
       'ISSUED_BY','ISSUED_AT','EXPECTED_RETURN','RECEIVED_AT','STATUS','NOTES',
-      'BATCH_ID','ASSIGNMENTS'
+      'BATCH_ID','ASSIGNMENTS','RECEIVED_BREAKDOWN'
     ]);
     ws.setFrozenRows(1);
-  } else if (safeStr(ws.getRange(1, 17).getValue()) === '') {
-    // Existing sheet predates the one-card model — label the ASSIGNMENTS column once.
-    ws.getRange(1, 17).setValue('ASSIGNMENTS');
+  } else {
+    // Label added columns once for sheets that predate them.
+    if (safeStr(ws.getRange(1, 17).getValue()) === '') ws.getRange(1, 17).setValue('ASSIGNMENTS');
+    if (safeStr(ws.getRange(1, 18).getValue()) === '') ws.getRange(1, 18).setValue('RECEIVED_BREAKDOWN');
   }
   return ws;
 }
@@ -45,6 +46,11 @@ function issueJobCard(data) {
   if (!pairsIssued || pairsIssued <= 0 || Math.floor(pairsIssued) !== pairsIssued) return { success: false, error: 'pairsIssued must be a positive integer' };
   if (!expectedReturn)                                                              return { success: false, error: 'expectedReturn is required' };
 
+  // Size breakdown, when provided, must total the pairs issued. Prevents the
+  // per-size balance corruption seen on trial cards (breakdown 60 vs 30 issued).
+  var _sbSum = 0; Object.keys(sizeBreakdown || {}).forEach(function(_k){ _sbSum += safeNum(sizeBreakdown[_k]); });
+  if (_sbSum > 0 && _sbSum !== pairsIssued) return { success: false, error: 'Size breakdown totals ' + _sbSum + ' but pairs issued is ' + pairsIssued + ' — they must match.' };
+
   // Check approved activities exist for this order + department
   var deptKey = {
     'Cutting IN':     'cutting',
@@ -52,7 +58,7 @@ function issueJobCard(data) {
     'Fitter IN':      'fitter',
     'Upper IN':       'lasting',
     'Lasting IN':     'lasting',
-    'Packing IN':     'finishing',
+    'Packing IN':     'finish',
     'Dispatch IN':    'dispatch'
   }[movement] || '';
 
@@ -77,7 +83,7 @@ function issueJobCard(data) {
   var STAGE_ORDER = ['Cutting','Preparation','Fitter','Lasting','Packing','Dispatch'];
   var STAGE_DEPT_KEY = {
     'Cutting':'cutting','Preparation':'prep','Fitter':'fitter',
-    'Lasting':'lasting','Packing':'finishing','Dispatch':'dispatch'
+    'Lasting':'lasting','Packing':'finish','Dispatch':'dispatch'
   };
   var STAGE_OWN_MOVEMENTS = {
     'Cutting':['Cutting IN'],
@@ -129,7 +135,9 @@ function issueJobCard(data) {
       allJCsForLock.forEach(function(jc) {
         if (predMovements.indexOf(jc.movement) >= 0) {
           var st = safeStr(jc.status).toUpperCase();
-          if (st === 'COMPLETE' || st === 'PAYMENT_PENDING' || st === 'PAID') {
+          // Include PARTIAL: partially-received predecessor cards hold real pairs
+          // available to this stage (bug 8.B1 — must match getMaxIssuableForStage).
+          if (st === 'PARTIAL' || st === 'COMPLETE' || st === 'PAYMENT_PENDING' || st === 'PAID') {
             predReceived += safeNum(jc.pairsReceived);
           }
         }
@@ -271,7 +279,7 @@ function issueDepartmentJobCard(data) {
   };
   var DEPT_KEY = {
     'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter',
-    'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finishing','Dispatch IN':'dispatch'
+    'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'
   };
 
   var orderRef       = safeStr(data.orderRef       || '').trim();
@@ -290,6 +298,10 @@ function issueDepartmentJobCard(data) {
   if (!assignments.length)                                            return { success:false, error:'At least one activity-contractor assignment is required' };
   if (!pairs || pairs <= 0 || Math.floor(pairs) !== pairs)            return { success:false, error:'pairs must be a positive integer' };
   if (!expectedReturn)                                                return { success:false, error:'expectedReturn is required' };
+
+  // Size breakdown, when provided, must total the pairs issued (data-integrity guard).
+  var _sbSum = 0; Object.keys(sizeBreakdown || {}).forEach(function(_k){ _sbSum += safeNum(sizeBreakdown[_k]); });
+  if (_sbSum > 0 && _sbSum !== pairs) return { success:false, error:'Size breakdown totals ' + _sbSum + ' but pairs is ' + pairs + ' — they must match.' };
 
   // Resolve approved activity rates for this order + department
   var deptKey = DEPT_KEY[movement] || '';
@@ -484,6 +496,7 @@ function receiveJobCard(data) {
   var jobCardId     = safeStr(data.jobCardId     || '').trim();
   var pairsReceived = safeNum(data.pairsReceived);
   var notes         = safeStr(data.notes         || '').trim();
+  var receivedSizeBreakdown = (data.receivedSizeBreakdown && typeof data.receivedSizeBreakdown === 'object') ? data.receivedSizeBreakdown : null;
 
   if (!jobCardId)                                                                           return { success: false, error: 'jobCardId is required' };
   if (!pairsReceived || pairsReceived <= 0 || Math.floor(pairsReceived) !== pairsReceived) return { success: false, error: 'pairsReceived must be a positive integer' };
@@ -530,6 +543,26 @@ function receiveJobCard(data) {
     }
     if (effectivePairs <= 0) return { success: false, error: 'No remaining capacity on this job card' };
 
+    // Per-size received breakdown (from the receive form). Must total the pairs
+    // credited this event; cumulative per-size receipts can't exceed what was
+    // issued. Accumulated into RECEIVED_BREAKDOWN (col 18) across partial receives.
+    var mergedRcvSb = null;
+    if (receivedSizeBreakdown) {
+      var _issuedSb = {}; try { _issuedSb = JSON.parse(safeStr(row[8])) || {}; } catch(e) {}
+      var _existSb  = {}; try { _existSb  = JSON.parse(safeStr(ws.getRange(sheetRow, 18).getValue())) || {}; } catch(e) {}
+      var _rsum = 0; Object.keys(receivedSizeBreakdown).forEach(function(k){ _rsum += safeNum(receivedSizeBreakdown[k]); });
+      if (_rsum !== effectivePairs)
+        return { success:false, error:'Received size breakdown totals ' + _rsum + ' but pairs received is ' + effectivePairs + ' — they must match.' };
+      mergedRcvSb = {};
+      Object.keys(_existSb).forEach(function(k){ mergedRcvSb[k] = safeNum(_existSb[k]); });
+      var _bad = '';
+      Object.keys(receivedSizeBreakdown).forEach(function(k){
+        mergedRcvSb[k] = safeNum(mergedRcvSb[k]) + safeNum(receivedSizeBreakdown[k]);
+        if (Object.keys(_issuedSb).length && mergedRcvSb[k] > safeNum(_issuedSb[k])) _bad = k;
+      });
+      if (_bad) return { success:false, error:'Received more of size ' + _bad + ' than was issued.' };
+    }
+
     newReceived = currentRecvd + effectivePairs;
     newStatus   = newReceived >= pairsIssued ? 'COMPLETE' : 'PARTIAL';
     var now     = new Date().toISOString();
@@ -540,6 +573,7 @@ function receiveJobCard(data) {
     if (finalNotes) {
       ws.getRange(sheetRow, 15).setValue(existingNotes ? existingNotes + '; ' + finalNotes : finalNotes);
     }
+    if (mergedRcvSb) ws.getRange(sheetRow, 18).setValue(JSON.stringify(mergedRcvSb));
     SpreadsheetApp.flush();
   } catch(e) {
     return { success: false, error: e.message };
@@ -597,7 +631,7 @@ function getJobCards(filters, ss) {
     var ws      = ensureJobCardsSheet(ss);
     var lastRow = ws.getLastRow();
     if (lastRow < 2) return [];
-    var rows   = ws.getRange(2, 1, lastRow - 1, 17).getValues();
+    var rows   = ws.getRange(2, 1, lastRow - 1, 18).getValues();
     var result = [];
     rows.forEach(function(r) {
       if (!safeStr(r[0]).trim()) return;
@@ -605,6 +639,8 @@ function getJobCards(filters, ss) {
       try { sd = JSON.parse(safeStr(r[8])) || {}; } catch(e) {}
       var asg = [];
       try { asg = JSON.parse(safeStr(r[16])) || []; } catch(e) {}
+      var rsd = {};
+      try { rsd = JSON.parse(safeStr(r[17])) || {}; } catch(e) {}
       result.push({
         jobCardId:      safeStr(r[0]),
         orderRef:       safeStr(r[1]),
@@ -622,7 +658,8 @@ function getJobCards(filters, ss) {
         status:         safeStr(r[13]),
         notes:          safeStr(r[14]),
         batchId:        safeStr(r[15]),
-        assignments:    Array.isArray(asg) ? asg : []
+        assignments:    Array.isArray(asg) ? asg : [],
+        receivedBreakdown: (rsd && typeof rsd === 'object') ? rsd : {}
       });
     });
     if (filters) {
@@ -721,7 +758,7 @@ function getMaxIssuableForStage(orderRef, movement) {
     var STAGE_ORDER = ['Cutting','Preparation','Fitter','Lasting','Packing','Dispatch'];
     var STAGE_DEPT_KEY = {
       'Cutting':'cutting','Preparation':'prep','Fitter':'fitter',
-      'Lasting':'lasting','Packing':'finishing','Dispatch':'dispatch'
+      'Lasting':'lasting','Packing':'finish','Dispatch':'dispatch'
     };
     var STAGE_OWN_MOVEMENTS = {
       'Cutting':['Cutting IN'],
@@ -775,7 +812,11 @@ function getMaxIssuableForStage(orderRef, movement) {
       allJCs.forEach(function(jc) {
         if (predMovements.indexOf(jc.movement) >= 0) {
           var st = safeStr(jc.status).toUpperCase();
-          if (st === 'COMPLETE' || st === 'PAYMENT_PENDING' || st === 'PAID') {
+          // Count pairs physically received back from the predecessor stage.
+          // PARTIAL cards hold real received pairs that are available downstream,
+          // so they must be included — excluding them made a partially-received
+          // Cutting card show 0 available for Preparation (bug 8.B1).
+          if (st === 'PARTIAL' || st === 'COMPLETE' || st === 'PAYMENT_PENDING' || st === 'PAID') {
             predReceived += safeNum(jc.pairsReceived);
           }
         }
@@ -810,4 +851,80 @@ function getMaxIssuableForStage(orderRef, movement) {
   } catch(e) {
     return { success:false, error:e.message, maxIssuable:0 };
   }
+}
+
+// Maintenance / migration — bring existing job cards in line with the per-size
+// rules. (1) Rescale any SIZE_BREAKDOWN that doesn't total PAIRS_ISSUED (corrupt
+// pre-guard data, e.g. 60 vs 30) proportionally to PAIRS_ISSUED. (2) Backfill
+// RECEIVED_BREAKDOWN for COMPLETE cards that have none — a complete card received
+// every issued pair, so its received sizes equal its (corrected) issued sizes.
+// PARTIAL cards are left alone (which sizes returned is unknown; getOrderSizeBalance
+// falls back safely). Idempotent; skips CANCELLED. Pass a spreadsheet to target a
+// specific environment (see runLiveJobCardMigration); defaults to the ENV sheet.
+function repairMismatchedSizeBreakdowns(ss) {
+  var lock = LockService.getPublicLock();
+  try {
+    lock.waitLock(10000);
+    var ws = ensureJobCardsSheet(ss);
+    var lastRow = ws.getLastRow();
+    if (lastRow < 2) return { success:true, rescaled:0, backfilled:0, details:[] };
+    var rows = ws.getRange(2, 1, lastRow-1, 18).getValues();
+    var details = [], rescaled = 0, backfilled = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var r  = rows[i];
+      var id = safeStr(r[0]).trim();
+      if (!id) continue;
+      var status = safeStr(r[13]).trim().toUpperCase();
+      if (status === 'CANCELLED') continue;
+      var pairs = safeNum(r[6]);
+      var sb = {};
+      try { sb = JSON.parse(safeStr(r[8])) || {}; } catch(e) { sb = {}; }
+      var keys = Object.keys(sb);
+      var effectiveSb = sb;
+
+      // (1) Rescale a mismatched SIZE_BREAKDOWN to total PAIRS_ISSUED.
+      if (keys.length && pairs > 0) {
+        var sum = 0; keys.forEach(function(k){ sum += safeNum(sb[k]); });
+        if (sum > 0 && sum !== pairs) {
+          var ratio = pairs / sum, scaled = {}, running = 0;
+          keys.forEach(function(k){ var v = Math.floor(safeNum(sb[k]) * ratio); scaled[k] = v; running += v; });
+          var order = keys.slice().sort(function(a,b){ return safeNum(sb[b]) - safeNum(sb[a]); });
+          var remN = pairs - running, oi = 0;
+          while (remN > 0 && order.length) { scaled[order[oi % order.length]] += 1; remN--; oi++; }
+          var clean = {};
+          Object.keys(scaled).forEach(function(k){ if (scaled[k] > 0) clean[k] = scaled[k]; });
+          ws.getRange(i+2, 9).setValue(JSON.stringify(clean));   // col I = SIZE_BREAKDOWN
+          effectiveSb = clean; rescaled++;
+          details.push({ jobCardId:id, action:'rescaled', pairsIssued:pairs, oldSum:sum, newBreakdown:clean });
+        }
+      }
+
+      // (2) Backfill RECEIVED_BREAKDOWN for COMPLETE cards that have none.
+      var rsb = {};
+      try { rsb = JSON.parse(safeStr(r[17])) || {}; } catch(e) { rsb = {}; }
+      if (status === 'COMPLETE' && Object.keys(effectiveSb).length && !Object.keys(rsb).length) {
+        ws.getRange(i+2, 18).setValue(JSON.stringify(effectiveSb));   // col R = RECEIVED_BREAKDOWN
+        backfilled++;
+        details.push({ jobCardId:id, action:'backfilled_received', received:effectiveSb });
+      }
+    }
+    SpreadsheetApp.flush();
+    ['dashboardData_DEV','dashboardData_LIVE','storeScreenData_DEV','storeScreenData_LIVE'].forEach(function(k){ try { CacheService.getScriptCache().remove(k); } catch(e) {} });
+    Logger.log('repairMismatchedSizeBreakdowns: rescaled ' + rescaled + ', backfilled ' + backfilled + ' — ' + JSON.stringify(details));
+    return { success:true, rescaled:rescaled, backfilled:backfilled, details:details };
+  } catch(e) {
+    return { success:false, error:e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Run the job-card migration against the LIVE sheet explicitly (independent of
+// CONFIG.ENV) so it's safe to run from the editor while HEAD stays on DEV. Use
+// AFTER promoting new code to LIVE. Run manually: Run ▸ runLiveJobCardMigration.
+function runLiveJobCardMigration() {
+  var liveSs = SpreadsheetApp.openById(CONFIG.LIVE_SHEET_ID);
+  var res = repairMismatchedSizeBreakdowns(liveSs);
+  Logger.log('runLiveJobCardMigration → ' + JSON.stringify(res));
+  return res;
 }

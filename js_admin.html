@@ -71,7 +71,7 @@ function renderAdminHome(c){
 
   // 1. Pipeline tracker — real outstanding pairs per stage (from job cards)
   var _pl=d.pipeline||{};
-  var pt=fosPipelineTracker({cutting:_pl.cutting||0,prep:_pl.prep||0,upper:_pl.fitter||0,lasting:_pl.lasting||0,finishing:_pl.finishing||0,dispatch:_pl.dispatch||0});
+  var pt=fosPipelineTracker({cutting:_pl.cutting||0,prep:_pl.prep||0,fitter:_pl.fitter||0,lasting:_pl.lasting||0,finish:_pl.finish||0,dispatch:_pl.dispatch||0});
   pt.classList.add('fos-light');
   c.appendChild(pt);
 
@@ -79,7 +79,7 @@ function renderAdminHome(c){
   var mrow=el('div',{cls:'fos-metric-row'});
   mrow.appendChild(fosMetricEl('Payout',fmt(d.weeklyPayout),'this week','green'));
   mrow.appendChild(fosMetricEl('Orders',String(d.totalOrders),d.redCount>0?(d.redCount+' over lot'):(d.completeCount+' done'),d.redCount>0?'red':'blue'));
-  var _onFloor=(_pl.cutting||0)+(_pl.prep||0)+(_pl.fitter||0)+(_pl.lasting||0)+(_pl.finishing||0)+(_pl.dispatch||0);
+  var _onFloor=(_pl.cutting||0)+(_pl.prep||0)+(_pl.fitter||0)+(_pl.lasting||0)+(_pl.finish||0)+(_pl.dispatch||0);
   mrow.appendChild(fosMetricEl('WIP',String(_onFloor),'pairs on floor','blue'));
   var pc=d.pendingCount||0;
   if(pc>0){

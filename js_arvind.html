@@ -96,7 +96,7 @@ function renderArvindHome(c){
     c.appendChild(naCard);
   }
   // ── END NEEDS ATTENTION ──────────────────────────────────────
-  var pt=fosPipelineTracker({cutting:12,prep:8,upper:14,lasting:10,sole:6,finishing:4});
+  var pt=fosPipelineTracker({cutting:12,prep:8,fitter:14,lasting:10,finish:4});
   pt.classList.add('fos-light');
   c.appendChild(pt);
   var approved=d.approvalStatus&&d.approvalStatus!=='';
@@ -468,15 +468,23 @@ function renderNO_Step2(c){
   c.appendChild(srCard);
 
   function recalc(){var t=0;Array.from(srG.children).forEach(function(c2){t+=parseInt(c2._qI.value)||0;});ltV.textContent=String(t);}
-  function makeSizeCol(label){
+  // 8.P1 Option A: derive the bare numeric size from a grade label ("UK 6"→"6", "EU 39"→"39").
+  function _numFromLabel(lbl){var m=String(lbl||'').match(/\d+/);return m?m[0]:'';}
+  function makeSizeCol(label,num){
+    if(num===undefined||num===null)num=_numFromLabel(label);
     var col=el('div',{style:'text-align:center;min-width:52px'});
-    var lI=el('input',{type:'text',value:label,style:'width:52px;font-size:0.7rem;color:var(--fos-ink-secondary);text-align:center;background:transparent;border-bottom:1.5px solid var(--fos-ink-secondary);border-top:none;border-left:none;border-right:none;border-radius:0;padding:2px 0;margin-bottom:4px;outline:none;font-family:var(--fos-font-body);display:block'});
+    // Numeric size (top, bold) — the unambiguous value used for size-wise tracking.
+    var nI=el('input',{type:'text',value:num,placeholder:'#',style:'width:52px;font-size:0.78rem;font-weight:700;color:var(--fos-ink);text-align:center;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px 6px 0 0;padding:3px 0;outline:none;font-family:var(--fos-font-mono);display:block'});
+    nI.onfocus=function(){this.style.borderColor='var(--fos-accent)';};
+    nI.onblur=function(){this.style.borderColor='var(--fos-border)';};
+    // Grade label (below) — e.g. "UK 6" / "EU 39".
+    var lI=el('input',{type:'text',value:label,placeholder:'label',style:'width:52px;font-size:0.64rem;color:var(--fos-ink-secondary);text-align:center;background:transparent;border-bottom:1.5px solid var(--fos-ink-secondary);border-top:none;border-left:none;border-right:none;border-radius:0;padding:2px 0;margin-bottom:4px;outline:none;font-family:var(--fos-font-body);display:block'});
     lI.onfocus=function(){this.style.borderBottomColor='var(--fos-accent)';};
     lI.onblur=function(){this.style.borderBottomColor='var(--fos-ink-secondary)';};
     var qI=el('input',{type:'number',min:0,placeholder:'0',style:'width:52px;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:6px 4px;color:var(--fos-ink);font-family:var(--fos-font-mono);font-size:14px;font-weight:700;text-align:center'});
     qI.oninput=recalc;
-    col._lI=lI;col._qI=qI;
-    col.appendChild(lI);col.appendChild(qI);
+    col._nI=nI;col._lI=lI;col._qI=qI;
+    col.appendChild(nI);col.appendChild(lI);col.appendChild(qI);
     srG.appendChild(col);
     return col;
   }
@@ -511,7 +519,7 @@ function renderNO_Step2(c){
       else{var _lgp=nrp.grading.split(' ');if(_lgp[0]&&grBtns[_lgp[0]]){if(_lgp[1]&&!grCat){catS.value=_lgp[1];grCat=_lgp[1];}grBtns[_lgp[0]].onclick();}}
     }
     if(nrp.sizeBreakdown){
-      try{var sbR=JSON.parse(nrp.sizeBreakdown);srG.innerHTML='';Object.keys(sbR).forEach(function(k){var col=makeSizeCol(k);col._qI.value=sbR[k]||0;});recalc();rmSzBtn.disabled=srG.children.length<=1;}catch(e2){}
+      try{var sbR=JSON.parse(nrp.sizeBreakdown);var sbL={};try{if(nrp.sizeLabels)sbL=JSON.parse(nrp.sizeLabels);}catch(eL){}srG.innerHTML='';Object.keys(sbR).forEach(function(k){var col=makeSizeCol(sbL[k]||k,_numFromLabel(k)||k);col._qI.value=sbR[k]||0;});recalc();rmSzBtn.disabled=srG.children.length<=1;}catch(e2){}
     }
     recalc();
     c.appendChild(el('div',{style:'margin-bottom:8px;padding:6px 10px;background:var(--fos-accent-soft);border-left:3px solid var(--fos-warning);border-radius:0 6px 6px 0;color:var(--fos-warning);font-size:12px',text:'Revising: '+NO_RESUBMIT.revisionRemark}));
@@ -525,9 +533,16 @@ function renderNO_Step2(c){
     if(!grCat){toast('Category select karo pehle',true);return;}
     if(!grSel){toast('Grading select karo pehle (UK ya EU)',true);return;}
     var szCols=Array.from(srG.children);
-    for(var ci=0;ci<szCols.length;ci++){if(!szCols[ci]._lI.value.trim()){toast('Size label blank nahi honi chahiye',true);return;}}
-    var sizeBreakdown={},lot=0;
-    szCols.forEach(function(c2){var v=parseInt(c2._qI.value)||0;sizeBreakdown[c2._lI.value.trim()]=v;lot+=v;});
+    for(var ci=0;ci<szCols.length;ci++){if(!szCols[ci]._nI.value.trim()){toast('Size number blank nahi ho sakta (jaise 39)',true);return;}}
+    // 8.P1: key the size run by the numeric size so ORDER_INDEX size columns and
+    // future size-wise job cards get real numbers; keep the grade label alongside.
+    var sizeBreakdown={},sizeLabels={},lot=0,dup=false;
+    szCols.forEach(function(c2){
+      var num=c2._nI.value.trim(),lbl=c2._lI.value.trim(),v=parseInt(c2._qI.value)||0;
+      if(sizeBreakdown.hasOwnProperty(num))dup=true;
+      sizeBreakdown[num]=v;if(lbl)sizeLabels[num]=lbl;lot+=v;
+    });
+    if(dup){toast('Do size ek jaisa number nahi ho sakte',true);return;}
     if(lot<=0){toast('Please enter at least one size quantity',true);return;}
     sbB.disabled=true;sbB.textContent='Submitting…';
     google.script.run
@@ -536,7 +551,7 @@ function renderNO_Step2(c){
         else{toast((r&&r.error)||'Error',true);sbB.disabled=false;sbB.textContent='Submit for Approval';}
       })
       .withFailureHandler(function(){toast('Error',true);sbB.disabled=false;sbB.textContent='Submit for Approval';})
-      .submitRequest('NEW_ORDER',(function(){var p={tsNumber:NO_TS.tsNumber,styleName:art,color:col,buyer:buyer,brand:brI.value.trim(),poNumber:poI.value.trim(),poReceiveDate:prI.value,deliveryDate:dd,category:grCat,grading:grSel,sizeBreakdown:JSON.stringify(sizeBreakdown),lotSize:lot};if(NO_RESUBMIT&&NO_RESUBMIT.revisionRemark)p.revisionRemark=NO_RESUBMIT.revisionRemark;return JSON.stringify(p);})());
+      .submitRequest('NEW_ORDER',(function(){var p={tsNumber:NO_TS.tsNumber,styleName:art,color:col,buyer:buyer,brand:brI.value.trim(),poNumber:poI.value.trim(),poReceiveDate:prI.value,deliveryDate:dd,category:grCat,grading:grSel,sizeBreakdown:JSON.stringify(sizeBreakdown),sizeLabels:JSON.stringify(sizeLabels),lotSize:lot};if(NO_RESUBMIT&&NO_RESUBMIT.revisionRemark)p.revisionRemark=NO_RESUBMIT.revisionRemark;return JSON.stringify(p);})());
   };
   sbC.appendChild(sbB);c.appendChild(sbC);
 }
@@ -1088,7 +1103,20 @@ function renderContractors(c){
   afPMG.appendChild(afPM);addForm.appendChild(afPMG);
   var afPhG=el('div',{cls:'form-group'});afPhG.appendChild(el('label',{cls:'form-label',text:'Phone'}));
   var afPhone=el('input',{cls:'form-input',type:'tel',placeholder:'e.g. 9876543210'});afPhG.appendChild(afPhone);addForm.appendChild(afPhG);
-  var afBR=el('div',{style:'display:flex;gap:8px;align-items:center'});
+  // Profile / KYC details captured at add time (optional).
+  addForm.appendChild(el('div',{style:'font-size:11px;font-weight:700;color:var(--fos-ink-secondary);text-transform:uppercase;letter-spacing:0.5px;margin:10px 0 4px',text:'Details (optional)'}));
+  var afFields=[['address','Address'],['aadhaarNo','Aadhaar No'],['panNo','PAN No'],['bankName','Bank Name'],['bankAccount','Bank Account No'],['ifsc','IFSC'],['altPhone','Alt Phone'],['notes','Notes']];
+  var afProf={};
+  var afGrid=el('div',{style:'display:grid;grid-template-columns:1fr 1fr;gap:8px'});
+  afFields.forEach(function(f){
+    var g=el('div',{style:(f[0]==='address'||f[0]==='notes')?'grid-column:1 / -1':''});
+    g.appendChild(el('label',{style:'font-size:10px;color:var(--fos-ink-secondary);display:block;margin-bottom:2px',text:f[1]}));
+    var inp=el('input',{cls:'form-input',type:'text',style:'font-size:13px;padding:9px'});
+    afProf[f[0]]=inp;g.appendChild(inp);afGrid.appendChild(g);
+  });
+  addForm.appendChild(afGrid);
+  addForm.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin:6px 0 2px',text:'Documents (Aadhaar/passbook/agreement) can be uploaded from the contractor card after adding.'}));
+  var afBR=el('div',{style:'display:flex;gap:8px;align-items:center;margin-top:8px'});
   var afSub=el('button',{cls:'primary-btn',text:'Add Contractor',style:'flex:1;padding:12px'});
   var afCnl=el('a',{style:'font-size:12px;color:var(--fos-ink-secondary);cursor:pointer;text-decoration:underline',text:'Cancel'});
   afBR.appendChild(afSub);afBR.appendChild(afCnl);addForm.appendChild(afBR);
@@ -1097,11 +1125,20 @@ function renderContractors(c){
   afSub.onclick=function(){
     var nm=afName.value.trim();if(!nm){toast('Enter contractor name',true);return;}
     afSub.disabled=true;afSub.textContent='Saving…';
+    var prof={},hasProf=false;
+    afFields.forEach(function(f){var v=afProf[f[0]].value.trim();prof[f[0]]=v;if(v)hasProf=true;});
+    var _done=function(msg,isErr){afSub.disabled=false;afSub.textContent='Add Contractor';toast(msg,isErr);D.ctrs=null;D.contractors=null;D.enrollments=null;loadTab('contractors');};
     google.script.run
       .withSuccessHandler(function(r){
-        afSub.disabled=false;afSub.textContent='Add Contractor';
-        if(r&&r.success){toast('Contractor added');D.ctrs=null;D.contractors=null;loadTab('contractors');}
-        else toast((r&&r.error)||'Error',true);
+        if(r&&r.success){
+          if(hasProf&&r.ctrId){
+            prof.contractorId=r.ctrId;
+            google.script.run
+              .withSuccessHandler(function(){_done('Contractor added');})
+              .withFailureHandler(function(){_done('Contractor added (details save failed — edit from card)',true);})
+              .saveContractorProfile(prof);
+          } else {_done('Contractor added');}
+        } else {afSub.disabled=false;afSub.textContent='Add Contractor';toast((r&&r.error)||'Error',true);}
       })
       .withFailureHandler(function(){afSub.disabled=false;afSub.textContent='Add Contractor';toast('Error',true);})
       .saveContractor({name:nm,dept:'',paymentMethod:afPM.value,phone:afPhone.value.trim()});
@@ -1120,14 +1157,21 @@ function renderContractors(c){
     var ctrId=ctrIdByName[ct.name.trim()]||'';
     var card=el('div',{style:'background:var(--fos-surface);border-radius:12px;padding:16px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.06)'});
 
-    // Top row: CTR-ID + name + badge
+    // Top row: CTR-ID + name + badge + actions
+    var isActive=!(ct.status&&ct.status.toLowerCase()==='inactive');
     var topRow=el('div',{style:'display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px'});
     var nameCol=el('div');
     if(ctrId)nameCol.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:ctrId}));
     nameCol.appendChild(el('div',{style:'font-size:15px;font-weight:600;color:var(--fos-ink)',text:ct.name}));
     topRow.appendChild(nameCol);
-    topRow.appendChild(el('span',{cls:'badge '+(ct.status&&ct.status.toLowerCase()==='active'?'green':'grey'),text:ct.status||'ACTIVE'}));
+    var rightCol=el('div',{style:'display:flex;flex-direction:column;align-items:flex-end;gap:6px'});
+    rightCol.appendChild(el('span',{cls:'badge '+(isActive?'green':'grey'),text:ct.status||'ACTIVE'}));
+    var actBtn=el('button',{style:'background:none;border:none;font-size:11px;cursor:pointer;padding:0;text-decoration:underline;color:'+(isActive?'var(--fos-danger)':'var(--fos-accent)'),text:isActive?'Deactivate':'Reactivate'});
+    if(!ctrId)actBtn.style.display='none';
+    rightCol.appendChild(actBtn);
+    topRow.appendChild(rightCol);
     card.appendChild(topRow);
+    if(!isActive)card.style.opacity='0.6';
 
     // Second row: payment + phone
     var meta=[];
@@ -1150,6 +1194,12 @@ function renderContractors(c){
     enrRow.appendChild(deptDrop);enrRow.appendChild(addDeptBtn);
     deptSec.appendChild(enrRow);
     card.appendChild(deptSec);
+
+    // ── Details toggle: profile · documents · balance to pay ──────────────────
+    var detTgl=el('div',{style:'margin-top:10px;font-size:12px;color:var(--fos-accent);cursor:pointer;user-select:none',text:'▶ Profile · Documents · Balance'});
+    var detPanel=el('div',{style:'display:none;margin-top:8px'});
+    card.appendChild(detTgl);card.appendChild(detPanel);
+
     c.appendChild(card);
 
     // Per-card enrollment closures
@@ -1194,7 +1244,188 @@ function renderContractors(c){
           .enrollContractor({contractorId:cId,department:dept});
       };
     })(ctrId,ct.name,chipsWrap,deptDrop,addDeptBtn);
+
+    // ── Deactivate / Reactivate (inline confirm) ──────────────────────────────
+    (function(cId,active,btn){
+      btn.onclick=function(){
+        if(active){
+          // Inline confirm — no browser dialogs (UI-2)
+          var wrap=el('span',{style:'display:inline-flex;gap:8px;align-items:center'});
+          wrap.appendChild(el('span',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'Remove?'}));
+          var yes=el('button',{style:'background:none;border:none;font-size:11px;cursor:pointer;text-decoration:underline;color:var(--fos-danger);padding:0',text:'Yes'});
+          var no=el('button',{style:'background:none;border:none;font-size:11px;cursor:pointer;text-decoration:underline;color:var(--fos-ink-secondary);padding:0',text:'No'});
+          wrap.appendChild(yes);wrap.appendChild(no);
+          btn.replaceWith(wrap);
+          no.onclick=function(){wrap.replaceWith(btn);};
+          yes.onclick=function(){
+            yes.disabled=true;no.disabled=true;yes.textContent='…';
+            google.script.run
+              .withSuccessHandler(function(r){
+                if(r&&r.success){toast('Contractor deactivated');D.ctrs=null;D.contractors=null;D.enrollments=null;loadTab('contractors');}
+                else{yes.disabled=false;no.disabled=false;yes.textContent='Yes';toast((r&&r.error)||'Error',true);}
+              })
+              .withFailureHandler(function(){yes.disabled=false;no.disabled=false;yes.textContent='Yes';toast('Error',true);})
+              .deleteContractor({ctrId:cId});
+          };
+        } else {
+          btn.disabled=true;btn.textContent='…';
+          google.script.run
+            .withSuccessHandler(function(r){
+              if(r&&r.success){toast('Contractor reactivated');D.ctrs=null;D.contractors=null;D.enrollments=null;loadTab('contractors');}
+              else{btn.disabled=false;btn.textContent='Reactivate';toast((r&&r.error)||'Error',true);}
+            })
+            .withFailureHandler(function(){btn.disabled=false;btn.textContent='Reactivate';toast('Error',true);})
+            .reactivateContractor({ctrId:cId});
+        }
+      };
+    })(ctrId,isActive,actBtn);
+
+    // ── Details panel: lazy-load profile, documents, balance ──────────────────
+    (function(cId,cName,tgl,panel){
+      var loaded=false;
+      tgl.onclick=function(){
+        var open=panel.style.display!=='none';
+        panel.style.display=open?'none':'block';
+        tgl.textContent=(open?'▶':'▼')+' Profile · Documents · Balance';
+        if(!open&&!loaded&&cId){loaded=true;loadContractorDetail(cId,cName,panel);}
+        else if(!open&&!cId){panel.innerHTML='<div style="font-size:12px;color:var(--fos-ink-secondary);padding:8px">No CTR-ID — cannot load profile.</div>';}
+      };
+    })(ctrId,ct.name,detTgl,detPanel);
   });
+}
+
+// ── PHASE 8.2 + 8.3 — Contractor detail: profile, documents, balance to pay ──
+var _DOC_TYPES=['Aadhaar','Passbook','Agreement','PAN','Photo','Other'];
+function loadContractorDetail(cId,cName,panel){
+  panel.innerHTML='<div style="font-size:12px;color:var(--fos-ink-secondary);padding:8px">Loading…</div>';
+  google.script.run
+    .withSuccessHandler(function(pr){
+      google.script.run
+        .withSuccessHandler(function(acct){renderContractorDetail(cId,cName,panel,pr,acct);})
+        .withFailureHandler(function(){renderContractorDetail(cId,cName,panel,pr,null);})
+        .getContractorAccount(cId);
+    })
+    .withFailureHandler(function(){panel.innerHTML='<div style="font-size:12px;color:var(--fos-danger);padding:8px">Could not load profile.</div>';})
+    .getContractorProfile(cId);
+}
+
+function renderContractorDetail(cId,cName,panel,pr,acct){
+  panel.innerHTML='';
+  var box=el('div',{style:'background:var(--fos-bg);border:0.5px solid var(--fos-border);border-radius:10px;padding:12px'});
+
+  // ---- PROFILE ----
+  box.appendChild(el('div',{style:'font-size:12px;font-weight:700;color:var(--fos-ink);margin-bottom:8px',text:'Profile'}));
+  var prof=(pr&&pr.success&&pr.profile)?pr.profile:{};
+  var fields=[['address','Address'],['aadhaarNo','Aadhaar No'],['panNo','PAN No'],['bankName','Bank Name'],['bankAccount','Bank Account No'],['ifsc','IFSC'],['altPhone','Alt Phone'],['notes','Notes']];
+  var inputs={};
+  var grid=el('div',{style:'display:grid;grid-template-columns:1fr 1fr;gap:8px'});
+  fields.forEach(function(f){
+    var g=el('div',{style:(f[0]==='address'||f[0]==='notes')?'grid-column:1 / -1':''});
+    g.appendChild(el('label',{style:'font-size:10px;color:var(--fos-ink-secondary);display:block;margin-bottom:2px',text:f[1]}));
+    var inp=el('input',{cls:'form-input',type:'text',value:prof[f[0]]||'',style:'font-size:13px;padding:8px'});
+    inputs[f[0]]=inp;g.appendChild(inp);grid.appendChild(g);
+  });
+  box.appendChild(grid);
+  var saveP=el('button',{cls:'primary-btn',text:'Save Profile',style:'margin-top:8px;padding:9px 16px;font-size:13px'});
+  saveP.onclick=function(){
+    saveP.disabled=true;saveP.textContent='Saving…';
+    var payload={contractorId:cId};fields.forEach(function(f){payload[f[0]]=inputs[f[0]].value.trim();});
+    google.script.run
+      .withSuccessHandler(function(r){saveP.disabled=false;saveP.textContent='Save Profile';toast(r&&r.success?'Profile saved':((r&&r.error)||'Error'),!(r&&r.success));})
+      .withFailureHandler(function(){saveP.disabled=false;saveP.textContent='Save Profile';toast('Error',true);})
+      .saveContractorProfile(payload);
+  };
+  box.appendChild(saveP);
+
+  // ---- DOCUMENTS ----
+  box.appendChild(el('div',{style:'font-size:12px;font-weight:700;color:var(--fos-ink);margin:14px 0 8px',text:'Documents'}));
+  var docList=el('div',{style:'margin-bottom:10px'});
+  box.appendChild(docList);
+  var docs=(pr&&pr.docs)?pr.docs:[];
+  function drawDocs(){
+    docList.innerHTML='';
+    if(!docs.length){docList.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:'No documents uploaded yet.'}));return;}
+    docs.forEach(function(d){
+      var row=el('div',{style:'display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--fos-border)'});
+      row.appendChild(el('span',{cls:'badge blue',text:d.docType||'Doc'}));
+      var link=el('a',{href:d.url,target:'_blank',rel:'noopener',style:'flex:1;font-size:12px;color:var(--fos-accent);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap',text:d.fileName||'file'});
+      row.appendChild(link);
+      var rm=el('button',{style:'background:none;border:none;color:var(--fos-danger);font-size:12px;cursor:pointer;text-decoration:underline',text:'Remove'});
+      (function(docId,rowEl){rm.onclick=function(){
+        rm.disabled=true;rm.textContent='…';
+        google.script.run
+          .withSuccessHandler(function(r){if(r&&r.success){docs=docs.filter(function(x){return x.docId!==docId;});drawDocs();toast('Removed');}else{rm.disabled=false;rm.textContent='Remove';toast((r&&r.error)||'Error',true);}})
+          .withFailureHandler(function(){rm.disabled=false;rm.textContent='Remove';toast('Error',true);})
+          .deleteContractorDoc({docId:docId});
+      };})(d.docId,row);
+      row.appendChild(rm);
+      docList.appendChild(row);
+    });
+  }
+  drawDocs();
+
+  // Upload row
+  var upRow=el('div',{style:'display:flex;gap:6px;align-items:center;flex-wrap:wrap'});
+  var dtSel=el('select',{cls:'form-select',style:'flex:0 0 auto;width:auto;font-size:12px;padding:6px 8px'});
+  _DOC_TYPES.forEach(function(t){dtSel.appendChild(el('option',{value:t,text:t}));});
+  var fileInp=el('input',{type:'file',style:'flex:1;font-size:12px;min-width:120px'});
+  var upBtn=el('button',{cls:'primary-btn',text:'Upload',style:'padding:8px 14px;font-size:13px'});
+  upBtn.onclick=function(){
+    var f=fileInp.files&&fileInp.files[0];
+    if(!f){toast('Choose a file first',true);return;}
+    if(f.size>8*1024*1024){toast('File too large (max 8 MB)',true);return;}
+    upBtn.disabled=true;upBtn.textContent='Uploading…';
+    var reader=new FileReader();
+    reader.onload=function(){
+      var b64=String(reader.result||'').split(',')[1]||'';
+      google.script.run
+        .withSuccessHandler(function(r){
+          upBtn.disabled=false;upBtn.textContent='Upload';
+          if(r&&r.success&&r.doc){docs.push(r.doc);drawDocs();fileInp.value='';toast('Uploaded');}
+          else toast((r&&r.error)||'Upload failed',true);
+        })
+        .withFailureHandler(function(){upBtn.disabled=false;upBtn.textContent='Upload';toast('Upload failed',true);})
+        .uploadContractorDoc({contractorId:cId,docType:dtSel.value,fileName:f.name,mimeType:f.type,dataBase64:b64});
+    };
+    reader.onerror=function(){upBtn.disabled=false;upBtn.textContent='Upload';toast('Could not read file',true);};
+    reader.readAsDataURL(f);
+  };
+  upRow.appendChild(dtSel);upRow.appendChild(fileInp);upRow.appendChild(upBtn);
+  box.appendChild(upRow);
+
+  // ---- BALANCE TO PAY (8.3) ----
+  box.appendChild(el('div',{style:'font-size:12px;font-weight:700;color:var(--fos-ink);margin:14px 0 8px',text:'Balance to Pay'}));
+  if(!acct||!acct.success){
+    box.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:'Balance unavailable.'}));
+  } else {
+    var totRow=el('div',{style:'display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:var(--fos-accent-soft);border-radius:8px;margin-bottom:8px'});
+    totRow.appendChild(el('span',{style:'font-size:12px;color:var(--fos-ink)',text:'Total outstanding'}));
+    totRow.appendChild(el('span',{style:'font-family:var(--fos-font-mono);font-size:15px;font-weight:700;color:var(--fos-accent)',text:fmt(acct.totalOutstanding||0)}));
+    box.appendChild(totRow);
+    if(acct.byActivity&&acct.byActivity.length){
+      var actWrap=el('div',{style:'margin-bottom:8px'});
+      acct.byActivity.forEach(function(a){
+        var r=el('div',{style:'display:flex;justify-content:space-between;font-size:12px;padding:3px 4px'});
+        r.appendChild(el('span',{style:'color:var(--fos-ink)',text:a.activity+' · '+a.pairs+' pr'}));
+        r.appendChild(el('span',{style:'font-family:var(--fos-font-mono);color:var(--fos-ink-secondary)',text:fmt(a.amount)}));
+        actWrap.appendChild(r);
+      });
+      box.appendChild(actWrap);
+    }
+    if(acct.lines&&acct.lines.length){
+      var det=el('div',{style:'border-top:0.5px solid var(--fos-border);padding-top:6px'});
+      acct.lines.forEach(function(l){
+        var r=el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);padding:2px 4px'});
+        r.textContent=(l.article||l.orderRef)+' — '+l.activity+': '+l.payablePairs+' pr × '+fmt(l.ratePerPair)+' = '+fmt(l.amount)+' ('+l.status+')';
+        det.appendChild(r);
+      });
+      box.appendChild(det);
+    } else {
+      box.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:'Nothing outstanding.'}));
+    }
+  }
+
+  panel.appendChild(box);
 }
 
 function renderActivities(c){
@@ -1402,6 +1633,7 @@ function renderActivitySetup(body,article){
   var DEPTS=['Cutting','Preparation','Fitter','Lasting','Finishing','Dispatch'];
   var deptData={};
   DEPTS.forEach(function(d){deptData[d]=[];});
+  var approvedContainers={};   // display dept -> box to fill with approved activity list
   var actRateMap={};
   MASTER_ACTS.forEach(function(ma){actRateMap[ma.name]=ma.stdRate;});
   var DEPT_VAL={
@@ -1411,6 +1643,72 @@ function renderActivitySetup(body,article){
 
   var wrap=el('div',{style:'padding:14px 16px'});
   wrap.appendChild(el('div',{style:'font-size:11px;font-weight:500;color:var(--fos-ink-secondary);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px',text:'Set Up Activities'}));
+
+  // ── 8.P2 Import activities (from a Work Order or another Article) ──────
+  // Import PRE-FILLS the editable department rows below. Arvind reviews/edits
+  // rates and submits through the normal approval flow (nothing is written on
+  // import). Source dept short-keys are mapped back to the display departments.
+  var SHORT_TO_DEPT={cutting:'Cutting',prep:'Preparation',fitter:'Fitter',lasting:'Lasting',finish:'Finishing',dispatch:'Dispatch'};
+  var deptAdders={};   // display dept name -> function(name,rate,comm) -> bool added
+
+  var _arts=(D.entry&&D.entry.articles)?D.entry.articles:[];
+  var _artOpts=_arts.filter(function(a){return a.sheet!==article.sheet;});
+  var _woSeen={},_wos=[],_woArts={};
+  _arts.forEach(function(a){var b=a.bom;if(!b)return;if(!_woSeen[b]){_woSeen[b]=1;_wos.push(b);_woArts[b]=[];}_woArts[b].push(a);});
+
+  if(_wos.length||_artOpts.length){
+    var impPanel=el('div',{style:'background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:8px;padding:10px;margin-bottom:14px'});
+    impPanel.appendChild(el('div',{style:'font-size:12px;font-weight:600;color:var(--fos-ink);margin-bottom:4px',text:'Import activities from…'}));
+    impPanel.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-bottom:8px',text:'Pre-fills the departments below. Edit rates if needed, then Submit for Approval as usual.'}));
+
+    function _mkRow(sel,btn){
+      var row=el('div',{style:'display:flex;gap:8px;margin-bottom:8px;align-items:center'});
+      sel.style.cssText='flex:1;background:var(--fos-surface);border:1px solid var(--fos-border);border-radius:8px;padding:8px 10px;color:var(--fos-ink);font-size:13px';
+      btn.style.cssText='background:var(--fos-surface);color:var(--fos-accent);border:1px solid var(--fos-border);font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px;white-space:nowrap;cursor:pointer';
+      row.appendChild(sel);row.appendChild(btn);
+      return row;
+    }
+    function _import(source,mode,btn){
+      var orig=btn.textContent;btn.disabled=true;btn.textContent='Importing…';
+      google.script.run
+        .withSuccessHandler(function(r){
+          btn.disabled=false;btn.textContent=orig;
+          if(!r||!r.success){toast((r&&r.error)||'Nothing to import',true);return;}
+          var added=0,skipped=[];
+          Object.keys(r.byDept).forEach(function(sd){
+            var disp=SHORT_TO_DEPT[sd]||'';var adder=disp&&deptAdders[disp];
+            if(!adder){skipped.push(sd);return;}
+            r.byDept[sd].forEach(function(a){if(adder(a.activityName,a.rate,a.comm))added++;});
+          });
+          var msg=added?('Imported '+added+' activity(ies) — review & submit'):'Nothing new to import';
+          if(skipped.length)msg+=' · skipped: '+skipped.join(', ');
+          toast(msg,!added);
+        })
+        .withFailureHandler(function(){btn.disabled=false;btn.textContent=orig;toast('Error',true);})
+        .getActivitiesForCopy(source,mode);
+    }
+    if(_wos.length){
+      var woSel=el('select');woSel.appendChild(el('option',{text:'— Work Order —',value:''}));
+      _wos.forEach(function(b){
+        var _l=_woArts[b]||[],_t=b;
+        if(_l.length===1)_t=b+' · '+(_l[0].article||_l[0].sheet)+(_l[0].customer?' — '+_l[0].customer:'');
+        else if(_l.length>1)_t=b+' · '+(_l[0].article||_l[0].sheet)+' +'+(_l.length-1)+' more';
+        woSel.appendChild(el('option',{value:b,text:_t}));
+      });
+      var woBtn=el('button',{text:'Import'});
+      woBtn.onclick=function(){if(!woSel.value){toast('Select a work order',true);return;}_import(woSel.value,'workorder',woBtn);};
+      impPanel.appendChild(_mkRow(woSel,woBtn));
+    }
+    if(_artOpts.length){
+      var arSel=el('select');arSel.appendChild(el('option',{text:'— Another Article —',value:''}));
+      _artOpts.forEach(function(a){arSel.appendChild(el('option',{value:a.sheet,text:(a.article||a.sheet)+(a.bom?' ('+a.bom+')':'')+(a.customer?' — '+a.customer:'')}));});
+      var arBtn=el('button',{text:'Import'});
+      arBtn.onclick=function(){if(!arSel.value){toast('Select an article',true);return;}_import(arSel.value,'article',arBtn);};
+      impPanel.appendChild(_mkRow(arSel,arBtn));
+    }
+    wrap.appendChild(impPanel);
+  }
+  // ── END 8.P2 import panel ─────────────────────────────────────────────
 
   DEPTS.forEach(function(dept){
     var section=el('div',{style:'margin-bottom:16px'});
@@ -1429,6 +1727,11 @@ function renderActivitySetup(body,article){
         text:'Activities approved — Prakash can issue job cards'
       }));
       section.appendChild(approvedChip);
+      // Show the approved activities + rates so Accounts/Admin can see them too.
+      var apprList=el('div',{style:'margin:2px 0 8px;padding-left:2px'});
+      apprList.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'Loading approved activities…'}));
+      section.appendChild(apprList);
+      approvedContainers[dept]=apprList;
       wrap.appendChild(section);
       return;
     }
@@ -1443,12 +1746,19 @@ function renderActivitySetup(body,article){
     var addedList=el('div');
     section.appendChild(addedList);
     (function(d,aSel,aList,entries){
-      addBtn.onclick=function(){
-        var name=aSel.value;
-        if(!name){toast('Select an activity',true);return;}
+      // Shared row builder — used by manual "+ Add Activity" AND import pre-fill.
+      // Returns true if a row was added, false if it was a duplicate/blank.
+      function addRow(name,presetRate,presetComm){
+        name=(name||'').toString().trim();
+        if(!name)return false;
+        for(var _e=0;_e<entries.length;_e++){if((entries[_e].activityName||'').toLowerCase()===name.toLowerCase())return false;}
         var masterAct=MASTER_ACTS.filter(function(ma){return ma.name===name;})[0];
         var masterRate=masterAct?masterAct.stdRate:0;
         var masterComm=masterAct?masterAct.comm:0;
+        var hasR=(presetRate!==undefined&&presetRate!==null&&presetRate!=='');
+        var hasC=(presetComm!==undefined&&presetComm!==null&&presetComm!=='');
+        var useRate=hasR?(Number(presetRate)||0):(masterRate||0);
+        var useComm=hasC?(Number(presetComm)||0):(masterComm||0);
         var chk=el('input',{type:'checkbox',checked:true,style:'width:15px;height:15px;flex-shrink:0;accent-color:var(--fos-accent)'});
         var rowEl=el('div',{style:'padding:6px 0;border-top:0.5px solid var(--fos-border)'});
         var nameRow=el('div',{style:'display:flex;align-items:center;gap:8px;margin-bottom:6px'});
@@ -1457,10 +1767,10 @@ function renderActivitySetup(body,article){
         rowEl.appendChild(nameRow);
         var rateRow=el('div',{style:'display:flex;gap:8px;margin-left:23px'});
         var rateInp=el('input',{type:'number',placeholder:'Rate ₹/pair',min:'0',step:'0.01',
-          value:masterRate>0?String(masterRate):'',
+          value:useRate>0?String(useRate):'',
           style:'flex:1;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:6px 8px;color:var(--fos-ink);font-size:12px;font-family:var(--fos-font-mono)'});
         var commInp=el('input',{type:'number',placeholder:'Comm ₹/pair (optional)',min:'0',step:'0.01',
-          value:masterComm>0?String(masterComm):'',
+          value:useComm>0?String(useComm):'',
           style:'flex:1;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:6px 8px;color:var(--fos-ink);font-size:12px;font-family:var(--fos-font-mono)'});
         rateRow.appendChild(rateInp);
         rateRow.appendChild(commInp);
@@ -1470,17 +1780,52 @@ function renderActivitySetup(body,article){
             text:'Master rate: ₹'+masterRate+'/pr'+(masterComm?' + ₹'+masterComm+' comm':'')});
           rowEl.appendChild(masterHint);
         }
-        var entry={chk:chk,department:d,activityName:name,rate:masterRate||0,comm:masterComm||0};
+        var entry={chk:chk,department:d,activityName:name,rate:useRate||0,comm:useComm||0};
         rateInp.oninput=function(){entry.rate=parseFloat(rateInp.value)||0;};
         commInp.oninput=function(){entry.comm=parseFloat(commInp.value)||0;};
         entries.push(entry);
         aList.appendChild(rowEl);
+        return true;
+      }
+      deptAdders[d]=addRow;
+      addBtn.onclick=function(){
+        var name=aSel.value;
+        if(!name){toast('Select an activity',true);return;}
+        if(!addRow(name)){toast(name+' already added',true);}
         aSel.value='';
       };
     })(dept,actSel,addedList,deptData[dept]);
 
     wrap.appendChild(section);
   });
+
+  // Populate the approved-activity lists (visible to Accounts/Admin, not just Store).
+  if(Object.keys(approvedContainers).length){
+    google.script.run
+      .withSuccessHandler(function(r){
+        var byDept={};
+        if(r&&r.success&&r.activities){
+          r.activities.forEach(function(a){
+            var disp=SHORT_TO_DEPT[(a.dept||'').toString().toLowerCase()]||'';
+            if(!disp)return;
+            (byDept[disp]=byDept[disp]||[]).push(a);
+          });
+        }
+        Object.keys(approvedContainers).forEach(function(dep){
+          var box=approvedContainers[dep];box.innerHTML='';
+          var list=byDept[dep]||[];
+          if(!list.length){box.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'No activity details found'}));return;}
+          list.forEach(function(a){
+            box.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink);padding:3px 0;border-bottom:0.5px solid var(--fos-border)',
+              text:(a.activityName||'?')+' — ₹'+(a.rate||0)+'/pr'+(a.comm?' + ₹'+a.comm+' comm':'')}));
+          });
+        });
+      })
+      .withFailureHandler(function(){
+        Object.keys(approvedContainers).forEach(function(dep){var b=approvedContainers[dep];b.innerHTML='';b.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'Could not load activities'}));});
+      })
+      .getApprovedActivitiesForArticle(article.sheet);
+  }
 
   var subBtn=el('button',{cls:'primary-btn',text:'Submit Selected for Approval',style:'margin-top:6px'});
   (function(art){

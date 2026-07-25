@@ -376,3 +376,284 @@ function getContractorsScreenData() {
   } catch(ce) {}
   return result;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PHASE 8.1 — Contractor delete (soft) / reactivate
+   Delete = mark status INACTIVE (reversible). getContractors() already hides
+   INACTIVE rows; getContractorsData() still returns them so the Contractors
+   screen can show a greyed card with a Reactivate action.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+// Locate a contractor row by CTR-ID. Returns 1-based sheet row or -1.
+function _findContractorRow(mc, ctrId) {
+  if (!mc || mc.getLastRow() < 4) return -1;
+  var ids = mc.getRange(4, 1, mc.getLastRow() - 3, 1).getValues();
+  for (var i = 0; i < ids.length; i++) {
+    if (safeStr(ids[i][0]).trim() === ctrId) return i + 4;
+  }
+  return -1;
+}
+
+function _contractorNameById(ss, ctrId) {
+  try {
+    var mc = ss.getSheetByName('MASTER_CONTRACTORS');
+    if (mc && mc.getLastRow() >= 4) {
+      var rows = mc.getRange(4, 1, mc.getLastRow() - 3, 2).getValues();
+      for (var i = 0; i < rows.length; i++) {
+        if (safeStr(rows[i][0]).trim() === ctrId) return safeStr(rows[i][1]).trim();
+      }
+    }
+  } catch(e) {}
+  return '';
+}
+
+// Soft-delete: set status (col D) to INACTIVE. Reversible via reactivateContractor.
+function deleteContractor(payload) {
+  var user = getUserInfo();
+  if (user.role !== 'accounts' && user.role !== 'admin')
+    return { success: false, error: 'Not authorised' };
+  var ctrId = safeStr(payload && payload.ctrId).trim();
+  if (!ctrId) return { success: false, error: 'ctrId is required' };
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var mc = ss.getSheetByName('MASTER_CONTRACTORS');
+    if (!mc) return { success: false, error: 'MASTER_CONTRACTORS sheet not found' };
+    var row = _findContractorRow(mc, ctrId);
+    if (row < 0) return { success: false, error: 'Contractor not found' };
+    mc.getRange(row, 4).setValue('INACTIVE');
+    // Also deactivate the contractor's department enrollments so they drop off
+    // the store's issue dropdowns.
+    try {
+      var ws = ensureEnrollmentsSheet();
+      if (ws.getLastRow() > 1) {
+        var er = ws.getRange(2, 1, ws.getLastRow() - 1, 7).getValues();
+        for (var i = 0; i < er.length; i++) {
+          if (safeStr(er[i][1]).trim() === ctrId &&
+              safeStr(er[i][6]).trim().toUpperCase() === 'ACTIVE') {
+            ws.getRange(i + 2, 7).setValue('INACTIVE');
+          }
+        }
+      }
+    } catch(enrErr) { Logger.log('deleteContractor enrollment cleanup: ' + enrErr.message); }
+    SpreadsheetApp.flush();
+    try { CacheService.getScriptCache().remove('contractorsScreen_' + CONFIG.ENV); } catch(ce) {}
+    return { success: true };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function reactivateContractor(payload) {
+  var user = getUserInfo();
+  if (user.role !== 'accounts' && user.role !== 'admin')
+    return { success: false, error: 'Not authorised' };
+  var ctrId = safeStr(payload && payload.ctrId).trim();
+  if (!ctrId) return { success: false, error: 'ctrId is required' };
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var mc = ss.getSheetByName('MASTER_CONTRACTORS');
+    if (!mc) return { success: false, error: 'MASTER_CONTRACTORS sheet not found' };
+    var row = _findContractorRow(mc, ctrId);
+    if (row < 0) return { success: false, error: 'Contractor not found' };
+    mc.getRange(row, 4).setValue('ACTIVE');
+    SpreadsheetApp.flush();
+    try { CacheService.getScriptCache().remove('contractorsScreen_' + CONFIG.ENV); } catch(ce) {}
+    return { success: true };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PHASE 8.2 — Contractor profile + document storage (Google Drive)
+   Profile fields live in CONTRACTOR_PROFILE (one row per CTR-ID).
+   Documents (Aadhaar, passbook, agreement, etc.) are uploaded into a per-
+   contractor Drive folder; the sheet CONTRACTOR_DOCS stores links only.
+   Requires the drive.file OAuth scope (added to appsscript.json).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+function ensureContractorProfileSheet(ss) {
+  if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
+  var ws = ss.getSheetByName('CONTRACTOR_PROFILE');
+  if (!ws) {
+    ws = ss.insertSheet('CONTRACTOR_PROFILE');
+    ws.getRange(1, 1, 1, 11).setValues([[
+      'CONTRACTOR_ID', 'ADDRESS', 'AADHAAR_NO', 'PAN_NO', 'BANK_NAME',
+      'BANK_ACCOUNT', 'IFSC', 'ALT_PHONE', 'NOTES', 'UPDATED_BY', 'UPDATED_AT'
+    ]]);
+    ws.setFrozenRows(1);
+  }
+  return ws;
+}
+
+function ensureContractorDocsSheet(ss) {
+  if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
+  var ws = ss.getSheetByName('CONTRACTOR_DOCS');
+  if (!ws) {
+    ws = ss.insertSheet('CONTRACTOR_DOCS');
+    ws.getRange(1, 1, 1, 9).setValues([[
+      'DOC_ID', 'CONTRACTOR_ID', 'DOC_TYPE', 'FILE_NAME', 'FILE_URL',
+      'FILE_ID', 'UPLOADED_BY', 'UPLOADED_AT', 'STATUS'
+    ]]);
+    ws.setFrozenRows(1);
+  }
+  return ws;
+}
+
+// Root Drive folder for all contractor docs, kept separate per environment.
+function _contractorDocsRootFolder() {
+  var rootName = 'Adees FactoryOS — Contractor Documents (' + CONFIG.ENV + ')';
+  var it = DriveApp.getFoldersByName(rootName);
+  if (it.hasNext()) return it.next();
+  return DriveApp.createFolder(rootName);
+}
+
+// Per-contractor subfolder, e.g. "CTR-004 — Raju Kumar".
+function _contractorFolder(ctrId, name) {
+  var root  = _contractorDocsRootFolder();
+  var fname = ctrId + (name ? ' — ' + name : '');
+  var it = root.getFoldersByName(fname);
+  if (it.hasNext()) return it.next();
+  return root.createFolder(fname);
+}
+
+function getContractorProfile(contractorId) {
+  var user = getUserInfo();
+  if (user.role !== 'accounts' && user.role !== 'admin')
+    return { success: false, error: 'Not authorised' };
+  var ctrId = safeStr(contractorId).trim();
+  if (!ctrId) return { success: false, error: 'contractorId is required' };
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var profile = {
+      contractorId: ctrId, address: '', aadhaarNo: '', panNo: '',
+      bankName: '', bankAccount: '', ifsc: '', altPhone: '', notes: '',
+      updatedBy: '', updatedAt: ''
+    };
+    var ps = ensureContractorProfileSheet(ss);
+    if (ps.getLastRow() > 1) {
+      var pr = ps.getRange(2, 1, ps.getLastRow() - 1, 11).getValues();
+      for (var i = 0; i < pr.length; i++) {
+        if (safeStr(pr[i][0]).trim() === ctrId) {
+          profile.address     = safeStr(pr[i][1]);
+          profile.aadhaarNo   = safeStr(pr[i][2]);
+          profile.panNo       = safeStr(pr[i][3]);
+          profile.bankName    = safeStr(pr[i][4]);
+          profile.bankAccount = safeStr(pr[i][5]);
+          profile.ifsc        = safeStr(pr[i][6]);
+          profile.altPhone    = safeStr(pr[i][7]);
+          profile.notes       = safeStr(pr[i][8]);
+          profile.updatedBy   = safeStr(pr[i][9]);
+          profile.updatedAt   = safeStr(pr[i][10]);
+          break;
+        }
+      }
+    }
+    var docs = [];
+    var ds = ensureContractorDocsSheet(ss);
+    if (ds.getLastRow() > 1) {
+      ds.getRange(2, 1, ds.getLastRow() - 1, 9).getValues().forEach(function(r) {
+        if (safeStr(r[1]).trim() !== ctrId) return;
+        if (safeStr(r[8]).trim().toUpperCase() === 'DELETED') return;
+        docs.push({
+          docId:      safeStr(r[0]),
+          docType:    safeStr(r[2]),
+          fileName:   safeStr(r[3]),
+          url:        safeStr(r[4]),
+          uploadedBy: safeStr(r[6]),
+          uploadedAt: safeStr(r[7])
+        });
+      });
+    }
+    return { success: true, profile: profile, docs: docs };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function saveContractorProfile(payload) {
+  var user = getUserInfo();
+  if (user.role !== 'accounts' && user.role !== 'admin')
+    return { success: false, error: 'Not authorised' };
+  var ctrId = safeStr(payload && payload.contractorId).trim();
+  if (!ctrId) return { success: false, error: 'contractorId is required' };
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var ps = ensureContractorProfileSheet(ss);
+    var now = new Date().toISOString();
+    var rowVals = [
+      ctrId, safeStr(payload.address), safeStr(payload.aadhaarNo), safeStr(payload.panNo),
+      safeStr(payload.bankName), safeStr(payload.bankAccount), safeStr(payload.ifsc),
+      safeStr(payload.altPhone), safeStr(payload.notes), user.email, now
+    ];
+    var found = -1;
+    if (ps.getLastRow() > 1) {
+      var ids = ps.getRange(2, 1, ps.getLastRow() - 1, 1).getValues();
+      for (var i = 0; i < ids.length; i++) {
+        if (safeStr(ids[i][0]).trim() === ctrId) { found = i + 2; break; }
+      }
+    }
+    if (found > 0) ps.getRange(found, 1, 1, 11).setValues([rowVals]);
+    else ps.appendRow(rowVals);
+    SpreadsheetApp.flush();
+    try { CacheService.getScriptCache().remove('contractorsScreen_' + CONFIG.ENV); } catch(ce) {}
+    return { success: true };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+// Upload one document. payload: { contractorId, docType, fileName, mimeType, dataBase64 }
+function uploadContractorDoc(payload) {
+  var user = getUserInfo();
+  if (user.role !== 'accounts' && user.role !== 'admin')
+    return { success: false, error: 'Not authorised' };
+  try {
+    var ctrId    = safeStr(payload && payload.contractorId).trim();
+    var docType  = safeStr(payload && payload.docType).trim() || 'Other';
+    var fileName = safeStr(payload && payload.fileName).trim() || 'document';
+    var mime     = safeStr(payload && payload.mimeType).trim() || 'application/octet-stream';
+    var b64      = safeStr(payload && payload.dataBase64);
+    if (!ctrId) return { success: false, error: 'contractorId is required' };
+    if (!b64)   return { success: false, error: 'No file data received' };
+
+    var ss   = SpreadsheetApp.openById(SHEET_ID);
+    var name = _contractorNameById(ss, ctrId);
+    var bytes = Utilities.base64Decode(b64);
+    var blob  = Utilities.newBlob(bytes, mime, fileName);
+    var folder = _contractorFolder(ctrId, name);
+    var file   = folder.createFile(blob);
+    file.setName('[' + docType + '] ' + fileName);
+    try { file.setDescription('Contractor ' + ctrId + ' (' + name + ') — ' + docType); } catch(de) {}
+
+    var ws = ensureContractorDocsSheet(ss);
+    var seq = ws.getLastRow(); // header counts as 1 → first doc becomes seq 1
+    var seqStr = String(seq); while (seqStr.length < 3) seqStr = '0' + seqStr;
+    var docId  = 'DOC-' + new Date().getFullYear() + '-' + seqStr;
+    var nowIso = new Date().toISOString();
+    ws.appendRow([docId, ctrId, docType, fileName, file.getUrl(), file.getId(), user.email, nowIso, 'ACTIVE']);
+    SpreadsheetApp.flush();
+    try { CacheService.getScriptCache().remove('contractorsScreen_' + CONFIG.ENV); } catch(ce) {}
+    return { success: true, doc: {
+      docId: docId, contractorId: ctrId, docType: docType, fileName: fileName,
+      url: file.getUrl(), uploadedBy: user.email, uploadedAt: nowIso
+    }};
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+// Soft-delete a document row and move the Drive file to trash.
+function deleteContractorDoc(payload) {
+  var user = getUserInfo();
+  if (user.role !== 'accounts' && user.role !== 'admin')
+    return { success: false, error: 'Not authorised' };
+  var docId = safeStr(payload && payload.docId).trim();
+  if (!docId) return { success: false, error: 'docId is required' };
+  try {
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+    var ws = ensureContractorDocsSheet(ss);
+    if (ws.getLastRow() < 2) return { success: false, error: 'Document not found' };
+    var rows = ws.getRange(2, 1, ws.getLastRow() - 1, 9).getValues();
+    for (var i = 0; i < rows.length; i++) {
+      if (safeStr(rows[i][0]).trim() === docId) {
+        ws.getRange(i + 2, 9).setValue('DELETED');
+        try { DriveApp.getFileById(safeStr(rows[i][5]).trim()).setTrashed(true); } catch(fe) {}
+        SpreadsheetApp.flush();
+        try { CacheService.getScriptCache().remove('contractorsScreen_' + CONFIG.ENV); } catch(ce) {}
+        return { success: true };
+      }
+    }
+    return { success: false, error: 'Document not found' };
+  } catch(e) { return { success: false, error: e.message }; }
+}

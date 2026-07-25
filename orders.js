@@ -458,30 +458,70 @@ function getOrderSizeBalance(orderRef, movement) {
   var base = getOrderSizes(orderRef);
   if (!base || !base.success) return base || { success:false, error:'Order not found' };
   var ordered = base.sizes || {};
-  var issued = {};
-  try {
-    var ws = ensureJobCardsSheet();
-    if (ws.getLastRow() > 1) {
-      var rows = ws.getRange(2, 1, ws.getLastRow()-1, 17).getValues();
-      var ref = safeStr(orderRef).trim(), mv = safeStr(movement).trim();
-      rows.forEach(function(r) {
-        if (safeStr(r[1]).trim() !== ref) return;
-        if (mv && safeStr(r[4]).trim() !== mv) return;         // same stage only
-        if (safeStr(r[13]).trim().toUpperCase() === 'CANCELLED') return;
-        var sb = {};
-        try { sb = JSON.parse(safeStr(r[8])) || {}; } catch(e) {}
-        Object.keys(sb).forEach(function(k) { issued[k] = (issued[k] || 0) + safeNum(sb[k]); });
+  var ref = safeStr(orderRef).trim(), mv = safeStr(movement).trim();
+
+  // Unified stage vocabulary: cutting/prep/fitter/lasting/finish/dispatch.
+  var STAGE_ORDER = ['Cutting','Preparation','Fitter','Lasting','Packing','Dispatch'];
+  var STAGE_DEPT_KEY = {'Cutting':'cutting','Preparation':'prep','Fitter':'fitter','Lasting':'lasting','Packing':'finish','Dispatch':'dispatch'};
+  var STAGE_OWN_MOVEMENTS = {'Cutting':['Cutting IN'],'Preparation':['Preparation IN'],'Fitter':['Fitter IN'],'Lasting':['Upper IN','Lasting IN'],'Packing':['Packing IN'],'Dispatch':['Dispatch IN']};
+  var MOVEMENT_TO_STAGE = {'Cutting IN':'Cutting','Preparation IN':'Preparation','Fitter IN':'Fitter','Upper IN':'Lasting','Lasting IN':'Lasting','Packing IN':'Packing','Dispatch IN':'Dispatch'};
+
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+
+  // Nearest active predecessor stage for this order (skips skipped departments).
+  var predMovements = null;
+  var currentStage = MOVEMENT_TO_STAGE[mv] || '';
+  if (currentStage) {
+    var idx = STAGE_ORDER.indexOf(currentStage);
+    var actRes = getApprovedActivitiesForArticle(ref, ss);
+    var activeDepts = {};
+    if (actRes && actRes.success && Array.isArray(actRes.activities)) {
+      actRes.activities.forEach(function(a){
+        var dk = safeStr(a.dept).toLowerCase();
+        Object.keys(STAGE_DEPT_KEY).forEach(function(s){ if (STAGE_DEPT_KEY[s] === dk) activeDepts[s] = true; });
       });
     }
-  } catch(e) {}
+    for (var si = idx-1; si >= 0; si--) { if (activeDepts[STAGE_ORDER[si]]) { predMovements = STAGE_OWN_MOVEMENTS[STAGE_ORDER[si]]; break; } }
+  }
+
+  // This-stage issued per size + predecessor received per size (and totals).
+  var issued = {}, predRecv = {}, predRecvSizeSum = 0, predReceivedTotal = 0;
+  var jcs = getJobCards({ orderRef: ref }, ss);
+  if (Array.isArray(jcs)) {
+    jcs.forEach(function(jc) {
+      if (safeStr(jc.status).toUpperCase() === 'CANCELLED') return;
+      if (mv && jc.movement === mv) {
+        var sb = jc.sizeBreakdown || {};
+        Object.keys(sb).forEach(function(k){ issued[k] = safeNum(issued[k]) + safeNum(sb[k]); });
+      }
+      if (predMovements && predMovements.indexOf(jc.movement) >= 0) {
+        predReceivedTotal += safeNum(jc.pairsReceived);
+        var rb = jc.receivedBreakdown || {};
+        Object.keys(rb).forEach(function(k){ var q = safeNum(rb[k]); predRecv[k] = safeNum(predRecv[k]) + q; predRecvSizeSum += q; });
+      }
+    });
+  }
+
+  // Use predecessor-delivered sizes as the per-size cap ONLY when the predecessor's
+  // per-size receipts fully account for its received total. Otherwise (first stage,
+  // or a predecessor received before per-size tracking existed) fall back to the
+  // order size run so in-flight/legacy orders are never blocked.
+  var usePred = !!predMovements && predReceivedTotal > 0 && predRecvSizeSum === predReceivedTotal;
+
   var sizes = {};
   Object.keys(ordered).forEach(function(k) {
     var o = safeNum(ordered[k]), iss = safeNum(issued[k]);
-    sizes[k] = { ordered:o, issued:iss, remaining: Math.max(0, o - iss) };
+    var cap = usePred ? safeNum(predRecv[k]) : o;
+    sizes[k] = {
+      ordered:   o,
+      issued:    iss,
+      delivered: usePred ? safeNum(predRecv[k]) : o,
+      remaining: Math.max(0, Math.min(o, cap) - iss)
+    };
   });
   var role = '';
   try { role = getUserInfo().role; } catch(e) {}
-  return { success:true, sizes:sizes, isAdmin: role === 'admin' };
+  return { success:true, sizes:sizes, isAdmin: role === 'admin', boundedByPredecessor: usePred };
 }
 
 // ── Admin override gate (Phase 7.1) ──────────────────────────────────────────

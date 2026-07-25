@@ -139,6 +139,57 @@ function _sendWhatsApp_(body) {
   } catch(e) { Logger.log('WhatsApp send error: ' + e.message); }
 }
 
+// Admin diagnostic for WhatsApp/Twilio delivery. _sendWhatsApp_ silently no-ops
+// on a missing Script Property and mutes HTTP errors, so a broken sandbox looks
+// identical to a working one. This reports which properties are present (masked)
+// and, when all are set, performs a live test send and returns the Twilio HTTP
+// status + response body — distinguishing "credential missing" from the common
+// Twilio sandbox 24-hour session expiry (re-join the sandbox from the phone).
+function waDiagnostic() {
+  var user = getUserInfo();
+  if (user.role !== 'admin') return { success:false, error:'Admin only' };
+  var p = PropertiesService.getScriptProperties();
+  function mask(v){ v = safeStr(v); if(!v) return '(missing)'; return v.length<=4 ? '***' : v.slice(0,2)+'…'+v.slice(-2)+' (len '+v.length+')'; }
+  var sid  = safeStr(p.getProperty('TWILIO_ACCOUNT_SID'));
+  var tok  = safeStr(p.getProperty('TWILIO_AUTH_TOKEN'));
+  var from = safeStr(p.getProperty('TWILIO_WHATSAPP_FROM'));
+  var to   = safeStr(p.getProperty('NOTIFY_WHATSAPP_TO'));
+  var creds = {
+    TWILIO_ACCOUNT_SID:  sid  ? mask(sid) : '(missing)',
+    TWILIO_AUTH_TOKEN:   tok  ? mask(tok) : '(missing)',
+    TWILIO_WHATSAPP_FROM: from || '(missing)',
+    NOTIFY_WHATSAPP_TO:   to   || '(missing)'
+  };
+  var missing = [];
+  if(!sid)  missing.push('TWILIO_ACCOUNT_SID');
+  if(!tok)  missing.push('TWILIO_AUTH_TOKEN');
+  if(!from) missing.push('TWILIO_WHATSAPP_FROM');
+  if(!to)   missing.push('NOTIFY_WHATSAPP_TO');
+  if(missing.length) return { success:false, creds:creds, missing:missing, error:'Missing Script Properties: ' + missing.join(', ') };
+
+  try {
+    var resp = UrlFetchApp.fetch('https://api.twilio.com/2010-04-01/Accounts/' + sid + '/Messages.json', {
+      method:'post',
+      headers:{ Authorization:'Basic ' + Utilities.base64Encode(sid + ':' + tok) },
+      payload:{ From:_wa_(from), To:_wa_(to), Body:'Factory OS WhatsApp diagnostic — ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM HH:mm') },
+      muteHttpExceptions:true
+    });
+    var code = resp.getResponseCode();
+    var okSend = (code >= 200 && code < 300);
+    return {
+      success: okSend,
+      creds: creds,
+      httpStatus: code,
+      delivered: okSend,
+      detail: okSend ? 'Twilio accepted the message — check the destination phone.'
+                     : 'Twilio rejected the send (HTTP ' + code + '). Common cause: the 24-hour sandbox session expired — re-join the sandbox from the phone; or the From/To numbers are wrong.',
+      response: safeStr(resp.getContentText()).slice(0, 500)
+    };
+  } catch(e) {
+    return { success:false, creds:creds, error:'Send threw: ' + e.message };
+  }
+}
+
 function notifyNewRequest_(reqId, type, rawDetails, submittedBy, now) {
   try {
     var pl = {};

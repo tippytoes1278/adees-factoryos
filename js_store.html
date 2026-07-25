@@ -74,8 +74,8 @@ function renderStoreHome(c){
   }
   // ── END AAJ KA KAAM (STORE) ──────────────────────────────────
   // Section 1: Pipeline tracker — real outstanding pairs per stage from job cards
-  var _plCounts={cutting:0,prep:0,upper:0,lasting:0,finishing:0,dispatch:0};
-  var _MS={'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'upper','Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finishing','Dispatch IN':'dispatch'};
+  var _plCounts={cutting:0,prep:0,fitter:0,lasting:0,finish:0,dispatch:0};
+  var _MS={'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter','Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'};
   (Array.isArray(D.jobCards)?D.jobCards:[]).forEach(function(jc){
     var st=(jc.status||'').toUpperCase();
     if(st!=='ISSUED'&&st!=='PARTIAL')return;
@@ -189,7 +189,7 @@ function renderWIP(c){
 
   var DEPT_KEY_MAP={
     'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter',
-    'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finishing','Dispatch IN':'dispatch'
+    'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'
   };
 
   var selectedOrderRef='';
@@ -262,9 +262,13 @@ function renderWIP(c){
   // 6. Size Breakdown
   var sizeGrp=el('div',{cls:'form-group'});
   sizeGrp.appendChild(el('label',{cls:'form-label',text:'Size Breakdown'}));
+  var sizeRunEl=el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-bottom:6px',text:''});
+  sizeGrp.appendChild(sizeRunEl);
   var sizeContainer=el('div');
   sizeContainer.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'Select an order to load size breakdown'}));
   sizeGrp.appendChild(sizeContainer);
+  var sizeTotalEl=el('div',{style:'font-size:12px;font-weight:600;margin-top:6px',text:''});
+  sizeGrp.appendChild(sizeTotalEl);
   formCard.appendChild(sizeGrp);
 
   // 7. Expected Return Date
@@ -391,7 +395,7 @@ function renderWIP(c){
       }
       if(!acts.length){
         actMsg.style.display='block';
-        actMsg.innerHTML='<span style="color:var(--fos-danger)">⚠ No approved activities for '+(MOVEMENT_DEPT[selectedMovement]||selectedMovement)+' on this order. Contact Arvind to set up activities.</span>';
+        actMsg.innerHTML='<span style="color:var(--fos-danger)">⚠ No approved activities for '+(MOVEMENT_DEPT[selectedMovement]||selectedMovement)+' on this order — this stage may be skipped, or not set up yet. Check with Arvind before issuing.</span>';
         pairsInput.value='';issueBtn.disabled=true;return;
       }
       if(!ctrOpts.length){
@@ -455,6 +459,7 @@ function renderWIP(c){
 
   function renderSizeInputs(result){
     sizeContainer.innerHTML='';
+    if(sizeRunEl)sizeRunEl.textContent='';
     if(!result||result.error||!result.sizes||!Object.keys(result.sizes).length){
       sizeContainer.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink-secondary)',text:'No size breakdown for this order'}));
       recalcSizeTotal();
@@ -462,6 +467,9 @@ function renderWIP(c){
     }
     var sizes=result.sizes, isAdmin=!!result.isAdmin;
     var keys=Object.keys(sizes).sort(function(a,b){return parseFloat(a)-parseFloat(b);});
+    // Overall order size run (the plan), so the grid below reads clearly.
+    var _runTot=0;keys.forEach(function(k){_runTot+=safeNum(sizes[k]&&sizes[k].ordered);});
+    if(sizeRunEl)sizeRunEl.textContent='Order size run: '+_runTot+' pairs  ('+keys.map(function(k){return k+' '+safeNum(sizes[k]&&sizes[k].ordered);}).join(', ')+'). Boxes below show how many of each size are still un-issued at this stage.';
     var scroll=el('div',{style:'overflow-x:auto;-webkit-overflow-scrolling:touch'});
     var row=el('div',{style:'display:inline-flex;gap:6px;min-width:min-content'});
     keys.forEach(function(k){
@@ -469,7 +477,7 @@ function renderWIP(c){
       var col=el('div',{style:'display:flex;flex-direction:column;align-items:center;gap:3px'});
       col.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);font-weight:600',text:k}));
       var inp=el('input');
-      inp.type='number';inp.min='0';inp.step='1';inp.value=String(rem);
+      inp.type='number';inp.min='0';inp.step='1';inp.value='0';
       inp.dataset.size=k;inp.dataset.remaining=String(rem);
       inp.style.cssText='width:50px;padding:5px 4px;border:1px solid var(--fos-border);border-radius:8px;font-size:13px;text-align:center;background:var(--fos-surface);color:var(--fos-ink)';
       var balEl=el('div',{style:'font-size:10px;color:'+(rem>0?'var(--fos-ink-secondary)':'var(--fos-success)'),text:rem>0?(rem+' left'):'done'});
@@ -491,10 +499,17 @@ function renderWIP(c){
   // Pairs to Issue = sum of the size boxes (locked when a size grid is present).
   function recalcSizeTotal(){
     var inputs=sizeContainer.querySelectorAll('input[data-size]');
-    if(!inputs.length){pairsInput.readOnly=false;return;}
+    if(!inputs.length){pairsInput.readOnly=false;if(sizeTotalEl)sizeTotalEl.textContent='';return;}
     var sum=0;inputs.forEach(function(inp){var v=parseInt(inp.value,10);if(v>0)sum+=v;});
     pairsInput.value=sum>0?String(sum):'';
     pairsInput.readOnly=true;
+    if(sizeTotalEl){
+      var cap=maxIssuableCache[selectedOrderRef+'||'+selectedMovement];
+      var hasCap=(typeof cap==='number');
+      var over=(hasCap&&sum>cap);
+      sizeTotalEl.textContent='Selected: '+sum+' pair'+(sum===1?'':'s')+(hasCap?(' — this stage can take '+cap):'');
+      sizeTotalEl.style.color=over?'var(--fos-danger)':(sum>0?'var(--fos-accent)':'var(--fos-ink-secondary)');
+    }
   }
 
   function getSizeBreakdown(){
@@ -528,6 +543,8 @@ function renderWIP(c){
     if(!selectedMovement){toast('Select a movement',true);return;}
     var pv=parseInt(pairsInput.value,10);
     if(!pv||pv<=0){toast('Enter pairs to issue',true);return;}
+    var _stageCap=maxIssuableCache[selectedOrderRef+'||'+selectedMovement];
+    if(typeof _stageCap==='number'&&pv>_stageCap){toast('This stage can take only '+_stageCap+' pairs right now (limited by the previous stage) — you selected '+pv,true);return;}
     if(!dateInput.value){toast('Enter expected return date',true);return;}
     var assignments=[];
     for(var i=0;i<activityRows.length;i++){
@@ -549,6 +566,10 @@ function renderWIP(c){
       _overridePw=window.prompt('This exceeds the approved size run.\nEnter the admin override password to proceed:')||'';
       if(!_overridePw){toast('Override cancelled',true);return;}
     }
+    // Size breakdown, when filled, must total the pairs to issue (matches the
+    // server integrity guard — prevents breakdown≠pairs cards).
+    var _sbChk=getSizeBreakdown(),_sbT=0;Object.keys(_sbChk).forEach(function(k){_sbT+=_sbChk[k];});
+    if(_sbT>0&&_sbT!==pv){toast('Size breakdown totals '+_sbT+' but pairs to issue is '+pv+' — make them match',true);return;}
     var payload={
       orderRef:selectedOrderRef,
       workOrder:selectedWorkOrder,
@@ -737,19 +758,60 @@ function renderJobCards(c){
 
       // Receive form or complete indicator
       if(st==='ISSUED'||st==='PARTIAL'){
+        // Per-size receive: a FULL receive doesn't ask for sizes (they're the
+        // remaining un-received sizes); a PARTIAL receive reveals a size grid so
+        // the store records which sizes actually came back.
+        var issuedSb=jc.sizeBreakdown||{}, recvdSb=jc.receivedBreakdown||{};
+        var sizeKeys=Object.keys(issuedSb).filter(function(k){return safeNum(issuedSb[k])>0;}).sort(function(a,b){return parseFloat(a)-parseFloat(b);});
+        var remPerSize={}; sizeKeys.forEach(function(k){remPerSize[k]=Math.max(0,safeNum(issuedSb[k])-safeNum(recvdSb[k]));});
+        var hasSizes=sizeKeys.length>0;
+
         var rcvRow=el('div',{style:'display:flex;gap:8px;align-items:center'});
         var rcvInput=el('input');
-        rcvInput.type='number';rcvInput.min='1';rcvInput.max=String(balance);rcvInput.placeholder='Pairs received';
+        rcvInput.type='number';rcvInput.min='1';rcvInput.max=String(balance);rcvInput.value=String(balance);
         rcvInput.style.cssText='flex:1;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:10px;padding:10px 12px;color:var(--fos-ink);font-size:14px';
         var rcvBtn=el('button',{cls:'primary-btn',text:'Receive',style:'width:auto;padding:10px 18px;font-size:14px;border-radius:10px'});
         rcvRow.appendChild(rcvInput);rcvRow.appendChild(rcvBtn);
         card.appendChild(rcvRow);
 
-        (function(cardId,bal,btn,inp,cardEl){
+        var _sizeInputs=[], _gridWrap=null, _gridTotalEl=null;
+        if(hasSizes){
+          _gridWrap=el('div',{style:'display:none;margin-top:8px;padding:8px;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:10px'});
+          _gridWrap.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-bottom:6px',text:'Partial receive — enter how many of each size came back:'}));
+          var _grid=el('div',{style:'overflow-x:auto'}); var _gridRow=el('div',{style:'display:inline-flex;gap:6px;min-width:min-content'});
+          sizeKeys.forEach(function(k){
+            var remR=remPerSize[k];
+            var col=el('div',{style:'display:flex;flex-direction:column;align-items:center;gap:3px'});
+            col.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);font-weight:600',text:k}));
+            var inp=el('input');inp.type='number';inp.min='0';inp.step='1';inp.value='0';
+            inp.style.cssText='width:50px;padding:5px 4px;border:1px solid var(--fos-border);border-radius:8px;font-size:13px;text-align:center;background:var(--fos-surface);color:var(--fos-ink)';
+            (function(inp,remR){inp.oninput=function(){var v=parseInt(inp.value,10);if(isNaN(v)||v<0){v=0;inp.value='0';}if(v>remR){inp.value=String(remR);toast('Only '+remR+' of this size left',true);}_updGrid();};})(inp,remR);
+            col.appendChild(inp);
+            col.appendChild(el('div',{style:'font-size:10px;color:var(--fos-ink-secondary)',text:remR+' left'}));
+            _gridRow.appendChild(col);_sizeInputs.push({size:k,inp:inp});
+          });
+          _grid.appendChild(_gridRow);_gridWrap.appendChild(_grid);
+          _gridTotalEl=el('div',{style:'font-size:12px;font-weight:600;margin-top:6px',text:''});
+          _gridWrap.appendChild(_gridTotalEl);
+          card.appendChild(_gridWrap);
+        }
+        function _gridSum(){var s=0;_sizeInputs.forEach(function(o){var v=parseInt(o.inp.value,10);if(v>0)s+=v;});return s;}
+        function _updGrid(){if(!_gridTotalEl)return;var need=parseInt(rcvInput.value,10)||0,s=_gridSum();_gridTotalEl.textContent='Sizes total: '+s+' / '+need;_gridTotalEl.style.color=(s===need)?'var(--fos-success)':'var(--fos-danger)';}
+        function _syncGrid(){if(!_gridWrap)return;var v=parseInt(rcvInput.value,10)||0;if(v>0&&v<balance){_gridWrap.style.display='block';_updGrid();}else{_gridWrap.style.display='none';}}
+        rcvInput.oninput=_syncGrid;
+
+        (function(cardId,bal,btn){
           btn.onclick=function(){
-            var v=parseInt(inp.value,10);
+            var v=parseInt(rcvInput.value,10);
             if(!v||v<=0||v>bal){toast('Enter a valid quantity (max '+bal+' pairs)',true);return;}
+            var rsb=null;
+            if(hasSizes){
+              if(v===bal){ rsb={}; sizeKeys.forEach(function(k){ if(remPerSize[k]>0) rsb[k]=remPerSize[k]; }); }
+              else { rsb={}; var s=0; _sizeInputs.forEach(function(o){var q=parseInt(o.inp.value,10);if(q>0){rsb[o.size]=q;s+=q;}}); if(s!==v){toast('Enter which sizes make up the '+v+' pairs (must total '+v+')',true);return;} }
+            }
             btn.disabled=true;btn.textContent='...';
+            var payload={jobCardId:cardId,pairsReceived:v,notes:''};
+            if(rsb)payload.receivedSizeBreakdown=rsb;
             google.script.run
               .withSuccessHandler(function(r){
                 btn.disabled=false;btn.textContent='Receive';
@@ -765,9 +827,9 @@ function renderJobCards(c){
                 }
               })
               .withFailureHandler(function(){btn.disabled=false;btn.textContent='Receive';toast('Error receiving job card',true);})
-              .receiveJobCard({jobCardId:cardId,pairsReceived:v,notes:''});
+              .receiveJobCard(payload);
           };
-        })(jc.jobCardId,balance,rcvBtn,rcvInput,card);
+        })(jc.jobCardId,balance,rcvBtn);
 
       } else if(st==='COMPLETE'){
         var doneRow=el('div',{style:'display:flex;align-items:center;gap:6px;padding:8px 0'});

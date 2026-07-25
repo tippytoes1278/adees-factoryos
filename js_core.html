@@ -96,9 +96,9 @@ function fmtPd(ds,yr){
 var FOS_PIPELINE_STAGES=[
   {key:'cutting',    label:'Cutting'},
   {key:'prep',       label:'Preparation'},
-  {key:'upper',      label:'Upper Making'},
+  {key:'fitter',     label:'Upper Making'},
   {key:'lasting',    label:'Lasting &\nPasting'},
-  {key:'finishing',  label:'Finishing &\nPacking'},
+  {key:'finish',     label:'Finishing &\nPacking'},
   {key:'dispatch',   label:'Dispatch'}
 ];
 function fosPipelineTracker(counts){
@@ -547,6 +547,30 @@ function renderTab(id){
   else if(id==='notifications'){renderNotifications(c);}
 }
 
+// Friendly type label + one-line summary for notification cards.
+function _reqTypeLabel(t){
+  var M={ACTIVITY_SETUP:'Activity setup',MASTER_ACTIVITY:'Master activity',RATE_EDIT:'Rate change',SETUP_EDIT_REQUEST:'Setup edit',EDIT_REQUEST:'Edit request',NEW_ORDER:'New order',PAYMENT:'Payment',PAYMENT_SUBMISSION:'Payment submission',CUSTOM_PERIOD_REQUEST:'Custom period'};
+  return M[t]||t||'Request';
+}
+function _shortDate(d){if(!d)return '';var s=String(d);var m=s.match(/^\w+ (\w+ \d+ \d+ \d+:\d+)/);return m?m[1]:s;}
+function reqSummary(r){
+  var t=r.type||'',pl={};try{pl=JSON.parse(r.details||'{}');}catch(e){}
+  var oi=r.orderInfo||{};
+  var ord=(oi.article||pl.sheet||'')+(oi.customer?' ('+oi.customer+')':'');
+  if(t==='MASTER_ACTIVITY')return (pl.activityName||'Activity')+' · '+(pl.dept||'—')+' · ₹'+(pl.rate||0)+'/pr'+(pl.comm?'+₹'+pl.comm:'');
+  if(t==='ACTIVITY_SETUP'){
+    if(pl.activityName)return (pl.activityName||'Activity')+' · '+(pl.dept||'—')+' · ₹'+(pl.rate||0)+'/pr'+(ord?' — '+ord:'');
+    var n=(pl.activities||[]).length;return (ord||'Order')+' · '+n+' activit'+(n===1?'y':'ies');
+  }
+  if(t==='RATE_EDIT')return (r.activityName||'Rate change')+' → ₹'+(pl.newRate!=null?pl.newRate:'?')+'/pr'+(pl.newComm!=null?'+₹'+pl.newComm:'');
+  if(t==='NEW_ORDER')return (pl.styleName||'?')+(pl.color?' — '+pl.color:'')+' for '+(pl.buyer||'?')+' · Lot '+(pl.lotSize||0);
+  if(t==='CUSTOM_PERIOD_REQUEST')return (pl.fromDate||'?')+' → '+(pl.toDate||'?');
+  if(t==='SETUP_EDIT_REQUEST')return (pl.dept||'?')+' dept'+(ord?' · '+ord:'');
+  if(t==='EDIT_REQUEST')return (pl.activityName||'?')+(ord?' · '+ord:'');
+  if(t==='PAYMENT')return 'Week '+(pl.weekLabel||'?');
+  if(t==='PAYMENT_SUBMISSION')return (r.psArticle||pl.sheet||'');
+  return ord;
+}
 function renderNotifications(c){
   c.innerHTML='';
   var hdr=el('div',{style:'margin-bottom:16px'});
@@ -556,16 +580,28 @@ function renderNotifications(c){
   var items=[];
   if(USER.role==='admin'){
     var reqs=(D.reqs&&D.reqs.requests)?D.reqs.requests:(Array.isArray(D.reqs)?D.reqs:[]);
-    reqs.forEach(function(r){items.push({icon:'📥',color:'var(--fos-warning)',title:(r.type||'Request')+' — awaiting your approval',sub:(r.submittedBy||'')+(r.date?' · '+r.date:''),tab:'requests'});});
-    if(!items.length)items.push({icon:'✓',color:'var(--fos-success)',title:'All caught up',sub:'No requests waiting for approval'});
+    // Only genuinely PENDING requests are "awaiting your approval".
+    var pend=reqs.filter(function(r){return (r.status||'').toUpperCase()==='PENDING';});
+    pend.forEach(function(r){items.push({icon:'📥',color:'var(--fos-warning)',title:_reqTypeLabel(r.type)+' — awaiting your approval',sub:reqSummary(r),sub2:(r.submittedBy||'')+(r.date?' · '+_shortDate(r.date):''),tab:'requests'});});
+    if(!pend.length)items.push({icon:'✓',color:'var(--fos-success)',title:'All caught up',sub:'No requests waiting for approval'});
+    // Recently resolved — show real status, not "awaiting".
+    var resolved=reqs.filter(function(r){var s=(r.status||'').toUpperCase();return s==='APPROVED'||s==='REJECTED'||s==='REVISION';});
+    resolved.sort(function(a,b){var ax=(a.approvedOn||a.date||''),bx=(b.approvedOn||b.date||'');return ax<bx?1:ax>bx?-1:0;});
+    resolved.slice(0,10).forEach(function(r){
+      var s=(r.status||'').toUpperCase();
+      var ic=s==='APPROVED'?'✅':s==='REJECTED'?'❌':'↩';
+      var col=s==='APPROVED'?'var(--fos-success)':s==='REJECTED'?'var(--fos-danger)':'var(--fos-warning)';
+      var word=s==='APPROVED'?'approved':s==='REJECTED'?'rejected':'sent for revision';
+      items.push({icon:ic,color:col,title:_reqTypeLabel(r.type)+' '+word,sub:reqSummary(r),sub2:(r.submittedBy||'')+(r.date?' · '+_shortDate(r.date):''),tab:'requests'});
+    });
   } else {
     var mine=(D.myreqs&&D.myreqs.requests)?D.myreqs.requests:[];
     mine.forEach(function(r){
-      var st=r.status||'';
-      if(st==='APPROVED')items.push({icon:'✅',color:'var(--fos-success)',title:(r.type||'Request')+' approved',sub:r.date||''});
-      else if(st==='REJECTED')items.push({icon:'❌',color:'var(--fos-danger)',title:(r.type||'Request')+' rejected',sub:(r.ayushNotes?'Reason: '+r.ayushNotes:'')+(r.date?' · '+r.date:''),tab:'alerts'});
-      else if(st==='REVISION')items.push({icon:'↩',color:'var(--fos-warning)',title:(r.type||'Request')+' needs revision',sub:(r.ayushNotes?'Remark: '+r.ayushNotes:'')+(r.date?' · '+r.date:''),tab:'alerts'});
-      else if(st==='PENDING')items.push({icon:'⏳',color:'var(--fos-ink-secondary)',title:(r.type||'Request')+' pending',sub:r.date||''});
+      var st=(r.status||'').toUpperCase();
+      if(st==='APPROVED')items.push({icon:'✅',color:'var(--fos-success)',title:_reqTypeLabel(r.type)+' approved',sub:reqSummary(r),sub2:_shortDate(r.date)});
+      else if(st==='REJECTED')items.push({icon:'❌',color:'var(--fos-danger)',title:_reqTypeLabel(r.type)+' rejected',sub:(r.ayushNotes?'Reason: '+r.ayushNotes:reqSummary(r)),sub2:_shortDate(r.date),tab:'alerts'});
+      else if(st==='REVISION')items.push({icon:'↩',color:'var(--fos-warning)',title:_reqTypeLabel(r.type)+' needs revision',sub:(r.ayushNotes?'Remark: '+r.ayushNotes:reqSummary(r)),sub2:_shortDate(r.date),tab:'alerts'});
+      else if(st==='PENDING')items.push({icon:'⏳',color:'var(--fos-ink-secondary)',title:_reqTypeLabel(r.type)+' pending',sub:reqSummary(r),sub2:_shortDate(r.date)});
     });
     if(!items.length)items.push({icon:'✓',color:'var(--fos-success)',title:'Nothing new',sub:'No recent updates on your requests'});
   }
@@ -575,6 +611,7 @@ function renderNotifications(c){
     var tx=el('div',{style:'flex:1;min-width:0'});
     tx.appendChild(el('div',{style:'font-size:14px;font-weight:600;color:'+(n.color||'var(--fos-ink)'),text:n.title}));
     if(n.sub)tx.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:2px',text:n.sub}));
+    if(n.sub2)tx.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);opacity:0.7;margin-top:2px',text:n.sub2}));
     card.appendChild(tx);
     if(n.tab){(function(t){card.onclick=function(){loadTab(t);};})(n.tab);}
     c.appendChild(card);

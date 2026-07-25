@@ -795,6 +795,57 @@ function requestActivitySetup(payload, revisionRemark) {
   } catch(e) { return { success:false, error:e.message }; }
 }
 
+// 8.P2 — Read approved activities from a copy source so Arvind can pre-fill the
+// activity-setup form, edit anything, and submit through the normal approval
+// flow (requestActivitySetup). Read-only — writes nothing. Restores the copy-
+// from-article / copy-from-work-order feature lost in the Job Card refactor.
+//   mode 'article'   → source is an ART sheet name; its approved activities.
+//   mode 'workorder' → source is a BOM/work order; resolved via ORDER_INDEX to
+//                      every ART sheet under it, with activities merged.
+// Returns { success, byDept:{ shortDept:[{activityName,rate,comm}] }, count }.
+function getActivitiesForCopy(source, mode) {
+  try {
+    source = safeStr(source).trim();
+    if (!source) return { success:false, error:'Select a source to copy from' };
+    var ss = SpreadsheetApp.openById(SHEET_ID);
+
+    var sheets = [];
+    if (mode === 'workorder') {
+      var oi = ss.getSheetByName('ORDER_INDEX');   // col A = BOM, col B = ART sheet
+      if (oi && oi.getLastRow() > 3) {
+        oi.getRange(4, 1, oi.getLastRow()-3, 2).getValues().forEach(function(r) {
+          if (safeStr(r[0]).trim() === source) { var sn = safeStr(r[1]).trim(); if (sn) sheets.push(sn); }
+        });
+      }
+      if (!sheets.length) return { success:false, error:'No articles found under work order ' + source };
+    } else {
+      sheets = [source];
+    }
+
+    // Merge approved activities across the source sheet(s); dedupe by dept+name
+    var byDept = {}, seen = {};
+    sheets.forEach(function(sh) {
+      var r = getApprovedActivitiesForArticle(sh, ss);
+      if (!r || !r.success || !Array.isArray(r.activities)) return;
+      r.activities.forEach(function(a) {
+        var dept = safeStr(a.dept).trim();
+        var name = safeStr(a.activityName).trim();
+        if (!dept || !name) return;
+        var k = dept + '|' + name.toLowerCase();
+        if (seen[k]) return;
+        seen[k] = true;
+        if (!byDept[dept]) byDept[dept] = [];
+        byDept[dept].push({ activityName:name, rate:safeNum(a.rate), comm:safeNum(a.comm) });
+      });
+    });
+
+    var total = 0;
+    Object.keys(byDept).forEach(function(d) { total += byDept[d].length; });
+    if (!total) return { success:false, error:'No approved activities on the selected source to copy' };
+    return { success:true, byDept:byDept, count:total };
+  } catch(e) { return { success:false, error:e.message }; }
+}
+
 // Master Activities submissions. Dedicated MASTER_ACTIVITY request type —
 // these previously went through requestActivitySetup() (the per-order
 // handler), whose order+dept guard matched '' === '' on the missing sheet

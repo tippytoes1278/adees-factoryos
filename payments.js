@@ -257,9 +257,9 @@ function getDashboardData(ss) {
   // delivery-risk (overdue open job cards), both from the job-card model.
   var MOVEMENT_STAGE_D = {
     'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter',
-    'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finishing','Dispatch IN':'dispatch'
+    'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'
   };
-  var pipeline = { cutting:0, prep:0, fitter:0, lasting:0, finishing:0, dispatch:0 };
+  var pipeline = { cutting:0, prep:0, fitter:0, lasting:0, finish:0, dispatch:0 };
   var deliveryRisk = [];
   try {
     var _jcsD = getJobCards({});
@@ -832,7 +832,7 @@ function getCompletedUnpaidJobCards() {
       'Fitter IN':      'fitter',
       'Upper IN':       'lasting',
       'Lasting IN':     'lasting',
-      'Packing IN':     'finishing',
+      'Packing IN':     'finish',
       'Dispatch IN':    'dispatch'
     };
 
@@ -927,7 +927,7 @@ function submitJobCardPayment(data) {
     'Fitter IN':      'fitter',
     'Upper IN':       'lasting',
     'Lasting IN':     'lasting',
-    'Packing IN':     'finishing',
+    'Packing IN':     'finish',
     'Dispatch IN':    'dispatch'
   };
 
@@ -1068,7 +1068,7 @@ function submitCardPayment(data) {
 
   var MOVEMENT_DEPT_KEY = {
     'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter',
-    'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finishing','Dispatch IN':'dispatch'
+    'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'
   };
 
   var lock = LockService.getPublicLock();
@@ -1390,7 +1390,7 @@ function _paidPairsMap(ss) {
 
 // Per-contractor payable lines for a card, netting pairs already paid.
 function _cardContractorLines(r, ctrNameById, paidMap, ss) {
-  var MDK = {'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter','Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finishing','Dispatch IN':'dispatch'};
+  var MDK = {'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter','Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'};
   var jobCardId = safeStr(r[0]).trim();
   var orderRef  = safeStr(r[1]).trim();
   var deptKey   = MDK[safeStr(r[4]).trim()] || '';
@@ -1494,7 +1494,7 @@ function submitCardAdvance(data) {
   var jobCardId = safeStr(data.jobCardId || '').trim();
   var periodId  = _resolvePayPeriod(data.periodId);
   if (!jobCardId) return { success:false, error:'jobCardId is required' };
-  var MDK = {'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter','Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finishing','Dispatch IN':'dispatch'};
+  var MDK = {'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter','Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'};
   var lock = LockService.getPublicLock();
   try {
     lock.waitLock(10000);
@@ -1561,4 +1561,107 @@ function submitCardAdvance(data) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PHASE 8.3 — Balance to Pay per Activity (per contractor)
+   Outstanding = pairs received on a job card that are neither paid nor
+   pending approval, valued at each activity's rate+comm. Netting is per
+   job card + contractor (matches _paidPairsMap / _cardContractorLines), so
+   advances and submitted payments are already deducted. PAYMENT_PENDING and
+   PAID pairs net to zero outstanding; ISSUED / PARTIAL / COMPLETE cards with
+   un-paid received pairs surface as balance owed, broken out per activity.
+   ═══════════════════════════════════════════════════════════════════════════ */
+function getContractorAccount(contractorId) {
+  try {
+    var _u = getUserInfo();
+    if (_u.role !== 'accounts' && _u.role !== 'admin')
+      return { success:false, error:'Not authorised' };
+    var cid = safeStr(contractorId).trim();
+    if (!cid) return { success:false, error:'contractorId is required' };
+    var ss          = SpreadsheetApp.openById(SHEET_ID);
+    var ctrNameById = _ctrNameMap(ss);
+    var orderInfo   = _orderInfoMap(ss);
+    var paidMap     = _paidPairsMap(ss);
+    var MDK = {
+      'Cutting IN':'Cutting', 'Preparation IN':'Preparation', 'Fitter IN':'Fitter',
+      'Upper IN':'Lasting', 'Lasting IN':'Lasting', 'Packing IN':'Finishing/Packing',
+      'Dispatch IN':'Dispatch'
+    };
+    var out = {
+      success: true, contractorId: cid, contractorName: ctrNameById[cid] || cid,
+      lines: [], totalOutstanding: 0, byActivity: []
+    };
+    var ws = ensureJobCardsSheet(ss);
+    if (ws.getLastRow() < 2) return out;
+    var rows = ws.getRange(2, 1, ws.getLastRow() - 1, 17).getValues();
+
+    rows.forEach(function(r) {
+      var jcId = safeStr(r[0]).trim(); if (!jcId) return;
+      var status = safeStr(r[13]).trim().toUpperCase();
+      if (status === 'CANCELLED') return;
+      var pairsReceived = safeNum(r[7]);
+      if (pairsReceived <= 0) return;
+
+      var orderRef  = safeStr(r[1]).trim();
+      var deptLabel = MDK[safeStr(r[4]).trim()] || safeStr(r[4]).trim();
+      var oi        = orderInfo[orderRef] || {};
+
+      // Which activities on this card belong to the target contractor?
+      var assignments = [];
+      try { assignments = JSON.parse(safeStr(r[16])) || []; } catch(e) {}
+      var myActs = [];
+      if (Array.isArray(assignments) && assignments.length) {
+        assignments.forEach(function(a) {
+          if (safeStr(a.contractorId).trim() !== cid) return;
+          myActs.push({ activity: safeStr(a.activity) || deptLabel,
+                        rate: safeNum(a.rate) + safeNum(a.comm) });
+        });
+      } else if (safeStr(r[5]).trim() === cid) {
+        // Legacy single-contractor card: whole-department rate.
+        var rate = 0;
+        try {
+          var ar = getApprovedActivitiesForArticle(orderRef, ss);
+          if (ar && ar.success && Array.isArray(ar.activities)) {
+            var dk = String(deptLabel).toLowerCase().split('/')[0];
+            ar.activities.filter(function(a){ return !dk || safeStr(a.dept).toLowerCase().indexOf(dk) >= 0; })
+                         .forEach(function(a){ rate += safeNum(a.rate) + safeNum(a.comm); });
+          }
+        } catch(e) {}
+        myActs.push({ activity: deptLabel, rate: rate });
+      }
+      if (!myActs.length) return;
+
+      var alreadyPaid  = paidMap[jcId + '||' + cid] || 0;
+      var payablePairs = Math.max(0, pairsReceived - alreadyPaid);
+
+      myActs.forEach(function(ma) {
+        var amount = ma.rate * payablePairs;
+        out.totalOutstanding += amount;
+        out.lines.push({
+          jobCardId: jcId, orderRef: orderRef,
+          article: oi.article || orderRef, customer: oi.customer || '',
+          department: deptLabel, activity: ma.activity, ratePerPair: ma.rate,
+          pairsReceived: pairsReceived, paidPairs: alreadyPaid, payablePairs: payablePairs,
+          amount: amount, status: status
+        });
+      });
+    });
+
+    // Roll up outstanding by activity for a compact "per activity row" summary.
+    var agg = {};
+    out.lines.forEach(function(l) {
+      if (l.payablePairs <= 0) return;
+      var k = l.activity || l.department;
+      if (!agg[k]) agg[k] = { activity: k, pairs: 0, amount: 0 };
+      agg[k].pairs  += l.payablePairs;
+      agg[k].amount += l.amount;
+    });
+    out.byActivity = Object.keys(agg).map(function(k){ return agg[k]; })
+                       .sort(function(a,b){ return b.amount - a.amount; });
+    // Detail list: only rows that still owe money (received-but-unpaid pairs).
+    out.lines = out.lines.filter(function(l){ return l.payablePairs > 0; })
+                  .sort(function(a,b){ return b.amount - a.amount; });
+    return out;
+  } catch(e) { return { success:false, error:e.message }; }
 }
