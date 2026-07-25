@@ -191,12 +191,18 @@ function renderWIP(c){
     'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter',
     'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'
   };
+  // Movement → getDeptStatus() key, so skipped departments can be flagged.
+  var MOVEMENT_STATUS_KEY={
+    'Cutting IN':'Cutting','Preparation IN':'Preparation','Fitter IN':'Fitter',
+    'Upper IN':'Lasting','Lasting IN':'Lasting','Packing IN':'Finishing','Dispatch IN':'Dispatch'
+  };
 
   var selectedOrderRef='';
   var selectedWorkOrder='';
   var selectedOrderQty=0;
   var selectedStore='';
   var selectedMovement='';
+  var deptStatusForOrder=null;   // getDeptStatus() result for the selected order
   var activityRows=[];       // [{activityName, rate, contractorSel, pairsInput}]
   var activityCache={};      // orderRef -> getApprovedActivitiesForArticle result
   var maxIssuableCache={};   // orderRef||movement -> number
@@ -335,13 +341,21 @@ function renderWIP(c){
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
-  function populateMovements(){
+  function populateMovements(keepSel){
+    var prev=keepSel?selectedMovement:'';
     movSel.innerHTML='';
     movSel.appendChild(el('option',{value:'',text:'— Select Movement —'}));
-    (STORE_MOVEMENTS[selectedStore]||[]).forEach(function(mv){movSel.appendChild(el('option',{value:mv,text:mv}));});
+    var validPrev=false;
+    (STORE_MOVEMENTS[selectedStore]||[]).forEach(function(mv){
+      var sk=deptStatusForOrder && deptStatusForOrder[MOVEMENT_STATUS_KEY[mv]]==='SKIPPED';
+      var opt=el('option',{value:mv,text:mv+(sk?' — skipped for this order':'')});
+      if(sk)opt.disabled=true;
+      movSel.appendChild(opt);
+      if(mv===prev && !sk) validPrev=true;
+    });
     movSel.disabled=!selectedStore;
-    selectedMovement='';
-    clearActivityRows();
+    if(keepSel && validPrev){ movSel.value=prev; selectedMovement=prev; }
+    else { selectedMovement=''; clearActivityRows(); }
   }
 
   function clearActivityRows(){
@@ -530,6 +544,15 @@ function renderWIP(c){
     balanceEl.textContent=selectedOrderQty>0?'Order lot size: '+selectedOrderQty+' pairs':'Order lot size: — pairs';
     activityCache={};       // approved activities are per-order; reset on order change
     maxIssuableCache={};
+    // Fetch skip status for this order, then refresh the movement list so skipped
+    // departments show as "skipped for this order" and can't be selected.
+    deptStatusForOrder=null;
+    if(selectedOrderRef){
+      google.script.run
+        .withSuccessHandler(function(ds){deptStatusForOrder=(ds&&typeof ds==='object')?ds:null;populateMovements(true);})
+        .withFailureHandler(function(){deptStatusForOrder=null;populateMovements(true);})
+        .getDeptStatus(selectedOrderRef);
+    } else { populateMovements(true); }
     loadSizeBreakdown();
     loadStageThenRows();
   };

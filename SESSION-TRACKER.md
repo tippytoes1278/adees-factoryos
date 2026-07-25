@@ -199,5 +199,40 @@ aggregate stage cap on partials. Built the fix (user chose "before LIVE"):
   Observation: those 13 cards' sizes are all bucketed under "UK 6" — pre-8.P1
   historical data (no granular sizes); harmless, new orders capture real sizes.
 - **Still pending:** real-load validation on LIVE; DEV smoke of the per-size
-  receive flow (never done — promoted on the user's LIVE-validation preference);
-  optional Store "skipped-stage" dept-status plumbing.
+  receive flow (never done — promoted on the user's LIVE-validation preference).
+
+### 25 Jul 2026 — skipped-stage marking on Store issue screen
+
+- Plumbed `getDeptStatus(sheet)` to the Store issue screen (js_store.html): on
+  order select it fetches per-dept status; `populateMovements()` now labels any
+  SKIPPED department's movement "— skipped for this order" and disables it, so a
+  skipped stage can't be selected. The "no approved activities" message now only
+  appears for genuinely-not-set-up stages. Switching orders keeps a still-valid
+  movement selected (resets only if skipped on the new order). Deployed to
+  **DEV @364**; reaches LIVE on the next promotion.
+
+## Session close — 25 Jul 2026
+
+**Deploy state:** LIVE = @361 · DEV = @364 · config `ENV: 'DEV'`.
+**GitHub:** `tippytoes1278/adees-factoryos` master — last code commit `71485c2`,
+tracker commit `bf3246f`. (This tracker edit is uncommitted; commit to finish.)
+
+**Shipped to LIVE (@361, since @346):** all Phase 8 (contractor add/delete,
+profile+Drive docs, balance-to-pay, numeric size grid), notifications rewrite,
+8.B1 stage-validation fix (PARTIAL predecessor counted), 8.P2 import activities
+(from Work Order / Article), department-vocabulary unification (one scheme:
+cutting/prep/fitter/lasting/finish/dispatch), size-integrity guard, and per-size
+receive tracking. LIVE data migrated (0 rescaled, 13 complete cards backfilled,
+RECEIVED_BREAKDOWN column added).
+
+**On DEV, not yet on LIVE:** skipped-stage marking on the Store issue screen
+(@364) — promote on the next LIVE run.
+
+**Carried forward / watch:**
+- Real-load validation on LIVE (Arvind's Excel→LIVE trial). Per-size receive flow
+  was never smoke-tested on DEV before promotion — watch the first real partial
+  receive and the first Finishing/Packing card + payment.
+- First LIVE document action triggers the one-time `drive.file` re-auth.
+- Historical LIVE size data is bucketed under "UK 6" (pre-8.P1); new orders capture
+  real sizes.
+- WhatsApp: `waDiagnostic()` available (admin) if Twilio sandbox alerts stop.
