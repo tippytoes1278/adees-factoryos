@@ -182,3 +182,22 @@ aggregate stage cap on partials. Built the fix (user chose "before LIVE"):
   summary line above the grid; boxes default to 0; and a live "Selected: N — this
   stage can take X" total that turns red and blocks issue when N exceeds the stage
   cap. Per-size "X left" hints and the admin size-run override are unchanged.
+
+### 25 Jul 2026 — LIVE promotion + data migration
+
+- **GitHub:** committed `71485c2` and pushed to `tippytoes1278/adees-factoryos`
+  (master) as the rollback point before promoting.
+- **4-step LIVE promotion** (atomic sed-flip one-liner, `;` guard so config always
+  returns to DEV): **LIVE = @361**, **DEV = @362**, HEAD confirmed `ENV: 'DEV'`.
+  LIVE now carries everything since @346 (all Phase 8, notifications, add-contractor,
+  8.B1/8.P2, dept unification, size guard, per-size receive). First LIVE document
+  action will prompt the one-time `drive.file` re-auth.
+- **LIVE data migration** via `runLiveJobCardMigration()` (added to jobcards.js;
+  targets CONFIG.LIVE_SHEET_ID explicitly, safe to run with HEAD on DEV):
+  rescaled **0** (no breakdown≠pairs corruption on LIVE), backfilled **13** COMPLETE
+  cards' RECEIVED_BREAKDOWN, and added the RECEIVED_BREAKDOWN column to LIVE.
+  Observation: those 13 cards' sizes are all bucketed under "UK 6" — pre-8.P1
+  historical data (no granular sizes); harmless, new orders capture real sizes.
+- **Still pending:** real-load validation on LIVE; DEV smoke of the per-size
+  receive flow (never done — promoted on the user's LIVE-validation preference);
+  optional Store "skipped-stage" dept-status plumbing.
