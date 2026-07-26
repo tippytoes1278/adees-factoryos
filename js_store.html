@@ -1,4 +1,8 @@
 <script>
+// Shared across renderWIP (writes/reads) and renderJobCards (clears on receive).
+// Keyed by orderRef||movement. Reset on order change and after every issue/receive.
+var maxIssuableCache={};
+
 // ── STORE HOME ────────────────────────────────────────────────────────────────
 function renderStoreHome(c){
   c.innerHTML='';
@@ -166,6 +170,7 @@ function renderStoreHome(c){
 }
 // ── WIP ───────────────────────────────────────────────────────────────────────
 function renderWIP(c){
+  maxIssuableCache={};   // fresh per panel entry (preserves pre-hoist lifecycle)
   c.innerHTML='';
 
   var STORE_MOVEMENTS={
@@ -205,7 +210,6 @@ function renderWIP(c){
   var deptStatusForOrder=null;   // getDeptStatus() result for the selected order
   var activityRows=[];       // [{activityName, rate, contractorSel, pairsInput}]
   var activityCache={};      // orderRef -> getApprovedActivitiesForArticle result
-  var maxIssuableCache={};   // orderRef||movement -> number
 
   // ── Section 1: Issue Job Card Form ────────────────────────────────────────
   var formCard=el('div',{cls:'art-item',style:'padding:16px;margin-bottom:16px'});
@@ -841,6 +845,7 @@ function renderJobCards(c){
                 if(r&&r.success){
                   toast('Received — Job Card now '+(r.status||'updated'));
                   if(r.warning)toast(r.warning,true);
+                  maxIssuableCache={};
                   google.script.run
                     .withSuccessHandler(function(jcs){D.jobCards=Array.isArray(jcs)?jcs:[];renderList();})
                     .withFailureHandler(function(){})
