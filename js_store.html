@@ -279,6 +279,11 @@ function renderWIP(c){
   sizeGrp.appendChild(sizeContainer);
   var sizeTotalEl=el('div',{style:'font-size:12px;font-weight:600;margin-top:6px',text:''});
   sizeGrp.appendChild(sizeTotalEl);
+  // Stage-cap note (display only): the per-size "left" hints come from the ORDER
+  // size run, while the issue cap comes from predecessor receipts. When the cap
+  // is lower, say so here so the two numbers don't look contradictory.
+  var capNoteEl=el('div',{style:'display:none;font-size:11px;color:var(--fos-warning);margin-top:2px',text:''});
+  sizeGrp.appendChild(capNoteEl);
   formCard.appendChild(sizeGrp);
 
   // 7. Expected Return Date
@@ -517,7 +522,7 @@ function renderWIP(c){
   // Pairs to Issue = sum of the size boxes (locked when a size grid is present).
   function recalcSizeTotal(){
     var inputs=sizeContainer.querySelectorAll('input[data-size]');
-    if(!inputs.length){pairsInput.readOnly=false;if(sizeTotalEl)sizeTotalEl.textContent='';return;}
+    if(!inputs.length){pairsInput.readOnly=false;if(sizeTotalEl)sizeTotalEl.textContent='';if(capNoteEl)capNoteEl.style.display='none';return;}
     var sum=0;inputs.forEach(function(inp){var v=parseInt(inp.value,10);if(v>0)sum+=v;});
     pairsInput.value=sum>0?String(sum):'';
     pairsInput.readOnly=true;
@@ -527,6 +532,16 @@ function renderWIP(c){
       var over=(hasCap&&sum>cap);
       sizeTotalEl.textContent='Selected: '+sum+' pair'+(sum===1?'':'s')+(hasCap?(' — this stage can take '+cap):'');
       sizeTotalEl.style.color=over?'var(--fos-danger)':(sum>0?'var(--fos-accent)':'var(--fos-ink-secondary)');
+      // Annotate when the stage cap is tighter than the size-run remainders.
+      var totalRem=0;inputs.forEach(function(inp){totalRem+=parseInt(inp.dataset.remaining,10)||0;});
+      if(capNoteEl){
+        if(hasCap&&cap<totalRem){
+          capNoteEl.style.display='block';
+          capNoteEl.textContent='Note: "left" figures are the order plan ('+totalRem+' un-issued). The previous stage has only passed enough for '+cap+' pair'+(cap===1?'':'s')+' right now — that limit applies.';
+        } else {
+          capNoteEl.style.display='none';
+        }
+      }
     }
   }
 
