@@ -278,10 +278,14 @@ function submitRequest(type, details) {
   }
 }
 
+// S.6: locked — approval
 function processRequest(rowNum, action, notes) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only Ayush can approve' };
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss  = SpreadsheetApp.openById(SHEET_ID);
     var rq  = ss.getSheetByName('REQUESTS');
     var row = rq.getRange(rowNum, 1, 1, 10).getValues()[0];
@@ -385,13 +389,20 @@ function processRequest(rowNum, action, notes) {
     SpreadsheetApp.flush();
     clearDashCache_();
     return { success:true, action:action, sheetCreated:sheetCreated };
-  } catch(e) { return { success:false, error:e.message }; }
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
+// S.6: locked — approval
 function rejectRequest(reqId, remark) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only Ayush can reject' };
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var rq = ss.getSheetByName('REQUESTS');
     if (!rq || rq.getLastRow() < 4) return { success:false, error:'No requests found' };
@@ -409,13 +420,20 @@ function rejectRequest(reqId, remark) {
       }
     }
     return { success:false, error:'Request not found: ' + reqId };
-  } catch(e) { return { success:false, error:e.message }; }
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
+// S.6: locked — approval
 function approveEditRequest(reqId) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only Ayush can approve' };
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var rq = ss.getSheetByName('REQUESTS');
     if (!rq || rq.getLastRow() < 4) return { success:false, error:'No requests found' };
@@ -441,13 +459,20 @@ function approveEditRequest(reqId) {
     SpreadsheetApp.flush();
     clearDashCache_();
     return { success:true };
-  } catch(e) { return { success:false, error:e.message }; }
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
+// S.6: locked — approval
 function approveSetupEditRequest(reqId) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success: false, error: 'Only Ayush can approve' };
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var rq = ss.getSheetByName('REQUESTS');
     if (!rq || rq.getLastRow() < 4) return { success: false, error: 'No requests found' };
@@ -475,5 +500,8 @@ function approveSetupEditRequest(reqId) {
     SpreadsheetApp.flush();
     clearDashCache_();
     return { success: true };
-  } catch(e) { return { success: false, error: e.message }; }
+    } catch(e) { return { success: false, error: e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }

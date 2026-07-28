@@ -28,13 +28,17 @@ function getCurrentWeek() {
   return { weekStart:weekStart, weekEnd:weekEnd, weekLabel:'Week ending '+weekEnd };
 }
 
+// S.6: locked — writer
 function setCustomWeek(startDate, endDate) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only Ayush can set the week' };
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var tz = Session.getScriptTimeZone();
   var now = Utilities.formatDate(new Date(), tz, 'dd-MMM-yyyy HH:mm');
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var cfg = ss.getSheetByName('CONFIG');
     if (!cfg) {
       cfg = ss.insertSheet('CONFIG');
@@ -54,7 +58,10 @@ function setCustomWeek(startDate, endDate) {
     cfg.getRange(endRow,   1, 1, 3).setValues([['CURRENT_WEEK_END',   endDate,   now]]);
     SpreadsheetApp.flush();
     return { success:true, weekStart:startDate, weekEnd:endDate };
-  } catch(e) { return { success:false, error:e.message }; }
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function getDashboardData(ss) {
@@ -305,6 +312,7 @@ function getDashboardData(ss) {
   return _dashResult;
 }
 
+// S.6: locked — bootstrap (double-checked: fast path when this week's row exists)
 function ensureCurrentPeriod() {
   try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
@@ -320,20 +328,33 @@ function ensureCurrentPeriod() {
     var weekLabel = 'Week ending ' + weekEnd;
     var now = Utilities.formatDate(new Date(), tz, 'dd-MMM-yyyy HH:mm');
     var pp = ss.getSheetByName('PAYMENT_PERIODS');
-    if (!pp) {
-      pp = ss.insertSheet('PAYMENT_PERIODS');
-      pp.getRange(1, 1, 1, 10).setValues([['PeriodID','Type','Label','StartDate','EndDate','Reason','Status','SubmissionRow','ApprovedBy','CreatedAt']]);
-    }
-    if (pp.getLastRow() > 1) {
+    if (pp && pp.getLastRow() > 1) {
       var existing = pp.getRange(2, 1, pp.getLastRow()-1, 1).getValues();
       for (var i = 0; i < existing.length; i++) {
-        if (safeStr(existing[i][0]) === periodId) return;
+        if (safeStr(existing[i][0]) === periodId) return;                   // fast path — no lock
       }
     }
-    pp.getRange(pp.getLastRow() + 1, 1, 1, 10).setValues([[
-      periodId, 'Auto', weekLabel, weekStart, weekEnd, '', 'OPEN', '', '', now
-    ]]);
-    SpreadsheetApp.flush();
+    var lock = LockService.getScriptLock();
+    try {
+      lock.waitLock(10000);
+      pp = ss.getSheetByName('PAYMENT_PERIODS');                            // re-check inside lock
+      if (!pp) {
+        pp = ss.insertSheet('PAYMENT_PERIODS');
+        pp.getRange(1, 1, 1, 10).setValues([['PeriodID','Type','Label','StartDate','EndDate','Reason','Status','SubmissionRow','ApprovedBy','CreatedAt']]);
+      }
+      if (pp.getLastRow() > 1) {
+        var existing2 = pp.getRange(2, 1, pp.getLastRow()-1, 1).getValues();
+        for (var j = 0; j < existing2.length; j++) {
+          if (safeStr(existing2[j][0]) === periodId) return;
+        }
+      }
+      pp.getRange(pp.getLastRow() + 1, 1, 1, 10).setValues([[
+        periodId, 'Auto', weekLabel, weekStart, weekEnd, '', 'OPEN', '', '', now
+      ]]);
+      SpreadsheetApp.flush();
+    } finally {
+      lock.releaseLock();
+    }
   } catch(e) { Logger.log('ensureCurrentPeriod error: ' + e.message); }
 }
 
@@ -456,7 +477,7 @@ function submitPayRun(data) {
   if (!ids.length) return { success:false, error:'No cards selected' };
 
   if (!_isFreePeriod(periodId)) {
-    var lock = LockService.getPublicLock();
+    var lock = LockService.getScriptLock();
     try {
       lock.waitLock(10000);
       var ssA = SpreadsheetApp.openById(SHEET_ID);
@@ -479,11 +500,15 @@ function submitPayRun(data) {
   return { success: failed === 0, paid:paid, failed:failed, totalAmount:totalAmount, periodId:periodId, results:results };
 }
 
+// S.6: locked — writer
 function saveEntry(sheetName, row, contractor, qty, conveyance, remarks, rate, comm, periodId) {
   var user = getUserInfo();
   if (user.role !== 'accounts' && user.role !== 'admin')
     return { success:false, error:'Not authorised' };
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var ws = ss.getSheetByName(sheetName);
     if (!ws) return { success:false, error:'Sheet not found' };
@@ -522,14 +547,21 @@ function saveEntry(sheetName, row, contractor, qty, conveyance, remarks, rate, c
       lotStatus: safeStr(ws.getRange('M7').getValue()),
       thisWeek:  safeNum(ws.getRange('M4').getValue()),
       remaining: safeNum(ws.getRange('M6').getValue()) };
-  } catch(e) { return { success:false, error:e.message }; }
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
+// S.6: locked — writer
 function clearEntry(sheetName, rowNum, activityName) {
   var user = getUserInfo();
   if (user.role !== 'accounts' && user.role !== 'admin')
     return { success:false, error:'Not authorised' };
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var ws = ss.getSheetByName(sheetName);
     if (!ws) return { success:false, error:'Sheet not found' };
@@ -549,14 +581,21 @@ function clearEntry(sheetName, rowNum, activityName) {
     ws.getRange('L'+rowNum).clearContent();
     SpreadsheetApp.flush();
     return { success:true };
-  } catch(e) { return { success:false, error:e.message }; }
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
+// S.6: locked — writer
 function submitArticleEntries(sheetName, periodId) {
   var user = getUserInfo();
   if (user.role !== 'accounts' && user.role !== 'admin')
     return { success:false, error:'Not authorised' };
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var ws = ss.getSheetByName(sheetName);
     if (!ws) return { success:false, error:'Sheet not found' };
@@ -586,14 +625,21 @@ function submitArticleEntries(sheetName, periodId) {
     clearDashCache_();
     notifyNewRequest_(reqId, 'PAYMENT_SUBMISSION', psDetails, user.name, now);
     return { success:true, count:submittedActs.length, reqId:reqId };
-  } catch(e) { return { success:false, error:e.message }; }
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
+// S.6: locked — sequence
 function addContinuationRow(sheetName, activityName, rate, comm, contractor, qty, conveyance, remarks, periodId) {
   var user = getUserInfo();
   if (user.role !== 'accounts' && user.role !== 'admin')
     return { success:false, error:'Not authorised' };
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var ws = ss.getSheetByName(sheetName);
     if (!ws) return { success:false, error:'Sheet not found' };
@@ -622,20 +668,30 @@ function addContinuationRow(sheetName, activityName, rate, comm, contractor, qty
       lotStatus: safeStr(ws.getRange('M7').getValue()),
       thisWeek:  safeNum(ws.getRange('M4').getValue()),
       remaining: safeNum(ws.getRange('M6').getValue()) };
-  } catch(e) { return { success:false, error:e.message }; }
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
+// S.6: locked — writer
 function approveWeek(initials) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only Ayush can approve' };
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss  = SpreadsheetApp.openById(SHEET_ID);
     var wm  = ss.getSheetByName('WEEKLY PAYMENT MASTER');
     var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
     wm.getRange('B57').setValue(initials + ' — ' + now);
     SpreadsheetApp.flush();
     return { success:true };
-  } catch(e) { return { success:false, error:e.message }; }
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function getPaymentSubmissions() {
@@ -697,10 +753,14 @@ function getPaymentSubmissions() {
   } catch(e) { return { submissions:[], pmMap:{} }; }
 }
 
+// S.6: locked — approval
 function approvePaymentSubmission(reqId) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only Ayush can approve' };
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var tz = Session.getScriptTimeZone();
     var now = Utilities.formatDate(new Date(), tz, 'dd-MMM-yyyy HH:mm');
@@ -740,7 +800,10 @@ function approvePaymentSubmission(reqId) {
     SpreadsheetApp.flush();
     clearDashCache_();
     return { success:true, count:approvedCount };
-  } catch(e) { return { success:false, error:e.message }; }
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function getPaymentPeriods() {
@@ -934,7 +997,7 @@ function submitJobCardPayment(data) {
     'Dispatch IN':    'dispatch'
   };
 
-  var lock = LockService.getPublicLock();
+  var lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
     var ss = SpreadsheetApp.openById(SHEET_ID);
@@ -1074,7 +1137,7 @@ function submitCardPayment(data) {
     'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'
   };
 
-  var lock = LockService.getPublicLock();
+  var lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
     var ss = SpreadsheetApp.openById(SHEET_ID);
@@ -1276,7 +1339,7 @@ function getPaymentBatches(filters) {
 }
 
 function approvePaymentBatch(paymentId) {
-  var lock = LockService.getPublicLock();
+  var lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
     var _user = getUserInfo();
@@ -1325,7 +1388,7 @@ function approvePaymentBatch(paymentId) {
 }
 
 function rejectPaymentBatch(paymentId, reason) {
-  var lock = LockService.getPublicLock();
+  var lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
     var _user = getUserInfo();
@@ -1498,7 +1561,7 @@ function submitCardAdvance(data) {
   var periodId  = _resolvePayPeriod(data.periodId);
   if (!jobCardId) return { success:false, error:'jobCardId is required' };
   var MDK = {'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter','Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'};
-  var lock = LockService.getPublicLock();
+  var lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
     var ss = SpreadsheetApp.openById(SHEET_ID);

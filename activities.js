@@ -505,10 +505,14 @@ function getDeptStatusBatch(allSheetNames, requestsData, deptStatusData) {
   return result;
 }
 
+// S.6: locked — writer
 function markDeptSkipped(sheetName, dept) {
   var user = getUserInfo();
   if (user.role !== 'accounts' && user.role !== 'admin') return { success:false, error:'Not authorised' };
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var ds = ss.getSheetByName('DEPT_STATUS');
     if (!ds) {
@@ -530,12 +534,19 @@ function markDeptSkipped(sheetName, dept) {
     ds.appendRow([sheetName, dept, 'SKIPPED', user.name + ' — ' + now]);
     SpreadsheetApp.flush();
     return { success:true };
-  } catch(e) { return { success:false, error:e.message }; }
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
+// S.6: locked — writer
 function submitDeptActivities(sheetName, depts) {
   var user = getUserInfo();
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var rq = ss.getSheetByName('REQUESTS');
     if (!rq) return { success:false, error:'REQUESTS sheet not found' };
@@ -554,7 +565,10 @@ function submitDeptActivities(sheetName, depts) {
     SpreadsheetApp.flush();
     clearDashCache_();
     return { success:true, count:depts.length, reqId:lastReqId };
-  } catch(e) { return { success:false, error:e.message }; }
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function saveActivitySetup(sheet, newActivities, dept) {
@@ -691,9 +705,13 @@ function checkDuplicateRequest(type, subjectKey) {
   } catch(e) { return { isDuplicate: false }; }
 }
 
+// S.6: locked — dedupe
 function requestActivityRateEdit(rowIndex, newRate, newComm, revisionRemark) {
   var user = getUserInfo();
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var dup = checkDuplicateRequest('RATE_EDIT', rowIndex);
     if (dup.isDuplicate) {
       if (dup.status === 'PENDING') return { success:false, error:'A request for this activity is already pending approval. Wait for Ayush to approve or reject it first.' };
@@ -713,12 +731,19 @@ function requestActivityRateEdit(rowIndex, newRate, newComm, revisionRemark) {
     clearDashCache_();
     notifyNewRequest_(reqId, 'RATE_EDIT', payload, user.name, now);
     return { success:true, reqId:reqId };
-  } catch(e) { return { success:false, error:e.message }; }
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
+// S.6: locked — dedupe
 function requestActivitySetup(payload, revisionRemark) {
   var user = getUserInfo();
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     // Block if already APPROVED for this order+dept
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var rqChk = ss.getSheetByName('REQUESTS');
@@ -792,7 +817,10 @@ function requestActivitySetup(payload, revisionRemark) {
     try { CacheService.getScriptCache().remove('entryData_' + CONFIG.ENV); } catch(ce) {}
     clearDashCache_();
     return { success:true, reqId:lastReqId, count:items.length };
-  } catch(e) { return { success:false, error:e.message }; }
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // 8.P2 — Read approved activities from a copy source so Arvind can pre-fill the
@@ -851,9 +879,13 @@ function getActivitiesForCopy(source, mode) {
 // handler), whose order+dept guard matched '' === '' on the missing sheet
 // field and permanently locked every dept (Issue 1, 22-Jul incident).
 // items: [{dept, activityName, rate, comm}]
+// S.6: locked — dedupe
 function requestMasterActivity(items, revisionRemark) {
   var user = getUserInfo();
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     if (!Array.isArray(items)) items = [items];
     var ss = SpreadsheetApp.openById(SHEET_ID);
 
@@ -921,13 +953,20 @@ function requestMasterActivity(items, revisionRemark) {
       notifyNewRequest_(r.reqId, 'MASTER_ACTIVITY', r.details, user.name, now);
     });
     return { success:true, reqId:lastReqId, count:createdReqs.length, skipped:skipped };
-  } catch(e) { return { success:false, error:e.message }; }
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
+// S.6: locked — approval
 function approveRateEdit(requestId) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only Ayush can approve' };
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var rq = ss.getSheetByName('REQUESTS');
     if (!rq || rq.getLastRow() < 4) return { success:false, error:'No requests found' };
@@ -954,11 +993,18 @@ function approveRateEdit(requestId) {
     try { CacheService.getScriptCache().remove('entryData_' + CONFIG.ENV); } catch(ce) {}
     clearDashCache_();
     return { success:true };
-  } catch(e) { return { success:false, error:e.message }; }
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
+// S.6: locked — writer
 function dismissRateEdit(reqId) {
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var rq = ss.getSheetByName('REQUESTS');
     if (!rq || rq.getLastRow() < 4) return { success:false, error:'No requests found' };
@@ -972,5 +1018,8 @@ function dismissRateEdit(reqId) {
       }
     }
     return { success:false, error:'Request not found: ' + reqId };
-  } catch(e) { return { success:false, error:e.message }; }
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }

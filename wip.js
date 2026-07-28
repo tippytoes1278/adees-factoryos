@@ -157,7 +157,7 @@ function getWipEntries(filters, ss) {
 }
 
 function voidWipEntry(wipId) {
-  var lock = LockService.getPublicLock();
+  var lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
     try {
@@ -261,7 +261,7 @@ function migrateWipEntries() {
     'Dispatch':            { store: 'Dispatch Store',          movement: 'Dispatch IN' }
   };
   var NEW_HEADERS = ['WIP_ID','ORDER_REF','WORK_ORDER','STORE','MOVEMENT','ENTRY_TYPE','PAIRS','SUBMITTED_BY','SUBMITTED_AT','PERIOD_ID','STATUS','NOTES','CONTRACTORS','JOB_CARD_REF'];
-  var lock = LockService.getPublicLock();
+  var lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
     try {
@@ -332,22 +332,35 @@ function migrateWipEntriesMenu() {
 
 // ── DAILY REPORTS — Phase 5.3a ────────────────────────────────────────────────
 
+// S.6: locked — bootstrap
 function ensureDailyReportsSheet() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var ws = ss.getSheetByName('DAILY_REPORTS');
-  if (!ws) {
-    ws = ss.insertSheet('DAILY_REPORTS');
-    ws.getRange(1, 1, 1, 7).setValues([[
-      'REPORT_ID', 'DATE', 'SUBMITTED_BY', 'SUBMITTED_AT',
-      'ENTRY_COUNT', 'TOTAL_PAIRS', 'STATUS'
-    ]]);
-    ws.setFrozenRows(1);
+  if (ws) return ws;                                                        // fast path — no lock
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    ws = ss.getSheetByName('DAILY_REPORTS');                                // re-check inside lock
+    if (!ws) {
+      ws = ss.insertSheet('DAILY_REPORTS');
+      ws.getRange(1, 1, 1, 7).setValues([[
+        'REPORT_ID', 'DATE', 'SUBMITTED_BY', 'SUBMITTED_AT',
+        'ENTRY_COUNT', 'TOTAL_PAIRS', 'STATUS'
+      ]]);
+      ws.setFrozenRows(1);
+    }
+    return ws;
+  } finally {
+    lock.releaseLock();
   }
-  return ws;
 }
 
+// S.6: locked — upsert
 function generateDailyReport() {
   try {
+    var lock = LockService.getScriptLock();
+    try {
+      lock.waitLock(10000);
     var email     = Session.getActiveUser().getEmail();
     var todayDate = new Date().toISOString().slice(0, 10);
     var now       = new Date().toISOString();
@@ -392,6 +405,9 @@ function generateDailyReport() {
       dr.appendRow([reportId, todayDate, email, now, entryCount, totalPairs, 'AUTO']);
     }
     SpreadsheetApp.flush();
+    } finally {
+      lock.releaseLock();
+    }
   } catch(e) {}
 }
 

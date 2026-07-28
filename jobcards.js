@@ -1,24 +1,35 @@
 // ── JOB CARDS ─────────────────────────────────────────────────────────────────
 
+// S.6: locked — bootstrap (double-checked: fast path when sheet + headers exist)
 function ensureJobCardsSheet(ss) {
   if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
   var ws = ss.getSheetByName('JOB_CARDS');
-  if (!ws) {
-    ws = ss.insertSheet('JOB_CARDS');
-    // STATUS values: ISSUED | PARTIAL | COMPLETE | PAYMENT_PENDING | PAID | CANCELLED
-    ws.appendRow([
-      'JOB_CARD_ID','ORDER_REF','WORK_ORDER','STORE','MOVEMENT',
-      'CONTRACTOR_ID','PAIRS_ISSUED','PAIRS_RECEIVED','SIZE_BREAKDOWN',
-      'ISSUED_BY','ISSUED_AT','EXPECTED_RETURN','RECEIVED_AT','STATUS','NOTES',
-      'BATCH_ID','ASSIGNMENTS','RECEIVED_BREAKDOWN'
-    ]);
-    ws.setFrozenRows(1);
-  } else {
-    // Label added columns once for sheets that predate them.
-    if (safeStr(ws.getRange(1, 17).getValue()) === '') ws.getRange(1, 17).setValue('ASSIGNMENTS');
-    if (safeStr(ws.getRange(1, 18).getValue()) === '') ws.getRange(1, 18).setValue('RECEIVED_BREAKDOWN');
+  if (ws &&
+      safeStr(ws.getRange(1, 17).getValue()) !== '' &&
+      safeStr(ws.getRange(1, 18).getValue()) !== '') return ws;             // fast path — no lock
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    ws = ss.getSheetByName('JOB_CARDS');                                    // re-check inside lock
+    if (!ws) {
+      ws = ss.insertSheet('JOB_CARDS');
+      // STATUS values: ISSUED | PARTIAL | COMPLETE | PAYMENT_PENDING | PAID | CANCELLED
+      ws.appendRow([
+        'JOB_CARD_ID','ORDER_REF','WORK_ORDER','STORE','MOVEMENT',
+        'CONTRACTOR_ID','PAIRS_ISSUED','PAIRS_RECEIVED','SIZE_BREAKDOWN',
+        'ISSUED_BY','ISSUED_AT','EXPECTED_RETURN','RECEIVED_AT','STATUS','NOTES',
+        'BATCH_ID','ASSIGNMENTS','RECEIVED_BREAKDOWN'
+      ]);
+      ws.setFrozenRows(1);
+    } else {
+      // Label added columns once for sheets that predate them.
+      if (safeStr(ws.getRange(1, 17).getValue()) === '') ws.getRange(1, 17).setValue('ASSIGNMENTS');
+      if (safeStr(ws.getRange(1, 18).getValue()) === '') ws.getRange(1, 18).setValue('RECEIVED_BREAKDOWN');
+    }
+    return ws;
+  } finally {
+    lock.releaseLock();
   }
-  return ws;
 }
 
 function issueJobCard(data) {
@@ -53,6 +64,13 @@ function issueJobCard(data) {
   // per-size balance corruption seen on trial cards (breakdown 60 vs 30 issued).
   var _sbSum = 0; Object.keys(sizeBreakdown || {}).forEach(function(_k){ _sbSum += safeNum(sizeBreakdown[_k]); });
   if (_sbSum > 0 && _sbSum !== pairsIssued) return { success: false, error: 'Size breakdown totals ' + _sbSum + ' but pairs issued is ' + pairsIssued + ' — they must match.' };
+
+  // S.6: lock acquired BEFORE the cap/validation reads below — with the reads
+  // outside the lock, two concurrent issues could both pass the cap.
+  var jobCardId;
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
 
   // Check approved activities exist for this order + department
   var deptKey = {
@@ -205,10 +223,6 @@ function issueJobCard(data) {
     }
   }
 
-  var jobCardId;
-  var lock = LockService.getPublicLock();
-  try {
-    lock.waitLock(10000);
     var ws       = ensureJobCardsSheet();
     var dataRows = Math.max(0, ws.getLastRow() - 1);
     var nextNum  = dataRows + 1;
@@ -306,6 +320,13 @@ function issueDepartmentJobCard(data) {
   var _sbSum = 0; Object.keys(sizeBreakdown || {}).forEach(function(_k){ _sbSum += safeNum(sizeBreakdown[_k]); });
   if (_sbSum > 0 && _sbSum !== pairs) return { success:false, error:'Size breakdown totals ' + _sbSum + ' but pairs is ' + pairs + ' — they must match.' };
 
+  // S.6: lock acquired BEFORE the rate/cap/size-balance reads below — with the
+  // reads outside the lock, two concurrent issues could both pass the cap.
+  var jobCardId;
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+
   // Resolve approved activity rates for this order + department
   var deptKey = DEPT_KEY[movement] || '';
   var approvedByName = {};
@@ -365,10 +386,6 @@ function issueDepartmentJobCard(data) {
     }
   } catch(e) {}
 
-  var jobCardId;
-  var lock = LockService.getPublicLock();
-  try {
-    lock.waitLock(10000);
     var ws       = ensureJobCardsSheet();
     var dataRows = Math.max(0, ws.getLastRow() - 1);
     var nextNum  = dataRows + 1;
@@ -467,15 +484,22 @@ function issueJobCardBatch(data) {
       activityName:   item.activityName
     });
     if (singleResult.success) {
+      // S.6: locked — batch-tag
       try {
-        var ws = ensureJobCardsSheet();
-        var lastRow = ws.getLastRow();
-        var idCol = ws.getRange(2, 1, lastRow-1, 1).getValues();
-        for (var r = 0; r < idCol.length; r++) {
-          if (safeStr(idCol[r][0]).trim() === singleResult.jobCardId) {
-            ws.getRange(r+2, 16).setValue(batchId); // column P
-            break;
+        var tagLock = LockService.getScriptLock();
+        try {
+          tagLock.waitLock(10000);
+          var ws = ensureJobCardsSheet();
+          var lastRow = ws.getLastRow();
+          var idCol = ws.getRange(2, 1, lastRow-1, 1).getValues();
+          for (var r = 0; r < idCol.length; r++) {
+            if (safeStr(idCol[r][0]).trim() === singleResult.jobCardId) {
+              ws.getRange(r+2, 16).setValue(batchId); // column P
+              break;
+            }
           }
+        } finally {
+          tagLock.releaseLock();
         }
       } catch(tagErr) {}
       results.push({ activityName: item.activityName, jobCardId: singleResult.jobCardId, success: true });
@@ -509,7 +533,7 @@ function receiveJobCard(data) {
   var orderRef, workOrder, store, inMovement, contractorId;
   var pairsIssued, effectivePairs, newReceived, newStatus;
 
-  var lock = LockService.getPublicLock();
+  var lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
     var ws      = ensureJobCardsSheet();
@@ -697,7 +721,7 @@ function adminEditJobCard(data) {
   if (!ov.success) return { success:false, error: ov.error || 'Override not verified' };
   var jobCardId = safeStr(data.jobCardId).trim();
   if (!jobCardId) return { success:false, error:'jobCardId is required' };
-  var lock = LockService.getPublicLock();
+  var lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
     var ws = ensureJobCardsSheet();
@@ -906,7 +930,7 @@ function getMaxIssuableForStage(orderRef, movement) {
 // falls back safely). Idempotent; skips CANCELLED. Pass a spreadsheet to target a
 // specific environment (see runLiveJobCardMigration); defaults to the ENV sheet.
 function repairMismatchedSizeBreakdowns(ss) {
-  var lock = LockService.getPublicLock();
+  var lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
     var ws = ensureJobCardsSheet(ss);

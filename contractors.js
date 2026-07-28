@@ -21,11 +21,15 @@ function getContractorsData(ss) {
   } catch(e) { return { success: false, error: e.message, contractors: [] }; }
 }
 
+// S.6: locked — sequence
 function saveContractor(payload) {
   var user = getUserInfo();
   if (user.role !== 'accounts' && user.role !== 'admin')
     return { success: false, error: 'Not authorised' };
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var mc = ss.getSheetByName('MASTER_CONTRACTORS');
     if (!mc) return { success: false, error: 'MASTER_CONTRACTORS sheet not found' };
@@ -75,7 +79,10 @@ function saveContractor(payload) {
     SpreadsheetApp.flush();
     try { CacheService.getScriptCache().remove('contractorsScreen_' + CONFIG.ENV); } catch(ce) {}
     return { success: true, ctrId: nextCtrId };
-  } catch(e) { return { success: false, error: e.message }; }
+    } catch(e) { return { success: false, error: e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function getContractors(ss) {
@@ -103,8 +110,12 @@ function getContractors(ss) {
   }
 }
 
+// S.6: locked — sequence
 function assignContractorIds() {
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var mc = ss.getSheetByName('MASTER_CONTRACTORS');
     if (!mc) return { success: false, error: 'MASTER_CONTRACTORS sheet not found' };
@@ -169,9 +180,12 @@ function assignContractorIds() {
     var dupMsg = duplicateRowNum > 0 ? 'row ' + duplicateRowNum + ' marked INACTIVE' : 'none found';
     Logger.log('assignContractorIds done — assigned: ' + counter + ', duplicate: ' + dupMsg);
     return { success: true, assigned: counter, duplicate: dupMsg };
-  } catch(e) {
-    Logger.log('assignContractorIds error: ' + e.message);
-    return { success: false, error: e.message };
+    } catch(e) {
+      Logger.log('assignContractorIds error: ' + e.message);
+      return { success: false, error: e.message };
+    }
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -181,10 +195,14 @@ function assignContractorIds() {
 // left untouched and reported for manual review. Pass dryRun=true to preview with
 // NO writes. Handles both the primary CONTRACTOR_ID (col F) and the ASSIGNMENTS JSON
 // (col Q). Idempotent — safe to re-run (CTR-IDs are skipped).
+// S.6: locked — migration (locked even on dryRun so previews see a stable sheet)
 function migrateJobCardContractors(dryRun, targetEnv) {
   var u = getUserInfo();
   if (u.role !== 'admin') return { success:false, error:'Not authorised' };
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var _sid = (targetEnv === 'LIVE') ? CONFIG.LIVE_SHEET_ID
              : (targetEnv === 'DEV')  ? CONFIG.DEV_SHEET_ID
              : SHEET_ID;
@@ -252,8 +270,11 @@ function migrateJobCardContractors(dryRun, targetEnv) {
     Logger.log('migrateJobCardContractors ' + (dryRun ? '(dry-run) ' : '') +
                '— updated: ' + report.updated + ', ok: ' + report.alreadyOk + ', unmatched: ' + report.unmatched.length);
     return report;
-  } catch(e) {
-    return { success:false, error:e.message };
+    } catch(e) {
+      return { success:false, error:e.message };
+    }
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -277,18 +298,27 @@ function migrateJCContractorsApplyLive() {
 }
 function migrateJCContractorsApplyDev() { _jcMigReport(migrateJobCardContractors(false, 'DEV'), 'Applied — DEV'); }
 
+// S.6: locked — bootstrap
 function ensureEnrollmentsSheet() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var ws = ss.getSheetByName('CONTRACTOR_ENROLLMENTS');
-  if (!ws) {
-    ws = ss.insertSheet('CONTRACTOR_ENROLLMENTS');
-    ws.getRange(1, 1, 1, 7).setValues([[
-      'ENROLLMENT_ID', 'CONTRACTOR_ID', 'CONTRACTOR_NAME',
-      'DEPARTMENT', 'ENROLLED_BY', 'ENROLLED_AT', 'STATUS'
-    ]]);
-    ws.setFrozenRows(1);
+  if (ws) return ws;                                                        // fast path — no lock
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    ws = ss.getSheetByName('CONTRACTOR_ENROLLMENTS');                       // re-check inside lock
+    if (!ws) {
+      ws = ss.insertSheet('CONTRACTOR_ENROLLMENTS');
+      ws.getRange(1, 1, 1, 7).setValues([[
+        'ENROLLMENT_ID', 'CONTRACTOR_ID', 'CONTRACTOR_NAME',
+        'DEPARTMENT', 'ENROLLED_BY', 'ENROLLED_AT', 'STATUS'
+      ]]);
+      ws.setFrozenRows(1);
+    }
+    return ws;
+  } finally {
+    lock.releaseLock();
   }
-  return ws;
 }
 
 function enrollContractor(data) {
@@ -296,7 +326,7 @@ function enrollContractor(data) {
     'Cutting', 'Preparation', 'Fitter',
     'Lasting/Pasting', 'Finishing/Packing', 'Dispatch'
   ];
-  const lock = LockService.getPublicLock();
+  const lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
     try {
@@ -346,7 +376,7 @@ function enrollContractor(data) {
 }
 
 function unenrollContractor(enrollmentId) {
-  const lock = LockService.getPublicLock();
+  const lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
     try {
@@ -445,13 +475,17 @@ function _contractorNameById(ss, ctrId) {
 }
 
 // Soft-delete: set status (col D) to INACTIVE. Reversible via reactivateContractor.
+// S.6: locked — writer
 function deleteContractor(payload) {
   var user = getUserInfo();
   if (user.role !== 'accounts' && user.role !== 'admin')
     return { success: false, error: 'Not authorised' };
   var ctrId = safeStr(payload && payload.ctrId).trim();
   if (!ctrId) return { success: false, error: 'ctrId is required' };
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var mc = ss.getSheetByName('MASTER_CONTRACTORS');
     if (!mc) return { success: false, error: 'MASTER_CONTRACTORS sheet not found' };
@@ -475,16 +509,23 @@ function deleteContractor(payload) {
     SpreadsheetApp.flush();
     try { CacheService.getScriptCache().remove('contractorsScreen_' + CONFIG.ENV); } catch(ce) {}
     return { success: true };
-  } catch(e) { return { success: false, error: e.message }; }
+    } catch(e) { return { success: false, error: e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
+// S.6: locked — writer
 function reactivateContractor(payload) {
   var user = getUserInfo();
   if (user.role !== 'accounts' && user.role !== 'admin')
     return { success: false, error: 'Not authorised' };
   var ctrId = safeStr(payload && payload.ctrId).trim();
   if (!ctrId) return { success: false, error: 'ctrId is required' };
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var mc = ss.getSheetByName('MASTER_CONTRACTORS');
     if (!mc) return { success: false, error: 'MASTER_CONTRACTORS sheet not found' };
@@ -494,7 +535,10 @@ function reactivateContractor(payload) {
     SpreadsheetApp.flush();
     try { CacheService.getScriptCache().remove('contractorsScreen_' + CONFIG.ENV); } catch(ce) {}
     return { success: true };
-  } catch(e) { return { success: false, error: e.message }; }
+    } catch(e) { return { success: false, error: e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -505,32 +549,50 @@ function reactivateContractor(payload) {
    Requires the drive.file OAuth scope (added to appsscript.json).
    ═══════════════════════════════════════════════════════════════════════════ */
 
+// S.6: locked — bootstrap
 function ensureContractorProfileSheet(ss) {
   if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
   var ws = ss.getSheetByName('CONTRACTOR_PROFILE');
-  if (!ws) {
-    ws = ss.insertSheet('CONTRACTOR_PROFILE');
-    ws.getRange(1, 1, 1, 11).setValues([[
-      'CONTRACTOR_ID', 'ADDRESS', 'AADHAAR_NO', 'PAN_NO', 'BANK_NAME',
-      'BANK_ACCOUNT', 'IFSC', 'ALT_PHONE', 'NOTES', 'UPDATED_BY', 'UPDATED_AT'
-    ]]);
-    ws.setFrozenRows(1);
+  if (ws) return ws;                                                        // fast path — no lock
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    ws = ss.getSheetByName('CONTRACTOR_PROFILE');                           // re-check inside lock
+    if (!ws) {
+      ws = ss.insertSheet('CONTRACTOR_PROFILE');
+      ws.getRange(1, 1, 1, 11).setValues([[
+        'CONTRACTOR_ID', 'ADDRESS', 'AADHAAR_NO', 'PAN_NO', 'BANK_NAME',
+        'BANK_ACCOUNT', 'IFSC', 'ALT_PHONE', 'NOTES', 'UPDATED_BY', 'UPDATED_AT'
+      ]]);
+      ws.setFrozenRows(1);
+    }
+    return ws;
+  } finally {
+    lock.releaseLock();
   }
-  return ws;
 }
 
+// S.6: locked — bootstrap
 function ensureContractorDocsSheet(ss) {
   if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
   var ws = ss.getSheetByName('CONTRACTOR_DOCS');
-  if (!ws) {
-    ws = ss.insertSheet('CONTRACTOR_DOCS');
-    ws.getRange(1, 1, 1, 9).setValues([[
-      'DOC_ID', 'CONTRACTOR_ID', 'DOC_TYPE', 'FILE_NAME', 'FILE_URL',
-      'FILE_ID', 'UPLOADED_BY', 'UPLOADED_AT', 'STATUS'
-    ]]);
-    ws.setFrozenRows(1);
+  if (ws) return ws;                                                        // fast path — no lock
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    ws = ss.getSheetByName('CONTRACTOR_DOCS');                              // re-check inside lock
+    if (!ws) {
+      ws = ss.insertSheet('CONTRACTOR_DOCS');
+      ws.getRange(1, 1, 1, 9).setValues([[
+        'DOC_ID', 'CONTRACTOR_ID', 'DOC_TYPE', 'FILE_NAME', 'FILE_URL',
+        'FILE_ID', 'UPLOADED_BY', 'UPLOADED_AT', 'STATUS'
+      ]]);
+      ws.setFrozenRows(1);
+    }
+    return ws;
+  } finally {
+    lock.releaseLock();
   }
-  return ws;
 }
 
 // Root Drive folder for all contractor docs, kept separate per environment.
@@ -602,13 +664,17 @@ function getContractorProfile(contractorId) {
   } catch(e) { return { success: false, error: e.message }; }
 }
 
+// S.6: locked — upsert
 function saveContractorProfile(payload) {
   var user = getUserInfo();
   if (user.role !== 'accounts' && user.role !== 'admin')
     return { success: false, error: 'Not authorised' };
   var ctrId = safeStr(payload && payload.contractorId).trim();
   if (!ctrId) return { success: false, error: 'contractorId is required' };
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var ps = ensureContractorProfileSheet(ss);
     var now = new Date().toISOString();
@@ -629,15 +695,22 @@ function saveContractorProfile(payload) {
     SpreadsheetApp.flush();
     try { CacheService.getScriptCache().remove('contractorsScreen_' + CONFIG.ENV); } catch(ce) {}
     return { success: true };
-  } catch(e) { return { success: false, error: e.message }; }
+    } catch(e) { return { success: false, error: e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // Upload one document. payload: { contractorId, docType, fileName, mimeType, dataBase64 }
+// S.6: locked — sequence
 function uploadContractorDoc(payload) {
   var user = getUserInfo();
   if (user.role !== 'accounts' && user.role !== 'admin')
     return { success: false, error: 'Not authorised' };
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ctrId    = safeStr(payload && payload.contractorId).trim();
     var docType  = safeStr(payload && payload.docType).trim() || 'Other';
     var fileName = safeStr(payload && payload.fileName).trim() || 'document';
@@ -667,17 +740,24 @@ function uploadContractorDoc(payload) {
       docId: docId, contractorId: ctrId, docType: docType, fileName: fileName,
       url: file.getUrl(), uploadedBy: user.email, uploadedAt: nowIso
     }};
-  } catch(e) { return { success: false, error: e.message }; }
+    } catch(e) { return { success: false, error: e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // Soft-delete a document row and move the Drive file to trash.
+// S.6: locked — writer
 function deleteContractorDoc(payload) {
   var user = getUserInfo();
   if (user.role !== 'accounts' && user.role !== 'admin')
     return { success: false, error: 'Not authorised' };
   var docId = safeStr(payload && payload.docId).trim();
   if (!docId) return { success: false, error: 'docId is required' };
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var ws = ensureContractorDocsSheet(ss);
     if (ws.getLastRow() < 2) return { success: false, error: 'Document not found' };
@@ -692,7 +772,10 @@ function deleteContractorDoc(payload) {
       }
     }
     return { success: false, error: 'Document not found' };
-  } catch(e) { return { success: false, error: e.message }; }
+    } catch(e) { return { success: false, error: e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // S.9: set of every CTR-ID in MASTER_CONTRACTORS (any status). Used by job-card

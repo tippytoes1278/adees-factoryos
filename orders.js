@@ -1,7 +1,11 @@
+// S.6: locked — writer
 function deleteOrder(sheetName) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Only Ayush can delete orders' };
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var ws = ss.getSheetByName(sheetName);
     if (!ws) return { success:false, error:'Sheet not found: '+sheetName };
@@ -30,7 +34,10 @@ function deleteOrder(sheetName) {
       return { success:true, warning:'Sheet deleted, but stale rows remain in: '+failures.join('; ') };
     }
     return { success:true };
-  } catch(e) { return { success:false, error:e.message }; }
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // Next free ART-### computed from live sheet names (monotonic: max+1,
@@ -48,7 +55,11 @@ function nextArtName_(ss) {
 // was deleted — unlocked, computed ART numbers pre-write, and had no callers.
 // createOrder (locked, live-sheet numbering) is the ONLY creation path.
 
+// S.6: locked — rebuild (returns a string; errors propagate, lock still released)
 function createArtTemplate() {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var existing = ss.getSheetByName('ART-TEMPLATE');
   if (existing) ss.deleteSheet(existing);
@@ -84,6 +95,9 @@ function createArtTemplate() {
   ws.getRange('L18').setValue('BRAND');
   ws.getRange('Q2').setFormula('=M4');
   return 'ART-TEMPLATE created';
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function searchTS(query) {
@@ -109,8 +123,12 @@ function searchTS(query) {
   } catch(e) { Logger.log('searchTS error: ' + e.message); return []; }
 }
 
+// S.6: locked — sequence
 function createTS(styleName, category, season, activities) {
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var user = getUserInfo();
     var tm = ss.getSheetByName('TS_MASTER');
@@ -122,7 +140,10 @@ function createTS(styleName, category, season, activities) {
     tm.getRange(lastRow + 1, 1, 1, 9).setValues([[tsNumber, styleName, category||'', season||'SS26', '', '', JSON.stringify(activities||[]), new Date(), user.name]]);
     SpreadsheetApp.flush();
     return { success:true, tsNumber:tsNumber };
-  } catch(e) { return { success:false, error:e.message }; }
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function createOrder(payload) {
@@ -456,12 +477,16 @@ function verifyAdminOverride(password) {
 // Admin override (7.1): edit an order's details directly, gated by the override
 // password. Updates lot size (ART H2), customer (ART E2 + trackers), and/or the
 // size run (ORDER_INDEX col Q JSON). Only the fields provided are changed.
+// S.6: locked — writer
 function adminEditOrder(data) {
   var ov = verifyAdminOverride(data.overridePassword);
   if (!ov.success) return { success:false, error: ov.error || 'Override not verified' };
   var sheetName = safeStr(data.sheetName).trim();
   if (!sheetName) return { success:false, error:'sheetName is required' };
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var ss  = SpreadsheetApp.openById(SHEET_ID);
     var art = ss.getSheetByName(sheetName);
     if (!art) return { success:false, error:'Order sheet not found: ' + sheetName };
@@ -537,11 +562,18 @@ function adminEditOrder(data) {
     SpreadsheetApp.flush();
     ['dashboardData_', 'storeScreenData_', 'entryData_'].forEach(function(k){ try { CacheService.getScriptCache().remove(k + CONFIG.ENV); } catch(e) {} });
     return { success:true, changed:changed };
-  } catch(e) { return { success:false, error:e.message }; }
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
 }
 
+// S.6: locked — migration
 function backfillOrderSizes(targetEnv) {
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(10000);
+    try {
     var _sid = (targetEnv === 'LIVE') ? CONFIG.LIVE_SHEET_ID
              : (targetEnv === 'DEV')  ? CONFIG.DEV_SHEET_ID
              : SHEET_ID;
@@ -581,8 +613,11 @@ function backfillOrderSizes(targetEnv) {
     });
     SpreadsheetApp.flush();
     return { success: true, updated: updated, skipped: skipped, env: (targetEnv || CONFIG.ENV) };
-  } catch(e) {
-    return { success: false, error: e.message };
+    } catch(e) {
+      return { success: false, error: e.message };
+    }
+  } finally {
+    lock.releaseLock();
   }
 }
 
