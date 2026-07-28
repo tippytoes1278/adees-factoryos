@@ -15,22 +15,38 @@ function onOpen() {
 
 // ── WIP ENTRIES — Phase 5.1 ───────────────────────────────────────────────────
 
+// S.8: this helper must NEVER destroy data. The old version clearContents()-ed
+// the whole sheet whenever A1 wasn't 'WIP_ID' — so one manual header edit (a
+// sort including row 1, an inserted column) wiped the entire WIP history on the
+// next app load, from a READ path, silently. Now: fast path returns untouched;
+// a wrong header on a sheet WITH data throws (surfaces to the user, touches
+// nothing); headers are only written to a missing or genuinely empty sheet,
+// inside a lock with a re-check (double-checked so read traffic isn't serialized).
 function ensureWipEntriesSheet() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
-  var ws = ss.getSheetByName('WIP_ENTRIES');
   var NEW_HEADERS = ['WIP_ID','ORDER_REF','WORK_ORDER','STORE','MOVEMENT','ENTRY_TYPE','PAIRS','SUBMITTED_BY','SUBMITTED_AT','PERIOD_ID','STATUS','NOTES','CONTRACTORS','JOB_CARD_REF'];
-  if (!ws) {
-    ws = ss.insertSheet('WIP_ENTRIES');
-    ws.getRange(1, 1, 1, 14).setValues([NEW_HEADERS]);
-    ws.setFrozenRows(1);
-  } else {
-    if (safeStr(ws.getRange(1, 1).getValue()) !== 'WIP_ID') {
-      ws.clearContents();
+  var ws = ss.getSheetByName('WIP_ENTRIES');
+  if (ws && safeStr(ws.getRange(1, 1).getValue()) === 'WIP_ID') return ws;   // fast path — no lock
+  if (ws && ws.getLastRow() > 1) {
+    throw new Error('WIP sheet header mismatch — the WIP_ENTRIES sheet has data but its header row is wrong. Nothing was changed. Call Ayush.');
+  }
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    ws = ss.getSheetByName('WIP_ENTRIES');                                    // re-check inside lock
+    if (!ws) {
+      ws = ss.insertSheet('WIP_ENTRIES');
       ws.getRange(1, 1, 1, 14).setValues([NEW_HEADERS]);
       ws.setFrozenRows(1);
+    } else if (safeStr(ws.getRange(1, 1).getValue()) !== 'WIP_ID') {
+      if (ws.getLastRow() > 1) throw new Error('WIP sheet header mismatch — the WIP_ENTRIES sheet has data but its header row is wrong. Nothing was changed. Call Ayush.');
+      ws.getRange(1, 1, 1, 14).setValues([NEW_HEADERS]);                      // genuinely empty: bootstrap only
+      ws.setFrozenRows(1);
     }
+    return ws;
+  } finally {
+    lock.releaseLock();
   }
-  return ws;
 }
 
 function saveWipEntry(data, status) {
@@ -39,7 +55,13 @@ function saveWipEntry(data, status) {
     'Lasting & Packing Store':  ['Upper IN','Lasting IN','Lasting OUT','Packing IN','Packing OUT'],
     'Dispatch Store':           ['Dispatch IN','Dispatch OUT']
   };
-  var lock = LockService.getPublicLock();
+  // Convention (S.8/S.6): ensure* helpers are called BEFORE taking the writer's
+  // lock — they self-lock their one-time mutation paths, and nesting script
+  // locks has undefined reentrancy semantics in Apps Script.
+  var _wsEnsured;
+  try { _wsEnsured = ensureWipEntriesSheet(); }
+  catch(ee) { return { success:false, error: ee.message }; }
+  var lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
     try {
@@ -66,9 +88,17 @@ function saveWipEntry(data, status) {
       status = status || 'SUBMITTED';
       var entryType = movement.slice(-2) === 'IN' ? 'IN' : 'OUT';
 
-      var ws = ensureWipEntriesSheet();
-      var dataRows = Math.max(0, ws.getLastRow() - 1);
-      var nextNum  = dataRows + 1;
+      var ws = _wsEnsured;
+      // S.8: next WIP-ID = max existing numeric suffix + 1 (monotonic, survives
+      // row deletions). The old row-count scheme reissued IDs after any delete.
+      var maxWipSeq = 0;
+      if (ws.getLastRow() > 1) {
+        ws.getRange(2, 1, ws.getLastRow() - 1, 1).getValues().forEach(function(r) {
+          var m = safeStr(r[0]).match(/^WIP-\d{4}-(\d+)$/);
+          if (m) { var n = parseInt(m[1], 10) || 0; if (n > maxWipSeq) maxWipSeq = n; }
+        });
+      }
+      var nextNum  = maxWipSeq + 1;
       var year     = new Date().getFullYear();
       var wipId    = 'WIP-' + year + '-' + (String(nextNum).padStart ? String(nextNum).padStart(3,'0') : ('00'+nextNum).slice(-3));
 
@@ -395,3 +425,38 @@ function getDailyReports(filters) {
   }
 }
 
+
+// S.8 read-only diagnostic. Run from the editor: Run > auditWipEntries.
+// Reports WIP-ID sequence health (duplicates, gaps, restarts), timestamp order,
+// and header state. Writes nothing. Targets the ENV sheet (flip ENV to audit LIVE,
+// or pass SpreadsheetApp.openById(CONFIG.LIVE_SHEET_ID)).
+function auditWipEntries(ss) {
+  if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
+  var report = { sheet: ss.getName(), headerOk:false, rows:0, maxSeq:0,
+                 duplicateIds:[], gaps:[], outOfOrderTimestamps:[], legacyContractorNames:0 };
+  var ws = ss.getSheetByName('WIP_ENTRIES');
+  if (!ws) { report.error = 'WIP_ENTRIES sheet not found'; Logger.log(JSON.stringify(report)); return report; }
+  report.headerOk = safeStr(ws.getRange(1,1).getValue()) === 'WIP_ID';
+  var lastRow = ws.getLastRow();
+  report.rows = Math.max(0, lastRow - 1);
+  if (lastRow < 2) { Logger.log(JSON.stringify(report)); return report; }
+  var rows = ws.getRange(2, 1, lastRow-1, 13).getValues();
+  var seen = {}, seqs = [], prevTs = '';
+  rows.forEach(function(r, i) {
+    var id = safeStr(r[0]).trim();
+    if (seen[id]) report.duplicateIds.push(id); else seen[id] = true;
+    var m = id.match(/^WIP-\d{4}-(\d+)$/);
+    if (m) { var n = parseInt(m[1],10)||0; seqs.push(n); if (n > report.maxSeq) report.maxSeq = n; }
+    var ts = safeStr(r[8]);
+    if (prevTs && ts && ts < prevTs) report.outOfOrderTimestamps.push('row ' + (i+2) + ' (' + id + ')');
+    if (ts) prevTs = ts;
+    // contractors column should hold CTR-ids; count legacy free-text names
+    safeStr(r[12]).split(',').forEach(function(c){ c = c.trim(); if (c && !/^CTR-/.test(c)) report.legacyContractorNames++; });
+  });
+  seqs.sort(function(a,b){ return a-b; });
+  for (var g = 1; g < seqs.length; g++)
+    if (seqs[g] - seqs[g-1] > 1) report.gaps.push((seqs[g-1]+1) + '–' + (seqs[g]-1));
+  Logger.log('auditWipEntries → ' + JSON.stringify(report, null, 2));
+  return report;
+}
+function auditWipEntriesLive() { return auditWipEntries(SpreadsheetApp.openById(CONFIG.LIVE_SHEET_ID)); }
