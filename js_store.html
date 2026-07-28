@@ -785,9 +785,10 @@ function renderJobCards(c){
 
       // Receive form or complete indicator
       if(st==='ISSUED'||st==='PARTIAL'){
-        // Per-size receive: a FULL receive doesn't ask for sizes (they're the
-        // remaining un-received sizes); a PARTIAL receive reveals a size grid so
-        // the store records which sizes actually came back.
+        // Per-size receive (8.B2): EVERY receive on a sized card records which
+        // sizes came back. The grid is always visible, pre-filled with the
+        // remaining un-received sizes and editable — no silent auto-fill. The
+        // server rejects sized receives without a matching breakdown.
         var issuedSb=jc.sizeBreakdown||{}, recvdSb=jc.receivedBreakdown||{};
         var sizeKeys=Object.keys(issuedSb).filter(function(k){return safeNum(issuedSb[k])>0;}).sort(function(a,b){return parseFloat(a)-parseFloat(b);});
         var remPerSize={}; sizeKeys.forEach(function(k){remPerSize[k]=Math.max(0,safeNum(issuedSb[k])-safeNum(recvdSb[k]));});
@@ -803,14 +804,14 @@ function renderJobCards(c){
 
         var _sizeInputs=[], _gridWrap=null, _gridTotalEl=null;
         if(hasSizes){
-          _gridWrap=el('div',{style:'display:none;margin-top:8px;padding:8px;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:10px'});
-          _gridWrap.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-bottom:6px',text:'Partial receive — enter how many of each size came back:'}));
+          _gridWrap=el('div',{style:'display:block;margin-top:8px;padding:8px;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:10px'});
+          _gridWrap.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-bottom:6px',text:'Enter how many of each size came back:'}));
           var _grid=el('div',{style:'overflow-x:auto'}); var _gridRow=el('div',{style:'display:inline-flex;gap:6px;min-width:min-content'});
           sizeKeys.forEach(function(k){
             var remR=remPerSize[k];
             var col=el('div',{style:'display:flex;flex-direction:column;align-items:center;gap:3px'});
             col.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);font-weight:600',text:k}));
-            var inp=el('input');inp.type='number';inp.min='0';inp.step='1';inp.value='0';
+            var inp=el('input');inp.type='number';inp.min='0';inp.step='1';inp.value=String(remR);
             inp.style.cssText='width:50px;padding:5px 4px;border:1px solid var(--fos-border);border-radius:8px;font-size:13px;text-align:center;background:var(--fos-surface);color:var(--fos-ink)';
             (function(inp,remR){inp.oninput=function(){var v=parseInt(inp.value,10);if(isNaN(v)||v<0){v=0;inp.value='0';}if(v>remR){inp.value=String(remR);toast('Only '+remR+' of this size left',true);}_updGrid();};})(inp,remR);
             col.appendChild(inp);
@@ -824,8 +825,9 @@ function renderJobCards(c){
         }
         function _gridSum(){var s=0;_sizeInputs.forEach(function(o){var v=parseInt(o.inp.value,10);if(v>0)s+=v;});return s;}
         function _updGrid(){if(!_gridTotalEl)return;var need=parseInt(rcvInput.value,10)||0,s=_gridSum();_gridTotalEl.textContent='Sizes total: '+s+' / '+need;_gridTotalEl.style.color=(s===need)?'var(--fos-success)':'var(--fos-danger)';}
-        function _syncGrid(){if(!_gridWrap)return;var v=parseInt(rcvInput.value,10)||0;if(v>0&&v<balance){_gridWrap.style.display='block';_updGrid();}else{_gridWrap.style.display='none';}}
+        function _syncGrid(){if(!_gridWrap)return;var v=parseInt(rcvInput.value,10)||0;if(v>0){_gridWrap.style.display='block';_updGrid();}else{_gridWrap.style.display='none';}}
         rcvInput.oninput=_syncGrid;
+        _syncGrid();
 
         (function(cardId,bal,btn){
           btn.onclick=function(){
@@ -833,8 +835,9 @@ function renderJobCards(c){
             if(!v||v<=0||v>bal){toast('Enter a valid quantity (max '+bal+' pairs)',true);return;}
             var rsb=null;
             if(hasSizes){
-              if(v===bal){ rsb={}; sizeKeys.forEach(function(k){ if(remPerSize[k]>0) rsb[k]=remPerSize[k]; }); }
-              else { rsb={}; var s=0; _sizeInputs.forEach(function(o){var q=parseInt(o.inp.value,10);if(q>0){rsb[o.size]=q;s+=q;}}); if(s!==v){toast('Enter which sizes make up the '+v+' pairs (must total '+v+')',true);return;} }
+              rsb={}; var s=0;
+              _sizeInputs.forEach(function(o){var q=parseInt(o.inp.value,10);if(q>0){rsb[o.size]=q;s+=q;}});
+              if(s!==v){toast('Sizes must total '+v+' pairs — currently '+s,true);return;}
             }
             btn.disabled=true;btn.textContent='...';
             var payload={jobCardId:cardId,pairsReceived:v,notes:''};
@@ -894,6 +897,27 @@ function renderJobCards(c){
         var prW=el('div',{style:'flex:1'});prW.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'Pairs received'}));
         var prI=el('input',{type:'number',style:_oin});prI.value=jc.pairsReceived||0;prW.appendChild(prI);
         pairRow.appendChild(piW);pairRow.appendChild(prW);ovForm.appendChild(pairRow);
+        // Sized card: the override follows the same rule as a normal receive (8.B2) —
+        // editing pairs received requires the absolute received-per-size split too.
+        var ovSizeInputs=[];
+        var _ovIsb=jc.sizeBreakdown||{};
+        var _ovIsbKeys=Object.keys(_ovIsb).filter(function(k){return safeNum(_ovIsb[k])>0;}).sort(function(a,b){return parseFloat(a)-parseFloat(b);});
+        if(_ovIsbKeys.length){
+          ovForm.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'Received per size (must total pairs received)'}));
+          var _ovRb=jc.receivedBreakdown||{};
+          var ovSzWrap=el('div',{style:'overflow-x:auto;margin-bottom:8px'});
+          var ovSzRow=el('div',{style:'display:inline-flex;gap:6px;min-width:min-content;padding-top:4px'});
+          _ovIsbKeys.forEach(function(k){
+            var col=el('div',{style:'display:flex;flex-direction:column;align-items:center;gap:3px'});
+            col.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);font-weight:600',text:k}));
+            var inp=el('input');inp.type='number';inp.min='0';inp.step='1';inp.value=String(safeNum(_ovRb[k])||0);
+            inp.style.cssText='width:50px;padding:5px 4px;border:1px solid var(--fos-border);border-radius:8px;font-size:13px;text-align:center;background:var(--fos-surface);color:var(--fos-ink)';
+            col.appendChild(inp);
+            col.appendChild(el('div',{style:'font-size:10px;color:var(--fos-ink-secondary)',text:'of '+safeNum(_ovIsb[k])}));
+            ovSzRow.appendChild(col);ovSizeInputs.push({size:k,inp:inp});
+          });
+          ovSzWrap.appendChild(ovSzRow);ovForm.appendChild(ovSzWrap);
+        }
         ovForm.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'Status'}));
         var stSel=el('select',{style:_oin});
         ['ISSUED','PARTIAL','COMPLETE','PAYMENT_PENDING','PAID','CANCELLED'].forEach(function(sv){var o=document.createElement('option');o.value=sv;o.textContent=sv;if(sv===(jc.status||'').toUpperCase())o.selected=true;stSel.appendChild(o);});
@@ -912,6 +936,10 @@ function renderJobCards(c){
           } else if(ctrSelects[0].sel.value){payload.contractorId=ctrSelects[0].sel.value;}
           if(piI.value!=='')payload.pairsIssued=parseInt(piI.value,10);
           if(prI.value!=='')payload.pairsReceived=parseInt(prI.value,10);
+          if(ovSizeInputs.length&&payload.pairsReceived!==undefined){
+            var ovRb={};ovSizeInputs.forEach(function(o){var q=parseInt(o.inp.value,10);if(q>0)ovRb[o.size]=q;});
+            payload.receivedBreakdown=ovRb;
+          }
           if(stSel.value)payload.status=stSel.value;
           saveO.disabled=true;saveO.textContent='Saving…';
           google.script.run

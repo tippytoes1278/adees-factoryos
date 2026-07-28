@@ -546,9 +546,18 @@ function receiveJobCard(data) {
     // Per-size received breakdown (from the receive form). Must total the pairs
     // credited this event; cumulative per-size receipts can't exceed what was
     // issued. Accumulated into RECEIVED_BREAKDOWN (col 18) across partial receives.
+    // 8.B2: a sized card (non-empty SIZE_BREAKDOWN) must carry a breakdown on
+    // EVERY receive — silently accepting breakdown-less receives is what let
+    // PAIRS_RECEIVED drift from RECEIVED_BREAKDOWN and permanently blocked the
+    // final receive on affected cards.
+    var _issuedSb = {}; try { _issuedSb = JSON.parse(safeStr(row[8])) || {}; } catch(e) {}
+    var _issuedSbHasSizes = Object.keys(_issuedSb).some(function(k){ return safeNum(_issuedSb[k]) > 0; });
+    if (_issuedSbHasSizes && !receivedSizeBreakdown) {
+      return { success:false, error:'This job card tracks sizes — the receive must include a per-size breakdown totalling ' +
+               effectivePairs + ' pairs. If you don\'t see the size panel, reload the app (an old version may be open).' };
+    }
     var mergedRcvSb = null;
     if (receivedSizeBreakdown) {
-      var _issuedSb = {}; try { _issuedSb = JSON.parse(safeStr(row[8])) || {}; } catch(e) {}
       var _existSb  = {}; try { _existSb  = JSON.parse(safeStr(ws.getRange(sheetRow, 18).getValue())) || {}; } catch(e) {}
       var _rsum = 0; Object.keys(receivedSizeBreakdown).forEach(function(k){ _rsum += safeNum(receivedSizeBreakdown[k]); });
       if (_rsum !== effectivePairs)
@@ -719,7 +728,29 @@ function adminEditJobCard(data) {
     }
     if (data.pairsReceived !== undefined && safeStr(data.pairsReceived) !== '') {
       var prc = safeNum(data.pairsReceived);
-      if (prc >= 0) { ws.getRange(sheetRow, 8).setValue(prc); changed.push('pairsReceived=' + prc); }  // PAIRS_RECEIVED
+      if (prc >= 0) {
+        // 8.B2: on a sized card the override follows the same rule as a normal
+        // receive — the new total must arrive with its absolute per-size split,
+        // which REPLACES RECEIVED_BREAKDOWN (col 18).
+        var _isb = {}; try { _isb = JSON.parse(safeStr(rows[idx][8])) || {}; } catch(e) {}
+        var _isbHasSizes = Object.keys(_isb).some(function(k){ return safeNum(_isb[k]) > 0; });
+        if (_isbHasSizes) {
+          var rb = (data.receivedBreakdown && typeof data.receivedBreakdown === 'object') ? data.receivedBreakdown : null;
+          if (!rb) return { success:false, error:'This card tracks sizes — send receivedBreakdown (received per size, totalling ' + prc + ').' };
+          var rbSum = 0, rbBad = '', rbClean = {};
+          Object.keys(rb).forEach(function(k){
+            var q = safeNum(rb[k]);
+            if (q <= 0) return;
+            rbClean[k] = q; rbSum += q;
+            if (q > safeNum(_isb[k])) rbBad = k;
+          });
+          if (rbSum !== prc) return { success:false, error:'Received size breakdown totals ' + rbSum + ' but pairs received is ' + prc + ' — they must match.' };
+          if (rbBad)         return { success:false, error:'Received more of size ' + rbBad + ' than was issued.' };
+          ws.getRange(sheetRow, 18).setValue(JSON.stringify(rbClean));   // RECEIVED_BREAKDOWN
+          changed.push('receivedBreakdown');
+        }
+        ws.getRange(sheetRow, 8).setValue(prc); changed.push('pairsReceived=' + prc);  // PAIRS_RECEIVED
+      }
     }
 
     // Status
