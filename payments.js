@@ -135,9 +135,12 @@ function getDashboardData(ss) {
   try {
     var rq = ss.getSheetByName('REQUESTS');
     if (rq && rq.getLastRow() > 3) {
-      var rqData = rq.getRange(4, 6, rq.getLastRow()-3, 1).getValues();
+      // Count exactly what the Requests tab lists (S.4): a row needs a REQ id
+      // (getPendingRequests drops id-less rows) and a normalized PENDING status.
+      var rqData = rq.getRange(4, 1, rq.getLastRow()-3, 6).getValues();
       rqData.forEach(function(r){
-        if (safeStr(r[0]).toUpperCase() === 'PENDING') pendingCount++;
+        if (!safeStr(r[0]).trim()) return;
+        if (safeStr(r[5]).trim().toUpperCase() === 'PENDING') pendingCount++;
       });
     }
   } catch(e) { Logger.log('RQ error: ' + e.message); }

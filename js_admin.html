@@ -144,7 +144,7 @@ function renderAdminHome(c){
   }
 
   // 3c. Pending Approvals — with age (days since submitted)
-  var preqs=(D.reqs&&Array.isArray(D.reqs.requests)?D.reqs.requests:[]).filter(function(r){return (r.status||'').toUpperCase()==='PENDING';});
+  var preqs=(D.reqs&&Array.isArray(D.reqs.requests)?D.reqs.requests:[]).filter(function(r){return (r.status||'').trim().toUpperCase()==='PENDING';});
   if(preqs.length){
     c.appendChild(sectionTitle('Pending Approvals'));
     var apCard=el('div',{cls:'fos-card'});
@@ -624,7 +624,7 @@ function doApprove(){
 function renderRequests(c){
   c.innerHTML='';
   var reqs=D.reqs&&D.reqs.requests?D.reqs.requests:[];
-  var pending=reqs.filter(function(r){return r.status==='PENDING';});
+  var pending=reqs.filter(function(r){return (r.status||'').trim().toUpperCase()==='PENDING';});
   c.appendChild(sectionTitle('Pending Requests ('+pending.length+')'));
   if(!pending.length){c.appendChild(alert_('green','All clear','No pending requests'));return;}
   pending.forEach(function(r){
