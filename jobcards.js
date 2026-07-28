@@ -43,6 +43,9 @@ function issueJobCard(data) {
   if (!STORE_MOVEMENT_MAP[store])                                                   return { success: false, error: 'Invalid store: ' + store };
   if (STORE_MOVEMENT_MAP[store].indexOf(movement) < 0)                             return { success: false, error: 'Invalid movement for store: ' + movement };
   if (!contractorId)                                                                return { success: false, error: 'contractorId is required' };
+  // S.9: contractor identity must be a real CTR-ID — a name or typo here is how
+  // payments end up unattributable.
+  if (!/^CTR-\d+$/.test(contractorId) || !_validContractorIds_()[contractorId])     return { success: false, error: 'Unknown contractor id "' + contractorId + '" — reload the app and pick the contractor again.' };
   if (!pairsIssued || pairsIssued <= 0 || Math.floor(pairsIssued) !== pairsIssued) return { success: false, error: 'pairsIssued must be a positive integer' };
   if (!expectedReturn)                                                              return { success: false, error: 'expectedReturn is required' };
 
@@ -320,10 +323,12 @@ function issueDepartmentJobCard(data) {
 
   // Normalise assignments; every activity must be approved and have a contractor
   var normAssign = [];
+  var _ctrIdSet = _validContractorIds_();   // S.9: every assignment must carry a real CTR-ID
   for (var i = 0; i < assignments.length; i++) {
     var an  = safeStr(assignments[i].activityName || assignments[i].activity).trim();
     var cid = safeStr(assignments[i].contractorId).trim();
     if (!an || !cid) continue;
+    if (!/^CTR-\d+$/.test(cid) || !_ctrIdSet[cid]) return { success:false, error:'Unknown contractor id "' + cid + '" on activity ' + an + ' — reload the app and pick the contractor again.' };
     var meta = approvedByName[an];
     if (!meta) return { success:false, error:'Activity not approved for this department: ' + an };
     normAssign.push({ activity:an, contractorId:cid, rate:meta.rate, comm:meta.comm });
@@ -706,18 +711,26 @@ function adminEditJobCard(data) {
     var changed = [];
 
     // Reassign contractors (department card): full assignments array replaces col 17
+    var _ctrIdSetAE = _validContractorIds_();   // S.9: overrides can't introduce unknown contractor ids either
     if (Array.isArray(data.assignments) && data.assignments.length) {
       var norm = data.assignments.map(function(a) {
         return { activity: safeStr(a.activity || a.activityName), contractorId: safeStr(a.contractorId).trim(),
                  rate: safeNum(a.rate), comm: safeNum(a.comm) };
       }).filter(function(a){ return a.contractorId; });
+      for (var _vi = 0; _vi < norm.length; _vi++) {
+        if (!/^CTR-\d+$/.test(norm[_vi].contractorId) || !_ctrIdSetAE[norm[_vi].contractorId])
+          return { success:false, error:'Unknown contractor id "' + norm[_vi].contractorId + '" — reload and pick the contractor again.' };
+      }
       if (norm.length) {
         ws.getRange(sheetRow, 17).setValue(JSON.stringify(norm));   // ASSIGNMENTS
         ws.getRange(sheetRow, 6).setValue(norm[0].contractorId);    // CONTRACTOR_ID (display fallback)
         changed.push('contractors');
       }
     } else if (data.contractorId !== undefined && safeStr(data.contractorId).trim()) {
-      ws.getRange(sheetRow, 6).setValue(safeStr(data.contractorId).trim());
+      var _aeCid = safeStr(data.contractorId).trim();
+      if (!/^CTR-\d+$/.test(_aeCid) || !_ctrIdSetAE[_aeCid])
+        return { success:false, error:'Unknown contractor id "' + _aeCid + '" — reload and pick the contractor again.' };
+      ws.getRange(sheetRow, 6).setValue(_aeCid);
       changed.push('contractor');
     }
 

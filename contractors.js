@@ -4,14 +4,16 @@ function getContractorsData(ss) {
     var mc = ss.getSheetByName('MASTER_CONTRACTORS');
     var contractors = [];
     if (mc && mc.getLastRow() > 3) {
-      mc.getRange(4, 2, mc.getLastRow()-3, 6).getValues().forEach(function(r) {
-        if (!r[0]) return;
+      // S.9: include ctrId (col A) so the client never has to join by name.
+      mc.getRange(4, 1, mc.getLastRow()-3, 7).getValues().forEach(function(r) {
+        if (!r[1]) return;
         contractors.push({
-          name: safeStr(r[0]),
-          paymentMethod: safeStr(r[1]) || 'Cash',
-          status: safeStr(r[2]),
-          dept: safeStr(r[3]),
-          phone: safeStr(r[4])
+          ctrId: safeStr(r[0]).trim(),
+          name: safeStr(r[1]),
+          paymentMethod: safeStr(r[2]) || 'Cash',
+          status: safeStr(r[3]),
+          dept: safeStr(r[4]),
+          phone: safeStr(r[5])
         });
       });
     }
@@ -28,6 +30,26 @@ function saveContractor(payload) {
     var mc = ss.getSheetByName('MASTER_CONTRACTORS');
     if (!mc) return { success: false, error: 'MASTER_CONTRACTORS sheet not found' };
     var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
+    // S.9: refuse a name that duplicates an existing ACTIVE contractor — name
+    // collisions are how payments get mis-attributed. Admin can deliberately
+    // override by resubmitting with allowDuplicateName:true (the client offers
+    // this only to the admin role after the rejection).
+    var newName = safeStr(payload.name).trim();
+    if (!newName) return { success: false, error: 'Contractor name is required' };
+    if (mc.getLastRow() > 3) {
+      var _dupRows = mc.getRange(4, 1, mc.getLastRow()-3, 4).getValues();
+      for (var _di = 0; _di < _dupRows.length; _di++) {
+        var _dn = safeStr(_dupRows[_di][1]).trim();
+        var _dst = safeStr(_dupRows[_di][3]).trim().toUpperCase();
+        if (_dn && _dn.toLowerCase() === newName.toLowerCase() && _dst !== 'INACTIVE') {
+          if (!(payload.allowDuplicateName === true && user.role === 'admin')) {
+            return { success: false, duplicateOf: safeStr(_dupRows[_di][0]).trim(),
+                     error: 'A contractor named "' + _dn + '" already exists (' + safeStr(_dupRows[_di][0]).trim() + '). Use the existing contractor — duplicate names mis-attribute payments.' + (user.role === 'admin' ? '' : ' Only Ayush can override this.') };
+          }
+          break;
+        }
+      }
+    }
     var nextCtrId = 'CTR-001';
     try {
       var mcRows = mc.getLastRow() > 3
@@ -168,14 +190,29 @@ function migrateJobCardContractors(dryRun, targetEnv) {
              : SHEET_ID;
     var ss = SpreadsheetApp.openById(_sid);
     // name(lowercased) → CTR-ID, and set of valid CTR-IDs
-    var nameToId = {}, idSet = {};
+    var nameToId = {}, idSet = {}, _activeByName = {}, _dupActiveNames = [];
     var mc = ss.getSheetByName('MASTER_CONTRACTORS');
     if (mc && mc.getLastRow() >= 4) {
-      mc.getRange(4, 1, mc.getLastRow()-3, 2).getValues().forEach(function(r){
+      mc.getRange(4, 1, mc.getLastRow()-3, 4).getValues().forEach(function(r){
         var id = safeStr(r[0]).trim(), nm = safeStr(r[1]).trim();
-        if (id) { idSet[id] = true; if (nm) nameToId[nm.toLowerCase()] = id; }
+        var st = safeStr(r[3]).trim().toUpperCase();
+        if (id) {
+          idSet[id] = true;
+          if (nm) {
+            var key = nm.toLowerCase();
+            // S.9 hard guard: the name→id map is last-wins, so TWO ACTIVE rows
+            // sharing a name would rewrite cards to the wrong twin's CTR-ID.
+            if (st !== 'INACTIVE') {
+              if (_activeByName[key]) _dupActiveNames.push(nm + ' (' + _activeByName[key] + ' vs ' + id + ')');
+              _activeByName[key] = id;
+            }
+            nameToId[key] = _activeByName[key] || nameToId[key] || id;
+          }
+        }
       });
     }
+    if (_dupActiveNames.length)
+      return { success:false, error:'Refusing to run: duplicate ACTIVE contractor names would make name→ID mapping ambiguous — ' + _dupActiveNames.join('; ') + '. Deactivate or rename the duplicates first.' };
     function resolve(v) {
       var s = safeStr(v).trim();
       if (!s) return { id:s, changed:false, ok:true };
@@ -657,3 +694,62 @@ function deleteContractorDoc(payload) {
     return { success: false, error: 'Document not found' };
   } catch(e) { return { success: false, error: e.message }; }
 }
+
+// S.9: set of every CTR-ID in MASTER_CONTRACTORS (any status). Used by job-card
+// writers to refuse a contractorId that isn't a real contractor (names, typos,
+// stale clients).
+function _validContractorIds_(ss) {
+  if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
+  var idSet = {};
+  try {
+    var mc = ss.getSheetByName('MASTER_CONTRACTORS');
+    if (mc && mc.getLastRow() > 3) {
+      mc.getRange(4, 1, mc.getLastRow()-3, 1).getValues().forEach(function(r){
+        var id = safeStr(r[0]).trim();
+        if (id) idSet[id] = true;
+      });
+    }
+  } catch(e) { Logger.log('_validContractorIds_ error: ' + e.message); }
+  return idSet;
+}
+
+// S.9 read-only diagnostic. Run from the editor: Run > auditContractorNames.
+// Reports duplicate contractor names (grouped, with statuses), plus JOB_CARDS
+// contractor values that aren't valid CTR-IDs. Writes nothing.
+function auditContractorNames(ss) {
+  if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
+  var report = { sheet: ss.getName(), contractors:0, duplicateNames:[], duplicateActiveNames:[], invalidJobCardContractors:[] };
+  try {
+    var byName = {};
+    var mc = ss.getSheetByName('MASTER_CONTRACTORS');
+    if (mc && mc.getLastRow() > 3) {
+      mc.getRange(4, 1, mc.getLastRow()-3, 4).getValues().forEach(function(r){
+        var id = safeStr(r[0]).trim(), nm = safeStr(r[1]).trim();
+        var st = safeStr(r[3]).trim().toUpperCase() || 'ACTIVE';
+        if (!nm) return;
+        report.contractors++;
+        var key = nm.toLowerCase();
+        if (!byName[key]) byName[key] = [];
+        byName[key].push(id + ':' + st);
+      });
+    }
+    Object.keys(byName).forEach(function(k){
+      if (byName[k].length > 1) {
+        report.duplicateNames.push(k + ' → ' + byName[k].join(', '));
+        var actives = byName[k].filter(function(e){ return e.indexOf(':INACTIVE') < 0; });
+        if (actives.length > 1) report.duplicateActiveNames.push(k + ' → ' + actives.join(', '));
+      }
+    });
+    var idSet = _validContractorIds_(ss);
+    var jc = ss.getSheetByName('JOB_CARDS');
+    if (jc && jc.getLastRow() > 1) {
+      jc.getRange(2, 1, jc.getLastRow()-1, 6).getValues().forEach(function(r){
+        var jcId = safeStr(r[0]).trim(), cid = safeStr(r[5]).trim();
+        if (jcId && cid && !idSet[cid]) report.invalidJobCardContractors.push(jcId + ' → "' + cid + '"');
+      });
+    }
+  } catch(e) { report.error = e.message; }
+  Logger.log('auditContractorNames → ' + JSON.stringify(report, null, 2));
+  return report;
+}
+function auditContractorNamesLive() { return auditContractorNames(SpreadsheetApp.openById(CONFIG.LIVE_SHEET_ID)); }

@@ -1128,20 +1128,29 @@ function renderContractors(c){
     var prof={},hasProf=false;
     afFields.forEach(function(f){var v=afProf[f[0]].value.trim();prof[f[0]]=v;if(v)hasProf=true;});
     var _done=function(msg,isErr){afSub.disabled=false;afSub.textContent='Add Contractor';toast(msg,isErr);D.ctrs=null;D.contractors=null;D.enrollments=null;loadTab('contractors');};
-    google.script.run
-      .withSuccessHandler(function(r){
-        if(r&&r.success){
-          if(hasProf&&r.ctrId){
-            prof.contractorId=r.ctrId;
-            google.script.run
-              .withSuccessHandler(function(){_done('Contractor added');})
-              .withFailureHandler(function(){_done('Contractor added (details save failed — edit from card)',true);})
-              .saveContractorProfile(prof);
-          } else {_done('Contractor added');}
-        } else {afSub.disabled=false;afSub.textContent='Add Contractor';toast((r&&r.error)||'Error',true);}
-      })
-      .withFailureHandler(function(){afSub.disabled=false;afSub.textContent='Add Contractor';toast('Error',true);})
-      .saveContractor({name:nm,dept:'',paymentMethod:afPM.value,phone:afPhone.value.trim()});
+    // S.9: server rejects a name that duplicates an ACTIVE contractor. Only the
+    // admin role is offered a deliberate override (confirm → resubmit with flag).
+    var _sendCtr=function(payload){
+      google.script.run
+        .withSuccessHandler(function(r){
+          if(r&&r.success){
+            if(hasProf&&r.ctrId){
+              prof.contractorId=r.ctrId;
+              google.script.run
+                .withSuccessHandler(function(){_done('Contractor added');})
+                .withFailureHandler(function(){_done('Contractor added (details save failed — edit from card)',true);})
+                .saveContractorProfile(prof);
+            } else {_done('Contractor added');}
+          } else if(r&&r.duplicateOf&&USER&&USER.role==='admin'&&!payload.allowDuplicateName){
+            if(window.confirm((r.error||'Duplicate name.')+'\n\nAdd a SECOND contractor with this name anyway?')){
+              payload.allowDuplicateName=true;_sendCtr(payload);
+            } else {afSub.disabled=false;afSub.textContent='Add Contractor';}
+          } else {afSub.disabled=false;afSub.textContent='Add Contractor';toast((r&&r.error)||'Error',true);}
+        })
+        .withFailureHandler(function(){afSub.disabled=false;afSub.textContent='Add Contractor';toast('Error',true);})
+        .saveContractor(payload);
+    };
+    _sendCtr({name:nm,dept:'',paymentMethod:afPM.value,phone:afPhone.value.trim()});
   };
   addWrap.appendChild(addBtn);addWrap.appendChild(addForm);c.appendChild(addWrap);
 
@@ -1150,11 +1159,10 @@ function renderContractors(c){
   if(!ctrs.length){c.appendChild(el('div',{style:'color:var(--fos-ink-secondary);padding:40px;text-align:center',text:'No contractors yet'}));return;}
 
   var _DEPT_OPT=['Cutting','Preparation','Fitter','Lasting/Pasting','Finishing/Packing','Dispatch'];
-  var ctrIdByName={};
-  (D.contractors||[]).forEach(function(ct){ctrIdByName[ct.name.trim()]=ct.ctrId;});
+  // S.9: ctrId now comes from the server on each contractor — never join by name.
 
   ctrs.forEach(function(ct){
-    var ctrId=ctrIdByName[ct.name.trim()]||'';
+    var ctrId=ct.ctrId||'';
     var card=el('div',{style:'background:var(--fos-surface);border-radius:12px;padding:16px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.06)'});
 
     // Top row: CTR-ID + name + badge + actions
