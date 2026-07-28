@@ -23,6 +23,10 @@ function buildAdminOrderRow(o){
   var bClass=over?'red':done?'green':rem>0?'blue':'grey';
   var bText=over?'OVER':done?'COMPLETE':rem>0?(rem+' left'):'NO LOT';
   hdr.appendChild(el('span',{cls:'badge '+bClass,text:bText}));
+  // Collapse indicator — same ▶/▼ convention as the Stage Progress toggle,
+  // so open/closed state is visible and consistent across order cards.
+  var caret=el('span',{style:'font-size:10px;color:var(--fos-ink-secondary);margin-left:6px;flex-shrink:0',text:'▶'});
+  hdr.appendChild(caret);
   var det=el('div',{style:'display:none;padding:8px 0 4px;font-size:12px'});
   if(o.deptBreakdown&&o.deptBreakdown.length){
     o.deptBreakdown.forEach(function(d){
@@ -38,7 +42,7 @@ function buildAdminOrderRow(o){
       dr.appendChild(right);det.appendChild(dr);
     });
   }
-  hdr.onclick=function(){det.style.display=det.style.display==='none'?'block':'none';};
+  hdr.onclick=function(){var opening=det.style.display==='none';det.style.display=opening?'block':'none';caret.textContent=opening?'▼':'▶';};
   wrap.appendChild(hdr);wrap.appendChild(det);
   var _admProg={loaded:false};
   var admTgl=el('div',{style:'font-size:0.8rem;color:var(--fos-accent);cursor:pointer;user-select:none;margin-top:6px'});
@@ -107,7 +111,11 @@ function renderAdminHome(c){
     var opBtn=el('button',{style:'padding:6px 12px;background:none;color:var(--fos-accent);border:1px solid var(--fos-border);border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;margin-bottom:12px',text:'🖨 Order Progress Report'});
     opBtn.onclick=function(){
       var rows=d.orders.map(function(o){
-        return '<tr><td>'+_esc(o.article||o.sheet||'')+(o.customer?' · '+_esc(o.customer):'')+'</td><td class="rt">'+safeNum(o.orderQty)+'</td><td class="rt">'+safeNum(o.cumul)+'</td><td class="rt">'+safeNum(o.remaining)+'</td><td>'+_esc(o.status||'')+'</td></tr>';
+        // Status display rule: OVER only when paid > lot; paid = lot is COMPLETE.
+        // (The raw ORDER_TRACKER status column says OVER at equality — display only.)
+        var _q=safeNum(o.orderQty),_cu=safeNum(o.cumul);
+        var _st=(_q>0&&_cu>_q)?'OVER':(_q>0&&_cu===_q)?'COMPLETE':(o.status||'');
+        return '<tr><td>'+_esc(o.article||o.sheet||'')+(o.customer?' · '+_esc(o.customer):'')+'</td><td class="rt">'+_q+'</td><td class="rt">'+_cu+'</td><td class="rt">'+safeNum(o.remaining)+'</td><td>'+_esc(_st)+'</td></tr>';
       }).join('');
       printDoc('Order Progress Report',
         '<table><tr><th>Article / Order</th><th class="rt">Lot</th><th class="rt">Produced</th><th class="rt">Remaining</th><th>Status</th></tr>'+rows+'</table>');
@@ -389,7 +397,7 @@ function renderApprove(c){
           ai.appendChild(el('div',{style:'font-weight:600;color:var(--fos-ink)',text:act.activity}));
           ai.appendChild(el('div',{style:'font-size:10px;color:var(--fos-ink-secondary)',text:act.contractor+(pmMap[act.contractor]?' · '+pmMap[act.contractor]:'')}));
           aRow.appendChild(ai);
-          aRow.appendChild(el('div',{style:'color:var(--fos-ink-secondary);font-size:11px',text:'₹'+act.rate+(act.comm?'+'+act.comm:'')}));
+          aRow.appendChild(el('div',{style:'color:var(--fos-ink-secondary);font-size:11px',text:'₹'+act.rate+(act.comm?' + ₹'+act.comm+' comm':'')}));
           aRow.appendChild(el('div',{style:'color:var(--fos-ink)',text:String(act.qty)}));
           aRow.appendChild(el('div',{style:'color:var(--fos-ink-secondary);font-size:11px',text:act.conv?'₹'+act.conv:'—'}));
           aRow.appendChild(el('div',{style:'color:var(--fos-success);font-weight:700',text:fmt(act.total)}));
