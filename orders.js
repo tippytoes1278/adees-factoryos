@@ -44,94 +44,9 @@ function nextArtName_(ss) {
   return 'ART-' + n;
 }
 
-function createNewArtSheet(detailsStr) {
-  var ss = SpreadsheetApp.openById(SHEET_ID);
-  var parse = function(key) {
-    var m = detailsStr.match(new RegExp(key + ':\\s*([^|]+)'));
-    return m ? m[1].trim() : '';
-  };
-  var orderId  = parse('OrderID') || ('ADE-' + Utilities.formatDate(new Date(),Session.getScriptTimeZone(),'yyMM') + '-NEW');
-  var article  = parse('Article');
-  var color    = parse('Color');
-  var customer = parse('Customer');
-  var brand    = parse('Brand') || customer;
-  var lot      = parseInt(parse('Lot')) || 0;
-  var artType  = parse('Type');
-  var material = parse('Material');
-  var season   = parse('Season');
-  var month    = parse('Month');
-
-  var newName = nextArtName_(ss);
-
-  var template = ss.getSheetByName('ART-TEMPLATE') || ss.getSheetByName('ART-001');
-  var newSheet = template.copyTo(ss);
-  try {
-    newSheet.setName(newName);
-  } catch(nameErr) {
-    // Name collision: clean up the stranded template copy before rethrowing.
-    try { ss.deleteSheet(newSheet); } catch(delErr) {}
-    throw nameErr;
-  }
-
-  newSheet.getRange('C5:D49').clearContent();
-  newSheet.getRange('H5:H49').clearContent();
-  newSheet.getRange('J5:J49').clearContent();
-  newSheet.getRange('B5:B49').clearContent();
-  newSheet.getRange('E5:E49').clearContent();
-  newSheet.getRange('F5:F49').clearContent();
-
-  newSheet.getRange('B2').setValue(article + (color?' - '+color:''));
-  newSheet.getRange('E2').setValue(customer);
-  newSheet.getRange('H2').setValue(lot);
-  newSheet.getRange('J2').setValue(Utilities.formatDate(new Date(),Session.getScriptTimeZone(),'dd-MMM-yyyy'));
-  newSheet.getRange('M14').setValue(orderId);
-  newSheet.getRange('M15').setValue(color);
-  newSheet.getRange('M16').setValue(season);
-  newSheet.getRange('M17').setValue(month);
-  newSheet.getRange('M18').setValue(brand);
-  if(artType)  newSheet.getRange('M11').setValue(artType);
-  if(material) newSheet.getRange('M12').setValue(material);
-
-  // Add formulas for totals
-  for (var r = 5; r <= 49; r++) {
-    newSheet.getRange('G'+r).setFormula('=IF(D'+r+'="",0,D'+r+'*F'+r+')');
-    newSheet.getRange('I'+r).setFormula('=IF(D'+r+'="",0,(D'+r+'*E'+r+')+G'+r+'+IF(H'+r+'="",0,H'+r+'))');
-  }
-
-  updateTrackers(ss, newName, orderId, article, color, customer, brand, season, month, lot);
-  SpreadsheetApp.flush();
-  return newName;
-}
-
-function updateTrackers(ss, newName, orderId, article, color, customer, brand, season, month, lot) {
-  var displayName = article + (color?' - '+color:'');
-  try {
-    var oi = ss.getSheetByName('ORDER_INDEX');
-    if (oi) {
-      var oiRow = Math.max(oi.getLastRow(), 3) + 1;
-      oi.getRange(oiRow, 1, 1, 11).setValues([[
-        orderId, newName, article, color, customer, brand, season, month, lot,
-        Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy'), 'Active'
-      ]]);
-    }
-  } catch(e) { Logger.log('OI error: ' + e.message); }
-
-  try {
-    var ot = ss.getSheetByName('ORDER_TRACKER');
-    if (ot) {
-      var otRow = Math.max(ot.getLastRow(), 3) + 1;
-      ot.getRange(otRow, 1, 1, 3).setValues([[newName, displayName, customer]]);
-      ot.getRange(otRow, 4).setFormula("='"+newName+"'!H2");
-      ot.getRange(otRow, 5).setValue(0);
-      ot.getRange(otRow, 6).setFormula("=IFERROR('"+newName+"'!Q2,0)");
-      ot.getRange(otRow, 7).setFormula("=E"+otRow+"+F"+otRow);
-      ot.getRange(otRow, 8).setFormula("=IF(D"+otRow+'="","--",D'+otRow+"-G"+otRow+")");
-      ot.getRange(otRow, 9).setFormula(
-        '=IF(D'+otRow+'="","NO LOT SET",IF(G'+otRow+'>D'+otRow+',"OVER BY "&(G'+otRow+'-D'+otRow+')&" PAIRS",IF(G'+otRow+'=D'+otRow+',"LOT COMPLETE","OK - "&(D'+otRow+'-G'+otRow+')&" LEFT")))');
-    }
-  } catch(e) { Logger.log('OT error: ' + e.message); }
-
-}
+// S.2: the legacy pipe-delimited creation path (createNewArtSheet/updateTrackers)
+// was deleted — unlocked, computed ART numbers pre-write, and had no callers.
+// createOrder (locked, live-sheet numbering) is the ONLY creation path.
 
 function createArtTemplate() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
@@ -300,7 +215,7 @@ function createOrder(payload) {
       var _sizeVals = [23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46].map(function(s){ return parseInt(_sizeRun[String(s)])||0; });
       var _tsParts = safeStr(payload.tsNumber||'').split('-');
       var _season = _tsParts.length >= 2 ? _tsParts[1] : '';
-      // Columns A–K match updateTrackers layout; L–Q are new extended fields; R–AO are size values
+      // Columns A–K match the classic ORDER_INDEX layout; L–Q are new extended fields; R–AO are size values
       oi.getRange(oiRow, 1, 1, 41).setValues([[
         bomNumber, artSheet, safeStr(payload.styleName), safeStr(payload.color),
         safeStr(payload.buyer), safeStr(payload.brand||''), _season, safeStr(payload.deliveryDate||''), lotSize,
