@@ -129,7 +129,7 @@ function issueJobCard(data) {
     var orderActiveDepts = {};
     if (orderActRes && orderActRes.success && Array.isArray(orderActRes.activities)) {
       orderActRes.activities.forEach(function(a) {
-        var dk = safeStr(a.dept).toLowerCase();
+        var dk = deptKeyOf(a.dept); // S.7: canonical short key
         Object.keys(STAGE_DEPT_KEY).forEach(function(stageName) {
           if (STAGE_DEPT_KEY[stageName] === dk) orderActiveDepts[stageName] = true;
         });
@@ -850,7 +850,7 @@ function getMaxIssuableForStage(orderRef, movement) {
     var orderActiveDepts = {};
     if (orderActRes && orderActRes.success && Array.isArray(orderActRes.activities)) {
       orderActRes.activities.forEach(function(a) {
-        var dk = safeStr(a.dept).toLowerCase();
+        var dk = deptKeyOf(a.dept); // S.7: canonical short key
         Object.keys(STAGE_DEPT_KEY).forEach(function(stageName) {
           if (STAGE_DEPT_KEY[stageName] === dk) orderActiveDepts[stageName] = true;
         });

@@ -1156,8 +1156,10 @@ function getContractorAccount(contractorId) {
         try {
           var ar = getApprovedActivitiesForArticle(orderRef, ss);
           if (ar && ar.success && Array.isArray(ar.activities)) {
-            var dk = String(deptLabel).toLowerCase().split('/')[0];
-            ar.activities.filter(function(a){ return !dk || safeStr(a.dept).toLowerCase().indexOf(dk) >= 0; })
+            // S.7: normalize both sides to canonical short keys so display-name
+            // depts ('Finishing/Packing', 'Preparation') match stored activity depts.
+            var dk = deptKeyOf(deptLabel);
+            ar.activities.filter(function(a){ return !dk || deptKeyOf(a.dept) === dk; })
                          .forEach(function(a){ rate += safeNum(a.rate) + safeNum(a.comm); });
           }
         } catch(e) {}

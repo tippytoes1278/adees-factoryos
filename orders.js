@@ -413,7 +413,7 @@ function getOrderSizeBalance(orderRef, movement) {
     var activeDepts = {};
     if (actRes && actRes.success && Array.isArray(actRes.activities)) {
       actRes.activities.forEach(function(a){
-        var dk = safeStr(a.dept).toLowerCase();
+        var dk = deptKeyOf(a.dept); // S.7: canonical short key
         Object.keys(STAGE_DEPT_KEY).forEach(function(s){ if (STAGE_DEPT_KEY[s] === dk) activeDepts[s] = true; });
       });
     }

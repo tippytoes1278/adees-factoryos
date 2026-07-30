@@ -44,6 +44,22 @@ function safeStr(val) {
   return String(val);
 }
 
+// S.7: ONE dept normalization for the whole codebase. Every dept comparison
+// must be deptKeyOf(a) === deptKeyOf(b); dept bucket keys must be deptKeyOf(v).
+// NOT for movement strings ('Upper IN', 'Packing IN' — movement→dept stays an
+// explicit map). Canonical output: the six short keys.
+function deptKeyOf(v) {
+  v = String(v == null ? '' : v).toLowerCase().trim();
+  if (!v) return '';
+  if (v.indexOf('cut')      === 0) return 'cutting';
+  if (v.indexOf('prep')     === 0) return 'prep';
+  if (v.indexOf('fit')      === 0) return 'fitter';
+  if (v.indexOf('last')     === 0) return 'lasting';
+  if (v.indexOf('finish')   === 0 || v.indexOf('pack') === 0) return 'finish';
+  if (v.indexOf('dispatch') === 0) return 'dispatch';
+  return v;
+}
+
 // Server-only. Invalidate the cached dashboard snapshot whenever REQUESTS
 // rows are written or their status changes, so the Home pending-count tile
 // never disagrees with the live Requests tab (Issue 3, 22-Jul incident).

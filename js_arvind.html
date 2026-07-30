@@ -347,7 +347,7 @@ function renderNO_CreateTS(c){
     sec.appendChild(el('div',{style:'font-size:12px;font-weight:500;color:var(--fos-ink-secondary);text-transform:uppercase;margin-bottom:6px',text:dept}));
     var aS=el('select',{style:'width:100%;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:8px;padding:8px 10px;color:var(--fos-ink);font-size:13px;margin-bottom:6px'});
     aS.appendChild(el('option',{text:'Select activity…',value:''}));
-    var dA=MASTER_ACTS.filter(function(ma){return ma.section===DEPT_VAL[dept];});
+    var dA=MASTER_ACTS.filter(function(ma){return deptKeyOf(ma.section)===deptKeyOf(DEPT_VAL[dept]);});
     dA.forEach(function(ma){aS.appendChild(el('option',{text:ma.name,value:ma.name}));});
     sec.appendChild(aS);
     var aB=el('button',{text:'+ Add',style:'background:var(--fos-bg);color:var(--fos-accent);border:1px solid var(--fos-border);font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px;white-space:nowrap;margin-bottom:6px'});
@@ -1684,7 +1684,7 @@ function renderActivitySetup(body,article){
           if(!r||!r.success){toast((r&&r.error)||'Nothing to import',true);return;}
           var added=0,skipped=[];
           Object.keys(r.byDept).forEach(function(sd){
-            var disp=SHORT_TO_DEPT[sd]||'';var adder=disp&&deptAdders[disp];
+            var disp=SHORT_TO_DEPT[deptKeyOf(sd)]||'';var adder=disp&&deptAdders[disp];
             if(!adder){skipped.push(sd);return;}
             r.byDept[sd].forEach(function(a){if(adder(a.activityName,a.rate,a.comm))added++;});
           });
@@ -1745,7 +1745,7 @@ function renderActivitySetup(body,article){
     }
     var actSel=el('select',{style:'width:100%;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:8px;padding:8px 10px;color:var(--fos-ink);font-size:13px;margin-bottom:6px'});
     actSel.appendChild(el('option',{text:'Select activity...',value:''}));
-    var deptActs=MASTER_ACTS.filter(function(ma){return ma.section===DEPT_VAL[dept];});
+    var deptActs=MASTER_ACTS.filter(function(ma){return deptKeyOf(ma.section)===deptKeyOf(DEPT_VAL[dept]);});
     deptActs.forEach(function(ma){actSel.appendChild(el('option',{text:ma.name,value:ma.name}));});
     section.appendChild(actSel);
 
@@ -1814,7 +1814,7 @@ function renderActivitySetup(body,article){
         var byDept={};
         if(r&&r.success&&r.activities){
           r.activities.forEach(function(a){
-            var disp=SHORT_TO_DEPT[(a.dept||'').toString().toLowerCase()]||'';
+            var disp=SHORT_TO_DEPT[deptKeyOf(a.dept)]||'';
             if(!disp)return;
             (byDept[disp]=byDept[disp]||[]).push(a);
           });

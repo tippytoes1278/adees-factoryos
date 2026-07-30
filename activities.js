@@ -171,23 +171,24 @@ function getEntryData(periodId, ss) {
     var perArtMap = articleDeptMaps[art.sheet] || {};
     var deptApproved = {};
     Object.keys(art._aqa || {}).forEach(function(an) {
-      var d = perArtMap[an] || actDeptMap[an] || 'other';
+      // S.7: bucket by canonical short key so 'Finishing', 'Finishing/Packing'
+      // and 'finish' all land in the same bucket.
+      var d = deptKeyOf(perArtMap[an] || actDeptMap[an] || 'other');
       deptApproved[d] = (deptApproved[d] || 0) + (art._aqa[an] || 0);
     });
     var lotSize = oiLotMap[art.sheet] || art.orderQty;
     art.activities.forEach(function(ac) {
       ac.section = perArtMap[ac.activity] || actDeptMap[ac.activity] || '';
       if (lotSize > 0) {
-        var d = perArtMap[ac.activity] || actDeptMap[ac.activity] || 'other';
+        var d = deptKeyOf(perArtMap[ac.activity] || actDeptMap[ac.activity] || 'other'); // S.7
         if (deptApproved[d] && deptApproved[d] >= lotSize) ac.deptLocked = true;
       }
     });
     var deptStatus = _deptStatusBatch[art.sheet] || {};
-    var DS_KEY = {'Cutting':'cutting','Preparation':'prep','Fitter':'fitter','Lasting':'lasting','Finishing':'finish','Dispatch':'dispatch'};
     if (lotSize > 0) {
       Object.keys(deptStatus).forEach(function(dn) {
         if (deptStatus[dn] === 'APPROVED') {
-          var dv = DS_KEY[dn] || dn.toLowerCase();
+          var dv = deptKeyOf(dn); // S.7: buckets above are keyed by deptKeyOf
           if ((deptApproved[dv] || 0) >= lotSize) deptStatus[dn] = 'CAP_REACHED';
         }
       });
@@ -579,7 +580,9 @@ function saveActivitySetup(sheet, newActivities, dept) {
     var ss = SpreadsheetApp.openById(SHEET_ID);
     var ws = ss.getSheetByName(sheet);
     if (!ws) return { success:false, error:'Sheet not found: ' + sheet };
-    var DEPT_ORDER = ['Cutting','Preparation','Fitter','Lasting','Finishing','Dispatch'];
+    // S.7: canonical short-key order — payload depts arrive as display names
+    // ('Finishing') AND short keys ('finish'); deptKeyOf makes both match.
+    var DEPT_ORDER = ['cutting','prep','fitter','lasting','finish','dispatch'];
     var NCOLS = 12;
 
     // Rebuild full activity list from all approved ACTIVITY_SETUP requests for this sheet
@@ -591,15 +594,16 @@ function saveActivitySetup(sheet, newActivities, dept) {
         try {
           var pl = JSON.parse(safeStr(r[4]));
           if (!pl || safeStr(pl.sheet) !== sheet || !pl.dept || !pl.activities) return;
-          if (DEPT_ORDER.indexOf(pl.dept) < 0) return;
-          deptActs[pl.dept] = pl.activities.map(function(a) {
+          var dkey = deptKeyOf(pl.dept);
+          if (DEPT_ORDER.indexOf(dkey) < 0) return;
+          deptActs[dkey] = pl.activities.map(function(a) {
             return { activityName:safeStr(a.activityName), rate:safeNum(a.rate), comm:safeNum(a.comm) };
           });
         } catch(pe) {}
       });
     }
     // Override with the dept currently being approved
-    deptActs[dept] = newActivities.map(function(a) {
+    deptActs[deptKeyOf(dept)] = newActivities.map(function(a) {
       return { activityName:safeStr(a.activityName), rate:safeNum(a.rate), comm:safeNum(a.comm) };
     });
 
@@ -1023,3 +1027,82 @@ function dismissRateEdit(reqId) {
     lock.releaseLock();
   }
 }
+
+// S.7 read-only diagnostic. Run from editor: Run > auditDeptKeys (DEV) or
+// auditDeptKeysLive. Lists every stored dept string that is NOT already a
+// canonical short key, by storage location. Writes nothing.
+function auditDeptKeys(ss) {
+  if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
+  var counts = {};   // "location||rawValue" -> occurrence count
+  function tally(location, v) {
+    v = safeStr(v).trim();
+    if (!v) return;
+    var k = location + '||' + v;
+    counts[k] = (counts[k] || 0) + 1;
+  }
+
+  // 1) MASTER_ACTIVITIES col A (Dept)
+  try {
+    var ma = ss.getSheetByName('MASTER_ACTIVITIES');
+    if (ma && ma.getLastRow() > 1)
+      ma.getRange(2, 1, ma.getLastRow() - 1, 1).getValues().forEach(function(r) {
+        tally('MASTER_ACTIVITIES!A', r[0]);
+      });
+  } catch(e) {}
+
+  // 2) REQUESTS payload dept fields (col E JSON) for setup/master-activity rows
+  try {
+    var rq = ss.getSheetByName('REQUESTS');
+    if (rq && rq.getLastRow() > 3)
+      rq.getRange(4, 1, rq.getLastRow() - 3, 6).getValues().forEach(function(r) {
+        var type = safeStr(r[3]);
+        if (type !== 'ACTIVITY_SETUP' && type !== 'MASTER_ACTIVITY' && type !== 'SETUP_EDIT_REQUEST') return;
+        try {
+          var pl = JSON.parse(safeStr(r[4]));
+          if (!pl) return;
+          if (pl.dept) tally('REQUESTS:' + type + '.dept', pl.dept);
+          if (Array.isArray(pl.activities))
+            pl.activities.forEach(function(a) {
+              if (a && a.dept) tally('REQUESTS:' + type + '.activities[].dept', a.dept);
+            });
+        } catch(pe) {}
+      });
+  } catch(e) {}
+
+  // 3) CONTRACTOR_ENROLLMENTS col D (DEPARTMENT)
+  try {
+    var ce = ss.getSheetByName('CONTRACTOR_ENROLLMENTS');
+    if (ce && ce.getLastRow() > 1)
+      ce.getRange(2, 4, ce.getLastRow() - 1, 1).getValues().forEach(function(r) {
+        tally('CONTRACTOR_ENROLLMENTS!D', r[0]);
+      });
+  } catch(e) {}
+
+  var items = [], totalScanned = 0, totalNonCanonical = 0;
+  Object.keys(counts).forEach(function(k) {
+    var sep = k.indexOf('||');
+    var location = k.slice(0, sep), raw = k.slice(sep + 2);
+    totalScanned += counts[k];
+    var canonical = raw === deptKeyOf(raw);
+    if (canonical) return;                      // only report non-canonical values
+    totalNonCanonical += counts[k];
+    items.push({ location: location, rawValue: raw, count: counts[k],
+                 normalizesTo: deptKeyOf(raw), canonical: canonical });
+  });
+  items.sort(function(a, b) {
+    return a.location === b.location
+      ? (b.count - a.count)
+      : (a.location < b.location ? -1 : 1);
+  });
+
+  var report = {
+    sheetId: ss.getId(),
+    distinctNonCanonicalValues: items.length,
+    totalDeptValuesScanned: totalScanned,
+    totalNonCanonicalOccurrences: totalNonCanonical,
+    items: items
+  };
+  Logger.log(JSON.stringify(report, null, 2));
+  return report;
+}
+function auditDeptKeysLive() { return auditDeptKeys(SpreadsheetApp.openById(CONFIG.LIVE_SHEET_ID)); }

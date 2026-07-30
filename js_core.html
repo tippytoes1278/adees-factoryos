@@ -92,6 +92,19 @@ function fmtPd(ds,yr){
   return dn[d.getDay()]+' '+d.getDate()+' '+mn[d.getMonth()]+(yr?' '+d.getFullYear():'');
 }
 
+// Client copy of server deptKeyOf (config.js) — CLAUDE.md RULE 3.
+function deptKeyOf(v) {
+  v = String(v == null ? '' : v).toLowerCase().trim();
+  if (!v) return '';
+  if (v.indexOf('cut')      === 0) return 'cutting';
+  if (v.indexOf('prep')     === 0) return 'prep';
+  if (v.indexOf('fit')      === 0) return 'fitter';
+  if (v.indexOf('last')     === 0) return 'lasting';
+  if (v.indexOf('finish')   === 0 || v.indexOf('pack') === 0) return 'finish';
+  if (v.indexOf('dispatch') === 0) return 'dispatch';
+  return v;
+}
+
 // ── PIPELINE TRACKER ─────────────────────────────────────────────────────────
 var FOS_PIPELINE_STAGES=[
   {key:'cutting',    label:'Cutting'},
