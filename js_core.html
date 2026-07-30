@@ -197,7 +197,6 @@ window.onload=function(){
 var FOS_ICONS={
   home:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12L12 3l9 9"/><path d="M5 10v9a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1v-9"/></svg>',
   orders:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>',
-  approve:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></svg>',
   payment:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20"/></svg>',
   requests:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>',
   alerts:'<svg viewBox="0 0 24 24" fill="none" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/><circle cx="18" cy="5" r="3" fill="var(--fos-danger)" stroke="none"/></svg>',
@@ -306,26 +305,6 @@ function loadTab(id){
       if(D.dash){renderTab(id);return;}
       showLoading();
       google.script.run.withSuccessHandler(function(d){D.dash=d;renderTab(id);}).withFailureHandler(showErr).getDashboardData();
-    }
-  } else if(id==='approve'){
-    if(D.dash&&D.subs){renderTab(id);return;}
-    showLoading();
-    if(D.dash){
-      google.script.run
-        .withSuccessHandler(function(s){D.subs=s;renderTab(id);})
-        .withFailureHandler(showErr)
-        .getPaymentSubmissions();
-    } else {
-      google.script.run
-        .withSuccessHandler(function(d){
-          D.dash=d;
-          google.script.run
-            .withSuccessHandler(function(s){D.subs=s;renderTab(id);})
-            .withFailureHandler(showErr)
-            .getPaymentSubmissions();
-        })
-        .withFailureHandler(showErr)
-        .getDashboardData();
     }
   } else if(id==='requests'){
     if(D.reqs){renderTab(id);return;}
@@ -518,7 +497,7 @@ function showLoading(){
 
 // Refresh: force reload from server (pull to refresh equivalent)
 function refreshTab(){
-  D.dash=null; D.entry=null; D.wip=null; D.reqs=null; D.subs=null; ENTRY_PERIOD=null; D.ctrs=null; D.myreqs=null; D.contractors=null; D.enrollments=null; D.wipGrid=null; D.jobCards=null; D.orderSizes=null; D.completedJobCards=null; D.advanceable=null; D.payBatches=null;
+  D.dash=null; D.entry=null; D.wip=null; D.reqs=null; ENTRY_PERIOD=null; D.ctrs=null; D.myreqs=null; D.contractors=null; D.enrollments=null; D.wipGrid=null; D.jobCards=null; D.orderSizes=null; D.completedJobCards=null; D.advanceable=null; D.payBatches=null;
   loadTab(TAB);
 }
 
@@ -529,7 +508,6 @@ function renderTab(id){
     else if(USER.role==='accounts')renderArvindHome(c);
     else renderStoreHome(c);
   } else if(id==='orders'){renderOrders(c);}
-  else if(id==='approve'){renderApprove(c);}
   else if(id==='requests'){renderRequests(c);}
   else if(id==='neworder'){renderNewOrder(c);}
   else if(id==='payment'){

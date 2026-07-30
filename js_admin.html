@@ -366,79 +366,7 @@ function renderOrders(c){
   if(!orders.length)c.appendChild(el('div',{style:'color:var(--fos-ink-secondary);padding:20px;text-align:center',text:'Is filter mein koi order nahi hai'}));
 }
 
-// ── APPROVE ───────────────────────────────────────────────────────────────────
-function renderApprove(c){
-  c.innerHTML='';
-  if(!D.dash){c.appendChild(alert_('yellow','Loading...','Tap Refresh'));return;}
-  var d=D.dash;
-  var subs=D.subs&&D.subs.submissions?D.subs.submissions:[];
-  var pmMap=D.subs&&D.subs.pmMap?D.subs.pmMap:{};
-  c.appendChild(sectionTitle('Payment Submissions ('+subs.length+')'));
-  if(!subs.length){
-    c.appendChild(alert_('green','Nothing to approve','No pending payment submissions'));
-  } else {
-    subs.forEach(function(sub){
-      var card=el('div',{cls:'req-card',style:'margin-bottom:12px'});
-      var top=el('div',{style:'display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px'});
-      var tl=el('div');
-      tl.appendChild(el('div',{style:'font-size:14px;font-weight:700;color:var(--fos-ink)',text:sub.article}));
-      tl.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-top:2px',text:(sub.customer?sub.customer+' · ':'')+_periodLabel(sub.periodId)+' · by '+sub.submittedBy}));
-      if(sub.bom)tl.appendChild(el('span',{style:'display:block;font-family:var(--fos-font-mono);font-size:0.72rem;color:var(--fos-ink-secondary);margin-top:2px',text:sub.bom}));
-      top.appendChild(tl);top.appendChild(el('span',{cls:'badge yellow',text:'PENDING'}));
-      card.appendChild(top);
-      if(sub.activities&&sub.activities.length){
-        var tbl=el('div',{style:'margin-bottom:10px'});
-        var hdr=el('div',{style:'display:grid;grid-template-columns:1fr 80px 40px 50px 70px;gap:4px;padding:4px 0;border-bottom:1px solid var(--fos-border);font-size:10px;font-weight:700;color:var(--fos-ink-secondary);text-transform:uppercase'});
-        ['Activity/Ctr','Rate','Qty','Conv','Total'].forEach(function(h){hdr.appendChild(el('div',{text:h}));});
-        tbl.appendChild(hdr);
-        sub.activities.forEach(function(act){
-          var aRow=el('div',{style:'display:grid;grid-template-columns:1fr 80px 40px 50px 70px;gap:4px;padding:5px 0;border-bottom:1px solid var(--fos-border);font-size:12px'});
-          var ai=el('div');
-          ai.appendChild(el('div',{style:'font-weight:600;color:var(--fos-ink)',text:act.activity}));
-          ai.appendChild(el('div',{style:'font-size:10px;color:var(--fos-ink-secondary)',text:act.contractor+(pmMap[act.contractor]?' · '+pmMap[act.contractor]:'')}));
-          aRow.appendChild(ai);
-          aRow.appendChild(el('div',{style:'color:var(--fos-ink-secondary);font-size:11px',text:'₹'+act.rate+(act.comm?' + ₹'+act.comm+' comm':'')}));
-          aRow.appendChild(el('div',{style:'color:var(--fos-ink)',text:String(act.qty)}));
-          aRow.appendChild(el('div',{style:'color:var(--fos-ink-secondary);font-size:11px',text:act.conv?'₹'+act.conv:'—'}));
-          aRow.appendChild(el('div',{style:'color:var(--fos-success);font-weight:700',text:fmt(act.total)}));
-          tbl.appendChild(aRow);
-        });
-        card.appendChild(tbl);
-      }
-      var footer=el('div',{style:'display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:1px solid var(--fos-border)'});
-      footer.appendChild(el('div',{style:'font-size:14px;font-weight:700;color:var(--fos-success)',text:'Total: '+fmt(sub.grandTotal)}));
-      var apBtn=el('button',{cls:'ap-btn',text:'Approve & Lock'});
-      (function(reqId,btn){btn.onclick=function(){
-        btn.disabled=true;btn.textContent='Approving…';
-        google.script.run
-          .withSuccessHandler(function(r){
-            if(r&&r.success){toast('Approved — '+r.count+' rows locked');D.subs=null;D.dash=null;setTimeout(function(){loadTab('approve');},700);}
-            else{toast((r&&r.error)||'Error',true);btn.disabled=false;btn.textContent='Approve & Lock';}
-          })
-          .withFailureHandler(function(){toast('Error',true);btn.disabled=false;btn.textContent='Approve & Lock';})
-          .approvePaymentSubmission(reqId);
-      };})(sub.reqId,apBtn);
-      footer.appendChild(apBtn);
-      card.appendChild(footer);
-      c.appendChild(card);
-    });
-  }
-  c.appendChild(sectionTitle('Weekly Sign-off'));
-  var approved=d.approvalStatus&&d.approvalStatus!=='';
-  var box=el('div',{cls:'approve-section'});
-  box.appendChild(el('div',{cls:'approve-title',text:approved?'Approved':'Awaiting Your Approval'}));
-  box.appendChild(el('div',{cls:'approve-sub',text:approved?d.approvalStatus:('Total: '+fmt(d.weeklyPayout))}));
-  if(!approved){
-    var inp=el('input',{cls:'approve-input',id:'initials',placeholder:'Your initials',maxLength:10,type:'text'});
-    box.appendChild(inp);
-    var btn=el('button',{cls:'approve-btn',text:'Approve & Sign'});btn.onclick=doApprove;box.appendChild(btn);
-  } else {
-    var doneBtn=el('button',{cls:'approve-btn',text:'Signed',style:'opacity:0.5;margin-top:8px'});
-    doneBtn.disabled=true;box.appendChild(doneBtn);
-  }
-  c.appendChild(box);
-  if(d.redCount>0)c.appendChild(alert_('red','Warning: '+d.redCount+' order over lot cap','Review before approving'));
-}
+// S.5: renderApprove/doApprove (orphaned legacy approve tab) deleted.
 
 // Called from js_core.html renderTab for admin 'payment' tab
 function renderAdminPayment(c){
@@ -586,46 +514,8 @@ function renderAdminPayment(c){
     });
   }
 
-  // Section 2: Legacy payment submissions (keep for backward compat)
-  var subs=D.subs&&D.subs.submissions?D.subs.submissions:[];
-  var pending2=subs.filter(function(s){return s.status==='PENDING'||!s.status;});
-  if(pending2.length){
-    c.appendChild(el('div',{style:'height:1px;background:var(--fos-border);margin:20px 0'}));
-    c.appendChild(sectionTitle('Legacy Submissions ('+pending2.length+')'));
-    pending2.forEach(function(sub){
-      var card=el('div',{cls:'req-card',style:'margin-bottom:12px'});
-      card.appendChild(el('div',{style:'font-size:14px;font-weight:500;color:var(--fos-ink)',text:sub.article||sub.sheet}));
-      card.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:sub.periodId?_periodLabel(sub.periodId):''}));
-      card.appendChild(el('div',{style:'font-size:14px;font-weight:700;color:var(--fos-success);margin-top:6px',text:'Total: ₹'+Number(sub.grandTotal||0).toFixed(2)}));
-      var apBtn2=el('button',{cls:'ap-btn',text:'Approve & Lock',style:'margin-top:8px'});
-      (function(reqId,btn){btn.onclick=function(){
-        btn.disabled=true;btn.textContent='Approving…';
-        google.script.run
-          .withSuccessHandler(function(r){
-            if(r&&r.success){toast('Approved');D.subs=null;D.dash=null;setTimeout(function(){loadTab('payment');},700);}
-            else{toast((r&&r.error)||'Error',true);btn.disabled=false;btn.textContent='Approve & Lock';}
-          })
-          .withFailureHandler(function(){toast('Error',true);btn.disabled=false;btn.textContent='Approve & Lock';})
-          .approvePaymentSubmission(reqId);
-      };})(sub.reqId,apBtn2);
-      card.appendChild(apBtn2);
-      c.appendChild(card);
-    });
-  }
-}
-
-function doApprove(){
-  var v=document.getElementById('initials').value.trim();
-  if(!v){toast('Enter your initials',true);return;}
-  var btn=document.querySelector('.approve-btn');
-  btn.textContent='Signing...';btn.disabled=true;
-  google.script.run
-    .withSuccessHandler(function(r){
-      if(r.success){toast('Week approved');setTimeout(function(){loadTab('approve');},800);}
-      else{toast(r.error||'Error',true);btn.disabled=false;btn.textContent='Approve & Sign';}
-    })
-    .withFailureHandler(function(){toast('Error',true);btn.disabled=false;btn.textContent='Approve & Sign';})
-    .approveWeek(v);
+  // S.5: legacy "Legacy Submissions" section deleted — D.subs was only ever
+  // populated by the removed approve tab, so it could never render here.
 }
 
 // ── REQUESTS ──────────────────────────────────────────────────────────────────
@@ -729,9 +619,9 @@ function renderRequests(c){
       (function(reqId){ab4.onclick=function(){doApproveSetupEditRequest(reqId);};})(r.reqId);
       btnsDiv.appendChild(ab4);btnsDiv.appendChild(_rjBtn);
     } else if(r.type==='PAYMENT_SUBMISSION'){
-      var abPs=el('button',{cls:'ap-btn',text:'Approve & Lock'});
-      (function(reqId){abPs.onclick=function(){approvePaymentSubmission(reqId);};})(r.reqId);
-      btnsDiv.appendChild(abPs);btnsDiv.appendChild(_rjBtn);
+      // S.5: approve disabled — the legacy submission chain could pay a contractor twice.
+      det.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-top:6px;padding:6px 8px;background:var(--fos-surface);border-left:3px solid var(--fos-warning);border-radius:0 4px 4px 0',text:'Legacy payment submission — approving is disabled (double-payment risk). Use Reject; pay via Job Cards → Payment.'}));
+      btnsDiv.appendChild(_rjBtn);
     } else {
       var ab2=el('button',{cls:'ap-btn',text:'Approve'});
       (function(rowNum){ab2.onclick=function(){processReq(rowNum,'APPROVE');};})(r.rowNum);
