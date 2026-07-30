@@ -116,14 +116,19 @@ function getDashboardData(ss) {
     }
   } catch(e) { Logger.log('RQ error: ' + e.message); }
 
+  // 1C: contractorSummary is built from 12-col PAYMENT_HISTORY rows keyed by
+  // Contractor_ID (col I) — the modern payment path. Name (col D) is display
+  // only. Legacy 8-col rows (blank Contractor_ID/Payment_ID) are skipped, and
+  // the ART-grid name scan is gone with the S.5 legacy chain.
   var contractorSummary = [];
   try {
-    var pmMapD = {};
+    var pmMapD = {};   // ctrId → payment method
     try {
       var mcD = ss.getSheetByName('MASTER_CONTRACTORS');
       if (mcD && mcD.getLastRow() > 3)
-        mcD.getRange(4, 2, mcD.getLastRow()-3, 2).getValues().forEach(function(r){
-          if (r[0]) pmMapD[safeStr(r[0])] = safeStr(r[1]) || 'Cash';
+        mcD.getRange(4, 1, mcD.getLastRow()-3, 3).getValues().forEach(function(r){
+          var _cid = safeStr(r[0]).trim();
+          if (_cid) pmMapD[_cid] = safeStr(r[2]) || 'Cash';
         });
     } catch(e) {}
     var curPeriodId = '';
@@ -138,22 +143,20 @@ function getDashboardData(ss) {
       }
     } catch(e) {}
     var csMap = {};
-    ss.getSheets().filter(isArtSheet).forEach(function(ws) {
-      try {
-        ws.getRange(5, 1, 45, 12).getValues().forEach(function(r) {
-          var ctr = safeStr(r[2]);
-          var qty = safeNum(r[3]);
-          if (!ctr || !qty) return;
-          var st = safeStr(r[11]).toUpperCase();
-          if (st !== 'SUBMITTED' && st !== 'APPROVED') return;
-          if (curPeriodId && safeStr(r[10]) !== curPeriodId) return;
-          var total = safeNum(r[8]);
-          if (!csMap[ctr]) csMap[ctr] = {name:ctr, qty:0, amount:0, method:pmMapD[ctr]||'Cash'};
-          csMap[ctr].qty += qty;
-          csMap[ctr].amount += total;
-        });
-      } catch(e) {}
-    });
+    var phD = ss.getSheetByName('PAYMENT_HISTORY');
+    if (phD && phD.getLastRow() > 1) {
+      phD.getRange(2, 1, phD.getLastRow()-1, 12).getValues().forEach(function(r) {
+        var cid = safeStr(r[8]).trim();                          // I = Contractor_ID
+        if (!cid || !safeStr(r[11]).trim()) return;              // skip legacy 8-col rows (no ID / no Payment_ID)
+        var st = safeStr(r[6]).trim();                           // G = approval: '' pending, 'REJECTED:…', else approved
+        if (st.toUpperCase().indexOf('REJECTED') === 0) return;
+        if (curPeriodId && safeStr(r[0]) !== curPeriodId) return;
+        var qty = safeNum(r[4]), total = safeNum(r[5]);
+        if (!csMap[cid]) csMap[cid] = { ctrId:cid, name:safeStr(r[3]) || cid, qty:0, amount:0, method:pmMapD[cid]||'Cash' };
+        csMap[cid].qty += qty;
+        csMap[cid].amount += total;
+      });
+    }
     contractorSummary = Object.keys(csMap).map(function(k){return csMap[k];}).sort(function(a,b){return b.amount-a.amount;});
   } catch(e) {}
 
