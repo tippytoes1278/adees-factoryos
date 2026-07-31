@@ -674,7 +674,8 @@ function renderPayment(c){
         var st={contractorId:l.contractorId,rate:rate,pairs:maxPairs};
         var rw=el('div',{style:'display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 16px;border-bottom:0.5px solid var(--fos-border)'});
         var lft=el('div',{style:'flex:1;min-width:0'});
-        lft.appendChild(el('div',{style:'font-size:14px;color:var(--fos-ink)',text:l.contractorName||l.contractorId}));
+        var _lc=ctrById[l.contractorId];
+        lft.appendChild(el('div',{style:'font-size:14px;color:var(--fos-ink)',text:_lc?ctrLabel(_lc,contractors):(l.contractorName||l.contractorId)}));
         lft.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:rate>0?('₹'+rate.toFixed(2)+'/pair · '+maxPairs+' pairs unpaid'+(l.alreadyPaidPairs?(' ('+l.alreadyPaidPairs+' already paid)'):'')):'Rate not set'}));
         var pairLbl=el('div',{style:'font-size:11px;color:var(--fos-accent);margin-top:2px',text:maxPairs+' pair'+(maxPairs!==1?'s':'')+' · ₹'+(maxPairs*rate).toFixed(2)});
         lft.appendChild(pairLbl);
@@ -806,7 +807,8 @@ function renderPayment(c){
         var rate=safeNum(l.ratePerPair);
         var row=el('div',{style:'display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:11px 16px;border-bottom:0.5px solid var(--fos-border)'});
         var left=el('div',{style:'flex:1;min-width:0'});
-        left.appendChild(el('div',{style:'font-size:14px;font-weight:500;color:var(--fos-ink)',text:l.contractorName||l.contractorId}));
+        var _pc=ctrById[l.contractorId];
+        left.appendChild(el('div',{style:'font-size:14px;font-weight:500;color:var(--fos-ink)',text:_pc?ctrLabel(_pc,contractors):(l.contractorName||l.contractorId)}));
         var actTxt=(l.activities&&l.activities.length)?l.activities.join(', '):'';
         if(actTxt)left.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:1px',text:actTxt}));
         var _pp=(l.payablePairs!==undefined?l.payablePairs:pairs);
@@ -877,7 +879,7 @@ function renderPayHistory(c){
   var artMap={};
   if(D.entry&&D.entry.articles){D.entry.articles.forEach(function(a){artMap[a.sheet]=a.article||a.sheet;});}
   var ctrMap={};
-  if(D.contractors){D.contractors.forEach(function(ct){var cid=ct.ctrId||'';if(cid)ctrMap[cid]=ct.name||cid;});}
+  if(D.contractors){D.contractors.forEach(function(ct){var cid=ct.ctrId||'';if(cid)ctrMap[cid]=ctrLabel(ct,D.contractors)||cid;});}
 
   var hdr=el('div',{style:'margin-bottom:16px'});
   hdr.appendChild(el('div',{style:'font-family:var(--fos-font-display);font-size:22px;font-weight:700;color:var(--fos-accent)',text:'Payment History'}));
@@ -1116,6 +1118,11 @@ function renderContractors(c){
   var addForm=el('div',{style:'display:none;background:var(--fos-surface);border:0.5px solid var(--fos-border);border-radius:12px;padding:14px;margin-top:8px'});
   var afNG=el('div',{cls:'form-group'});afNG.appendChild(el('label',{cls:'form-label',text:'Name *'}));
   var afName=el('input',{cls:'form-input',type:'text',placeholder:'e.g. Raju Kumar'});afNG.appendChild(afName);addForm.appendChild(afNG);
+  // F.4: father's name distinguishes two contractors who share a name.
+  var afFaG=el('div',{cls:'form-group'});afFaG.appendChild(el('label',{cls:'form-label',text:'Father\'s Name (S/o)'}));
+  var afFather=el('input',{cls:'form-input',type:'text',placeholder:'e.g. Shyam Lal'});afFaG.appendChild(afFather);
+  afFaG.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-top:3px',text:'Required if another contractor has this name'}));
+  addForm.appendChild(afFaG);
   var afPMG=el('div',{cls:'form-group'});afPMG.appendChild(el('label',{cls:'form-label',text:'Payment Method'}));
   var afPM=el('select',{cls:'form-select'});
   ['Bank Transfer','Cash','UPI'].forEach(function(m){afPM.appendChild(el('option',{text:m,value:m}));});
@@ -1169,7 +1176,7 @@ function renderContractors(c){
         .withFailureHandler(function(){afSub.disabled=false;afSub.textContent='Add Contractor';toast('Error',true);})
         .saveContractor(payload);
     };
-    _sendCtr({name:nm,dept:'',paymentMethod:afPM.value,phone:afPhone.value.trim()});
+    _sendCtr({name:nm,fatherName:afFather.value.trim(),dept:'',paymentMethod:afPM.value,phone:afPhone.value.trim()});
   };
   addWrap.appendChild(addBtn);addWrap.appendChild(addForm);c.appendChild(addWrap);
 
@@ -1189,7 +1196,7 @@ function renderContractors(c){
     var topRow=el('div',{style:'display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px'});
     var nameCol=el('div');
     if(ctrId)nameCol.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:ctrId}));
-    nameCol.appendChild(el('div',{style:'font-size:15px;font-weight:600;color:var(--fos-ink)',text:ct.name}));
+    nameCol.appendChild(el('div',{style:'font-size:15px;font-weight:600;color:var(--fos-ink)',text:ctrLabel(ct,ctrs)}));
     topRow.appendChild(nameCol);
     var rightCol=el('div',{style:'display:flex;flex-direction:column;align-items:flex-end;gap:6px'});
     rightCol.appendChild(el('span',{cls:'badge '+(isActive?'green':'grey'),text:ct.status||'ACTIVE'}));

@@ -92,6 +92,23 @@ function fmtPd(ds,yr){
   return dn[d.getDay()]+' '+d.getDate()+' '+mn[d.getMonth()]+(yr?' '+d.getFullYear():'');
 }
 
+// F.4: shared contractor display name. When two or more ACTIVE contractors share
+// a name, append " (S/o <father>)" to tell them apart; otherwise plain name.
+// list = array of contractor objects ({name, status, fatherName}); ct = the one to label.
+function ctrLabel(ct,list){
+  if(!ct)return '';
+  var nm=String(ct.name==null?'':ct.name).trim();
+  if(!nm)return nm;
+  var key=nm.toLowerCase(),n=0;
+  (Array.isArray(list)?list:[]).forEach(function(o){
+    if(!o)return;
+    if(String(o.status==null?'':o.status).trim().toUpperCase()==='INACTIVE')return;
+    if(String(o.name==null?'':o.name).trim().toLowerCase()===key)n++;
+  });
+  var f=String(ct.fatherName==null?'':ct.fatherName).trim();
+  return (n>1&&f)?nm+' (S/o '+f+')':nm;
+}
+
 // Client copy of server deptKeyOf (config.js) — CLAUDE.md RULE 3.
 function deptKeyOf(v) {
   v = String(v == null ? '' : v).toLowerCase().trim();

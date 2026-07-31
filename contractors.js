@@ -5,7 +5,7 @@ function getContractorsData(ss) {
     var contractors = [];
     if (mc && mc.getLastRow() > 3) {
       // S.9: include ctrId (col A) so the client never has to join by name.
-      mc.getRange(4, 1, mc.getLastRow()-3, 7).getValues().forEach(function(r) {
+      mc.getRange(4, 1, mc.getLastRow()-3, 8).getValues().forEach(function(r) {
         if (!r[1]) return;
         contractors.push({
           ctrId: safeStr(r[0]).trim(),
@@ -13,7 +13,8 @@ function getContractorsData(ss) {
           paymentMethod: safeStr(r[2]) || 'Cash',
           status: safeStr(r[3]),
           dept: safeStr(r[4]),
-          phone: safeStr(r[5])
+          phone: safeStr(r[5]),
+          fatherName: safeStr(r[7]).trim()   // F.4: col H
         });
       });
     }
@@ -40,15 +41,30 @@ function saveContractor(payload) {
     // this only to the admin role after the rejection).
     var newName = safeStr(payload.name).trim();
     if (!newName) return { success: false, error: 'Contractor name is required' };
+    // F.4: father's name (col H) disambiguates same-named contractors.
+    var newFather = safeStr(payload.fatherName).trim();
     if (mc.getLastRow() > 3) {
-      var _dupRows = mc.getRange(4, 1, mc.getLastRow()-3, 4).getValues();
+      var _dupRows = mc.getRange(4, 1, mc.getLastRow()-3, 8).getValues();
       for (var _di = 0; _di < _dupRows.length; _di++) {
         var _dn = safeStr(_dupRows[_di][1]).trim();
         var _dst = safeStr(_dupRows[_di][3]).trim().toUpperCase();
         if (_dn && _dn.toLowerCase() === newName.toLowerCase() && _dst !== 'INACTIVE') {
+          // F.4: allowed without override when BOTH rows carry a father's name
+          // and they differ — the "(S/o …)" suffix tells the twins apart.
+          var _exFather = safeStr(_dupRows[_di][7]).trim();
+          if (_exFather && newFather &&
+              _exFather.toLowerCase() !== newFather.toLowerCase()) continue;
           if (!(payload.allowDuplicateName === true && user.role === 'admin')) {
-            return { success: false, duplicateOf: safeStr(_dupRows[_di][0]).trim(),
-                     error: 'A contractor named "' + _dn + '" already exists (' + safeStr(_dupRows[_di][0]).trim() + '). Use the existing contractor — duplicate names mis-attribute payments.' + (user.role === 'admin' ? '' : ' Only Ayush can override this.') };
+            var _dupId = safeStr(_dupRows[_di][0]).trim();
+            var _why = (!_exFather && !newFather)
+              ? 'neither has a father\'s name recorded'
+              : (!_exFather)
+              ? 'the existing contractor has no father\'s name recorded'
+              : (!newFather)
+              ? 'no father\'s name was entered for the new contractor'
+              : 'both have the same father\'s name ("' + _exFather + '")';
+            return { success: false, duplicateOf: _dupId,
+                     error: 'A contractor named "' + _dn + '" already exists (' + _dupId + '). Two contractors may share a name only when BOTH have a different father\'s name (S/o) to tell them apart — here ' + _why + '. Add distinct father\'s names, or use the existing contractor — duplicate names mis-attribute payments.' + (user.role === 'admin' ? ' Ayush can still force a duplicate.' : ' Only Ayush can force a duplicate.') };
           }
           break;
         }
@@ -72,9 +88,14 @@ function saveContractor(payload) {
       while (seq.length < 3) seq = '0' + seq;
       nextCtrId = 'CTR-' + seq;
     } catch(cidErr) { Logger.log('CTR-ID gen error: ' + cidErr.message); }
-    mc.getRange(mc.getLastRow() + 1, 1, 1, 7).setValues([[
+    // F.4: write the col-H header once (no ensure-bootstrap exists for this sheet).
+    try {
+      if (!safeStr(mc.getRange(3, 8).getValue()).trim())
+        mc.getRange(3, 8).setValue('FATHER_NAME');
+    } catch(hdrErr) { Logger.log('FATHER_NAME header write: ' + hdrErr.message); }
+    mc.getRange(mc.getLastRow() + 1, 1, 1, 8).setValues([[
       nextCtrId, safeStr(payload.name), safeStr(payload.paymentMethod) || 'Cash',
-      'ACTIVE', safeStr(payload.dept), safeStr(payload.phone), now
+      'ACTIVE', safeStr(payload.dept), safeStr(payload.phone), now, newFather
     ]]);
     SpreadsheetApp.flush();
     try { CacheService.getScriptCache().remove('contractorsScreen_' + CONFIG.ENV); } catch(ce) {}
@@ -90,7 +111,7 @@ function getContractors(ss) {
     if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
     var mc = ss.getSheetByName('MASTER_CONTRACTORS');
     if (!mc || mc.getLastRow() < 4) return [];
-    var rows = mc.getRange(4, 1, mc.getLastRow()-3, 4).getValues();
+    var rows = mc.getRange(4, 1, mc.getLastRow()-3, 8).getValues();
     var result = [];
     rows.forEach(function(r) {
       var name   = safeStr(r[1]).trim();
@@ -101,7 +122,8 @@ function getContractors(ss) {
         ctrId:         safeStr(r[0]).trim(),
         name:          name,
         paymentMethod: safeStr(r[2]).trim() || 'Cash',
-        status:        status || 'ACTIVE'
+        status:        status || 'ACTIVE',
+        fatherName:    safeStr(r[7]).trim()   // F.4: col H
       });
     });
     return result;

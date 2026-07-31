@@ -383,7 +383,7 @@ function renderWIP(c){
     var enrolled=enrollments.filter(function(e){return e.department===dept&&(e.status||'').toUpperCase()==='ACTIVE';});
     var enrolledIds={};enrolled.forEach(function(e){enrolledIds[e.contractorId]=e.contractorName||e.contractorId;});
     var found=contractors.filter(function(ct){return !!enrolledIds[ct.ctrId];});
-    if(found.length)return found.map(function(ct){return {id:ct.ctrId,name:ct.name};});
+    if(found.length)return found.map(function(ct){return {id:ct.ctrId,name:ctrLabel(ct,contractors)};});
     return enrolled.map(function(e){return {id:e.contractorId,name:e.contractorName||e.contractorId};});
   }
 
@@ -891,7 +891,7 @@ function renderJobCards(c){
         var ovForm=el('div',{style:'display:none;margin-top:8px;padding:12px;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:10px'});
         function ctrOptions(sel,current){
           var o0=document.createElement('option');o0.value='';o0.textContent='— select —';sel.appendChild(o0);
-          contractors.forEach(function(ct){var o=document.createElement('option');o.value=ct.ctrId;o.textContent=(ct.name||ct.ctrId)+' ('+ct.ctrId+')';if(ct.ctrId===current)o.selected=true;sel.appendChild(o);});
+          contractors.forEach(function(ct){var o=document.createElement('option');o.value=ct.ctrId;o.textContent=(ctrLabel(ct,contractors)||ct.ctrId)+' ('+ct.ctrId+')';if(ct.ctrId===current)o.selected=true;sel.appendChild(o);});
         }
         var asg=Array.isArray(jc.assignments)?jc.assignments:[];
         var ctrSelects=[];
