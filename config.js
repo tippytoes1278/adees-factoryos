@@ -46,7 +46,7 @@ function safeStr(val) {
 
 // S.7: ONE dept normalization for the whole codebase. Every dept comparison
 // must be deptKeyOf(a) === deptKeyOf(b); dept bucket keys must be deptKeyOf(v).
-// NOT for movement strings ('Upper IN', 'Packing IN' — movement→dept stays an
+// NOT for movement strings ('Lasting IN', 'Packing IN' — movement→dept stays an
 // explicit map). Canonical output: the six short keys.
 function deptKeyOf(v) {
   v = String(v == null ? '' : v).toLowerCase().trim();

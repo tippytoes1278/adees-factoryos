@@ -37,7 +37,7 @@ function issueJobCard(data) {
   if (_user.role !== 'store' && _user.role !== 'admin') return { success:false, error:'Not authorised' };
   var STORE_MOVEMENT_MAP = {
     'Upper Store':             ['Cutting IN','Cutting OUT','Preparation IN','Preparation OUT','Fitter IN','Fitter OUT'],
-    'Lasting & Packing Store': ['Upper IN','Lasting IN','Lasting OUT','Packing IN','Packing OUT'],
+    'Lasting & Packing Store': ['Lasting IN','Lasting OUT','Packing IN','Packing OUT'],
     'Dispatch Store':          ['Dispatch IN','Dispatch OUT']
   };
   var orderRef       = safeStr(data.orderRef       || '').trim();
@@ -77,7 +77,6 @@ function issueJobCard(data) {
     'Cutting IN':     'cutting',
     'Preparation IN': 'prep',
     'Fitter IN':      'fitter',
-    'Upper IN':       'lasting',
     'Lasting IN':     'lasting',
     'Packing IN':     'finish',
     'Dispatch IN':    'dispatch'
@@ -110,13 +109,13 @@ function issueJobCard(data) {
     'Cutting':['Cutting IN'],
     'Preparation':['Preparation IN'],
     'Fitter':['Fitter IN'],
-    'Lasting':['Upper IN','Lasting IN'],
+    'Lasting':['Lasting IN'],
     'Packing':['Packing IN'],
     'Dispatch':['Dispatch IN']
   };
   var MOVEMENT_TO_STAGE = {
     'Cutting IN':'Cutting','Preparation IN':'Preparation',
-    'Fitter IN':'Fitter','Upper IN':'Lasting','Lasting IN':'Lasting',
+    'Fitter IN':'Fitter','Lasting IN':'Lasting',
     'Packing IN':'Packing','Dispatch IN':'Dispatch'
   };
 
@@ -291,12 +290,12 @@ function issueDepartmentJobCard(data) {
 
   var STORE_MOVEMENT_MAP = {
     'Upper Store':             ['Cutting IN','Cutting OUT','Preparation IN','Preparation OUT','Fitter IN','Fitter OUT'],
-    'Lasting & Packing Store': ['Upper IN','Lasting IN','Lasting OUT','Packing IN','Packing OUT'],
+    'Lasting & Packing Store': ['Lasting IN','Lasting OUT','Packing IN','Packing OUT'],
     'Dispatch Store':          ['Dispatch IN','Dispatch OUT']
   };
   var DEPT_KEY = {
     'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter',
-    'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'
+    'Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'
   };
 
   var orderRef       = safeStr(data.orderRef       || '').trim();
@@ -634,11 +633,9 @@ function receiveJobCard(data) {
   } catch(pe) {}
 
   var rcvWarning;
-  // 'Upper IN' is a one-way transfer into Lasting & Packing Store — no OUT counterpart exists.
-  // All other IN movements pair with an OUT movement of the same prefix.
-  if (inMovement === 'Upper IN') {
-    // No OUT-side WIP entry for Upper IN receives; job card is simply marked COMPLETE.
-  } else {
+  // F.5: 'Upper IN' retired (never used — zero rows on both sheets); every IN
+  // movement pairs with an OUT movement of the same prefix.
+  {
     var outMovement = inMovement.slice(0, -2) + 'OUT';
     try {
       var wipResult = saveWipEntry({
@@ -832,13 +829,13 @@ function getMaxIssuableForStage(orderRef, movement) {
       'Cutting':['Cutting IN'],
       'Preparation':['Preparation IN'],
       'Fitter':['Fitter IN'],
-      'Lasting':['Upper IN','Lasting IN'],
+      'Lasting':['Lasting IN'],
       'Packing':['Packing IN'],
       'Dispatch':['Dispatch IN']
     };
     var MOVEMENT_TO_STAGE = {
       'Cutting IN':'Cutting','Preparation IN':'Preparation',
-      'Fitter IN':'Fitter','Upper IN':'Lasting','Lasting IN':'Lasting',
+      'Fitter IN':'Fitter','Lasting IN':'Lasting',
       'Packing IN':'Packing','Dispatch IN':'Dispatch'
     };
 

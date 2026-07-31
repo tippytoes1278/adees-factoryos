@@ -234,7 +234,7 @@ function getDashboardData(ss) {
   // delivery-risk (overdue open job cards), both from the job-card model.
   var MOVEMENT_STAGE_D = {
     'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter',
-    'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'
+    'Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'
   };
   var pipeline = { cutting:0, prep:0, fitter:0, lasting:0, finish:0, dispatch:0 };
   var deliveryRisk = [];
@@ -509,8 +509,7 @@ function getCompletedUnpaidJobCards() {
       'Cutting IN':     'cutting',
       'Preparation IN': 'prep',
       'Fitter IN':      'fitter',
-      'Upper IN':       'lasting',
-      'Lasting IN':     'lasting',
+        'Lasting IN':     'lasting',
       'Packing IN':     'finish',
       'Dispatch IN':    'dispatch'
     };
@@ -604,7 +603,7 @@ function submitCardPayment(data) {
 
   var MOVEMENT_DEPT_KEY = {
     'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter',
-    'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'
+    'Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'
   };
 
   var lock = LockService.getScriptLock();
@@ -926,7 +925,7 @@ function _paidPairsMap(ss) {
 
 // Per-contractor payable lines for a card, netting pairs already paid.
 function _cardContractorLines(r, ctrNameById, paidMap, ss) {
-  var MDK = {'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter','Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'};
+  var MDK = {'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'};
   var jobCardId = safeStr(r[0]).trim();
   var orderRef  = safeStr(r[1]).trim();
   var deptKey   = MDK[safeStr(r[4]).trim()] || '';
@@ -1030,7 +1029,7 @@ function submitCardAdvance(data) {
   var jobCardId = safeStr(data.jobCardId || '').trim();
   var periodId  = _resolvePayPeriod(data.periodId);
   if (!jobCardId) return { success:false, error:'jobCardId is required' };
-  var MDK = {'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter','Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'};
+  var MDK = {'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'};
   var lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
@@ -1121,7 +1120,7 @@ function getContractorAccount(contractorId) {
     var paidMap     = _paidPairsMap(ss);
     var MDK = {
       'Cutting IN':'Cutting', 'Preparation IN':'Preparation', 'Fitter IN':'Fitter',
-      'Upper IN':'Lasting', 'Lasting IN':'Lasting', 'Packing IN':'Finishing/Packing',
+      'Lasting IN':'Lasting', 'Packing IN':'Finishing/Packing',
       'Dispatch IN':'Dispatch'
     };
     var out = {

@@ -79,7 +79,7 @@ function renderStoreHome(c){
   // ── END AAJ KA KAAM (STORE) ──────────────────────────────────
   // Section 1: Pipeline tracker — real outstanding pairs per stage from job cards
   var _plCounts={cutting:0,prep:0,fitter:0,lasting:0,finish:0,dispatch:0};
-  var _MS={'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter','Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'};
+  var _MS={'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'};
   (Array.isArray(D.jobCards)?D.jobCards:[]).forEach(function(jc){
     var st=(jc.status||'').toUpperCase();
     if(st!=='ISSUED'&&st!=='PARTIAL')return;
@@ -175,14 +175,13 @@ function renderWIP(c){
 
   var STORE_MOVEMENTS={
     'Upper Store':             ['Cutting IN','Preparation IN','Fitter IN'],
-    'Lasting & Packing Store': ['Upper IN','Lasting IN','Packing IN'],
+    'Lasting & Packing Store': ['Lasting IN','Packing IN'],
     'Dispatch Store':          ['Dispatch IN']
   };
   var MOVEMENT_DEPT={
     'Cutting IN':     'Cutting',
     'Preparation IN': 'Preparation',
     'Fitter IN':      'Fitter',
-    'Upper IN':       'Lasting/Pasting',
     'Lasting IN':     'Lasting/Pasting',
     'Packing IN':     'Finishing/Packing',
     'Dispatch IN':    'Dispatch'
@@ -194,12 +193,12 @@ function renderWIP(c){
 
   var DEPT_KEY_MAP={
     'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter',
-    'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'
+    'Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'
   };
   // Movement → getDeptStatus() key, so skipped departments can be flagged.
   var MOVEMENT_STATUS_KEY={
     'Cutting IN':'Cutting','Preparation IN':'Preparation','Fitter IN':'Fitter',
-    'Upper IN':'Lasting','Lasting IN':'Lasting','Packing IN':'Finishing','Dispatch IN':'Dispatch'
+    'Lasting IN':'Lasting','Packing IN':'Finishing','Dispatch IN':'Dispatch'
   };
 
   var selectedOrderRef='';
@@ -1153,7 +1152,7 @@ function renderFloor(c){
 }
 // ── WIP GRID — Phase 5.2f ────────────────────────────────────────────────────
 function renderGrid(c){
-  var MOVEMENTS=['Cutting IN','Cutting OUT','Preparation IN','Preparation OUT','Fitter IN','Fitter OUT','Upper IN','Lasting IN','Lasting OUT','Packing IN','Packing OUT','Dispatch IN','Dispatch OUT'];
+  var MOVEMENTS=['Cutting IN','Cutting OUT','Preparation IN','Preparation OUT','Fitter IN','Fitter OUT','Lasting IN','Lasting OUT','Packing IN','Packing OUT','Dispatch IN','Dispatch OUT'];
   var STORES=[{n:'Upper Store',c:6},{n:'Lasting & Packing',c:5},{n:'Dispatch',c:2}];
   var orders=(D.wipGrid&&D.wipGrid.orders)||[];
   var entries=(D.wipGrid&&D.wipGrid.entries)||[];

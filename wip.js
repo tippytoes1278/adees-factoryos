@@ -52,7 +52,7 @@ function ensureWipEntriesSheet() {
 function saveWipEntry(data, status) {
   var STORE_MOVEMENT_MAP = {
     'Upper Store':              ['Cutting IN','Cutting OUT','Preparation IN','Preparation OUT','Fitter IN','Fitter OUT'],
-    'Lasting & Packing Store':  ['Upper IN','Lasting IN','Lasting OUT','Packing IN','Packing OUT'],
+    'Lasting & Packing Store':  ['Lasting IN','Lasting OUT','Packing IN','Packing OUT'],
     'Dispatch Store':           ['Dispatch IN','Dispatch OUT']
   };
   // Convention (S.8/S.6): ensure* helpers are called BEFORE taking the writer's
@@ -188,7 +188,7 @@ function voidWipEntry(wipId) {
 function getWipGrid() {
   var ALL_MOVEMENTS = [
     'Cutting IN','Cutting OUT','Preparation IN','Preparation OUT','Fitter IN','Fitter OUT',
-    'Upper IN','Lasting IN','Lasting OUT','Packing IN','Packing OUT',
+    'Lasting IN','Lasting OUT','Packing IN','Packing OUT',
     'Dispatch IN','Dispatch OUT'
   ];
   try {

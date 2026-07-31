@@ -314,7 +314,7 @@ function getOrderProgress(artSheet) {
     // (job-card model). One card per department, so no double counting.
     var MOVEMENT_STAGE = {
       'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter',
-      'Upper IN':'lasting','Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'
+      'Lasting IN':'lasting','Packing IN':'finish','Dispatch IN':'dispatch'
     };
     var sq = {cutting:0,prep:0,fitter:0,lasting:0,finish:0,dispatch:0};
     var jcs = getJobCards({ orderRef: artSheet });
@@ -399,8 +399,8 @@ function getOrderSizeBalance(orderRef, movement) {
   // Unified stage vocabulary: cutting/prep/fitter/lasting/finish/dispatch.
   var STAGE_ORDER = ['Cutting','Preparation','Fitter','Lasting','Packing','Dispatch'];
   var STAGE_DEPT_KEY = {'Cutting':'cutting','Preparation':'prep','Fitter':'fitter','Lasting':'lasting','Packing':'finish','Dispatch':'dispatch'};
-  var STAGE_OWN_MOVEMENTS = {'Cutting':['Cutting IN'],'Preparation':['Preparation IN'],'Fitter':['Fitter IN'],'Lasting':['Upper IN','Lasting IN'],'Packing':['Packing IN'],'Dispatch':['Dispatch IN']};
-  var MOVEMENT_TO_STAGE = {'Cutting IN':'Cutting','Preparation IN':'Preparation','Fitter IN':'Fitter','Upper IN':'Lasting','Lasting IN':'Lasting','Packing IN':'Packing','Dispatch IN':'Dispatch'};
+  var STAGE_OWN_MOVEMENTS = {'Cutting':['Cutting IN'],'Preparation':['Preparation IN'],'Fitter':['Fitter IN'],'Lasting':['Lasting IN'],'Packing':['Packing IN'],'Dispatch':['Dispatch IN']};
+  var MOVEMENT_TO_STAGE = {'Cutting IN':'Cutting','Preparation IN':'Preparation','Fitter IN':'Fitter','Lasting IN':'Lasting','Packing IN':'Packing','Dispatch IN':'Dispatch'};
 
   var ss = SpreadsheetApp.openById(SHEET_ID);
 
