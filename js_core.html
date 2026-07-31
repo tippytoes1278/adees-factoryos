@@ -164,6 +164,11 @@ window.onload=function(){
       if(u.env==='DEV'){
         document.querySelector('.topbar-title').insertAdjacentHTML('beforeend',
           ' <span style="background:#f59e0b;color:#1a1a2e;font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;vertical-align:middle;letter-spacing:.5px">DEV</span>');
+      } else {
+        // F.3: LIVE must announce itself too — the owner submitted a test order
+        // on LIVE believing it was DEV. Danger family: this is the real factory.
+        document.querySelector('.topbar-title').insertAdjacentHTML('beforeend',
+          ' <span style="background:var(--fos-danger,#b91c1c);color:#fff;font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;vertical-align:middle;letter-spacing:.5px">LIVE</span>');
       }
       document.getElementById('topSub').textContent=
         u.role==='admin'?'Admin':u.role==='accounts'?'Accounts':'Store';
