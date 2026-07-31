@@ -444,6 +444,7 @@ function renderNO_Step2(c){
         grBtns[k].style.borderColor=k===g?'var(--fos-accent)':'var(--fos-border)';
       });
       if(grCat)renderSizeGrid(grCat+'_'+g);
+      else Array.from(srG.children).forEach(function(c2){if(c2._updLbl)c2._updLbl();});   // F.1: re-derive labels on toggle
     };
     grRow.appendChild(gb);
   });
@@ -470,20 +471,26 @@ function renderNO_Step2(c){
   function recalc(){var t=0;Array.from(srG.children).forEach(function(c2){t+=parseInt(c2._qI.value)||0;});ltV.textContent=String(t);}
   // 8.P1 Option A: derive the bare numeric size from a grade label ("UK 6"→"6", "EU 39"→"39").
   function _numFromLabel(lbl){var m=String(lbl||'').match(/\d+/);return m?m[0]:'';}
+  // F.1: the size TOKEN is the label minus its grading prefix ("UK 5T"→"5T") so
+  // Toddler's T suffix survives. The label is DERIVED, never typed: grading+token.
+  function _sizeTokenFromLabel(lbl){return String(lbl||'').replace(/^\s*(UK|EU)\s*/i,'').trim();}
   function makeSizeCol(label,num){
-    if(num===undefined||num===null)num=_numFromLabel(label);
+    if(num===undefined||num===null)num=_sizeTokenFromLabel(label)||_numFromLabel(label);
     var col=el('div',{style:'text-align:center;min-width:52px'});
-    // Numeric size (top, bold) — the unambiguous value used for size-wise tracking.
+    // Size token (top) — the single source of truth for this column.
     var nI=el('input',{type:'text',value:num,placeholder:'#',style:'width:52px;font-size:0.78rem;font-weight:700;color:var(--fos-ink);text-align:center;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px 6px 0 0;padding:3px 0;outline:none;font-family:var(--fos-font-mono);display:block'});
     nI.onfocus=function(){this.style.borderColor='var(--fos-accent)';};
     nI.onblur=function(){this.style.borderColor='var(--fos-border)';};
-    // Grade label (below) — e.g. "UK 6" / "EU 39".
-    var lI=el('input',{type:'text',value:label,placeholder:'label',style:'width:52px;font-size:0.64rem;color:var(--fos-ink-secondary);text-align:center;background:transparent;border-bottom:1.5px solid var(--fos-ink-secondary);border-top:none;border-left:none;border-right:none;border-radius:0;padding:2px 0;margin-bottom:4px;outline:none;font-family:var(--fos-font-body);display:block'});
-    lI.onfocus=function(){this.style.borderBottomColor='var(--fos-accent)';};
-    lI.onblur=function(){this.style.borderBottomColor='var(--fos-ink-secondary)';};
+    // F.1: grade label is READ-ONLY, always derived as <grading> + <token>,
+    // re-derived live when the token or the UK/EU toggle changes. The editable
+    // label input is gone — it created two sources of truth for one fact.
+    var lI=el('div',{style:'width:52px;font-size:0.64rem;color:var(--fos-ink-secondary);text-align:center;padding:2px 0;margin-bottom:4px;font-family:var(--fos-font-body)'});
+    function _updLbl(){var t=nI.value.trim();lI.textContent=t?((grSel?grSel+' ':'')+t):'—';}
+    nI.addEventListener('input',_updLbl);
+    _updLbl();
     var qI=el('input',{type:'number',min:0,placeholder:'0',style:'width:52px;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px;padding:6px 4px;color:var(--fos-ink);font-family:var(--fos-font-mono);font-size:14px;font-weight:700;text-align:center'});
     qI.oninput=recalc;
-    col._nI=nI;col._lI=lI;col._qI=qI;
+    col._nI=nI;col._lI=lI;col._qI=qI;col._updLbl=_updLbl;
     col.appendChild(nI);col.appendChild(lI);col.appendChild(qI);
     srG.appendChild(col);
     return col;
@@ -519,7 +526,7 @@ function renderNO_Step2(c){
       else{var _lgp=nrp.grading.split(' ');if(_lgp[0]&&grBtns[_lgp[0]]){if(_lgp[1]&&!grCat){catS.value=_lgp[1];grCat=_lgp[1];}grBtns[_lgp[0]].onclick();}}
     }
     if(nrp.sizeBreakdown){
-      try{var sbR=JSON.parse(nrp.sizeBreakdown);var sbL={};try{if(nrp.sizeLabels)sbL=JSON.parse(nrp.sizeLabels);}catch(eL){}srG.innerHTML='';Object.keys(sbR).forEach(function(k){var col=makeSizeCol(sbL[k]||k,_numFromLabel(k)||k);col._qI.value=sbR[k]||0;});recalc();rmSzBtn.disabled=srG.children.length<=1;}catch(e2){}
+      try{var sbR=JSON.parse(nrp.sizeBreakdown);var sbL={};try{if(nrp.sizeLabels)sbL=JSON.parse(nrp.sizeLabels);}catch(eL){}srG.innerHTML='';Object.keys(sbR).forEach(function(k){var _tok=_sizeTokenFromLabel(sbL[k]||'')||_sizeTokenFromLabel(k)||_numFromLabel(k)||String(k);var col=makeSizeCol(null,_tok);col._qI.value=sbR[k]||0;});recalc();rmSzBtn.disabled=srG.children.length<=1;}catch(e2){}
     }
     recalc();
     c.appendChild(el('div',{style:'margin-bottom:8px;padding:6px 10px;background:var(--fos-accent-soft);border-left:3px solid var(--fos-warning);border-radius:0 6px 6px 0;color:var(--fos-warning);font-size:12px',text:'Revising: '+NO_RESUBMIT.revisionRemark}));
@@ -538,9 +545,10 @@ function renderNO_Step2(c){
     // future size-wise job cards get real numbers; keep the grade label alongside.
     var sizeBreakdown={},sizeLabels={},lot=0,dup=false;
     szCols.forEach(function(c2){
-      var num=c2._nI.value.trim(),lbl=c2._lI.value.trim(),v=parseInt(c2._qI.value)||0;
+      // F.1: label is derived (grading + token) — never read from user input.
+      var num=c2._nI.value.trim(),lbl=(grSel?grSel+' ':'')+num,v=parseInt(c2._qI.value)||0;
       if(sizeBreakdown.hasOwnProperty(num))dup=true;
-      sizeBreakdown[num]=v;if(lbl)sizeLabels[num]=lbl;lot+=v;
+      sizeBreakdown[num]=v;if(num)sizeLabels[num]=lbl;lot+=v;
     });
     if(dup){toast('Do size ek jaisa number nahi ho sakte',true);return;}
     if(lot<=0){toast('Please enter at least one size quantity',true);return;}
