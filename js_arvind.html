@@ -454,9 +454,19 @@ function renderNO_Step2(c){
   // ── SIZE RUN (dynamic) ────────────────────────────────────────────────────────
   var srCard=el('div',{cls:'fos-card'});
   srCard.appendChild(el('div',{cls:'section-title',text:'Size Run'}));
-  var srWrap=el('div',{style:'overflow-x:auto'});
+  // F.2: fixed legend column ("SIZE" / "PAIRS") beside the scrolling grid, so the
+  // two stacked inputs read as different things at a glance. Legend sits OUTSIDE
+  // srG — srG.children must stay size-columns only (recalc/remove logic).
+  var srWrap=el('div',{style:'display:flex;gap:8px;align-items:flex-start'});
+  var srLegend=el('div',{style:'display:flex;flex-direction:column;flex-shrink:0'});
+  srLegend.appendChild(el('div',{style:'font-size:9px;font-weight:700;letter-spacing:0.06em;color:var(--fos-accent);height:24px;display:flex;align-items:center',text:'SIZE'}));
+  srLegend.appendChild(el('div',{style:'height:22px'}));
+  srLegend.appendChild(el('div',{style:'font-size:9px;font-weight:700;letter-spacing:0.06em;color:var(--fos-ink-secondary);height:32px;display:flex;align-items:center',text:'PAIRS'}));
+  var srScroll=el('div',{style:'overflow-x:auto;-webkit-overflow-scrolling:touch;flex:1'});
   var srG=el('div',{style:'display:flex;gap:6px;min-width:min-content;margin-bottom:10px'});
-  srWrap.appendChild(srG);srCard.appendChild(srWrap);
+  srScroll.appendChild(srG);
+  srWrap.appendChild(srLegend);srWrap.appendChild(srScroll);
+  srCard.appendChild(srWrap);
   var ltRow=el('div',{style:'display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:0.5px solid var(--fos-border);margin-bottom:8px'});
   ltRow.appendChild(el('span',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:'Total Lot'}));
   var ltV=el('span',{style:'font-family:var(--fos-font-mono);font-size:18px;font-weight:700;color:var(--fos-accent)',text:'0'});
@@ -478,7 +488,8 @@ function renderNO_Step2(c){
     if(num===undefined||num===null)num=_sizeTokenFromLabel(label)||_numFromLabel(label);
     var col=el('div',{style:'text-align:center;min-width:52px'});
     // Size token (top) — the single source of truth for this column.
-    var nI=el('input',{type:'text',value:num,placeholder:'#',style:'width:52px;font-size:0.78rem;font-weight:700;color:var(--fos-ink);text-align:center;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:6px 6px 0 0;padding:3px 0;outline:none;font-family:var(--fos-font-mono);display:block'});
+    // F.2: size input styled distinctly (accent tint, bold, centered) vs the plain pairs box.
+    var nI=el('input',{type:'text',value:num,placeholder:'#',style:'width:52px;height:24px;box-sizing:border-box;font-size:0.78rem;font-weight:700;color:var(--fos-accent);text-align:center;background:var(--fos-accent-soft);border:1px solid var(--fos-border);border-radius:6px;padding:3px 0;outline:none;font-family:var(--fos-font-mono);display:block'});
     nI.onfocus=function(){this.style.borderColor='var(--fos-accent)';};
     nI.onblur=function(){this.style.borderColor='var(--fos-border)';};
     // F.1: grade label is READ-ONLY, always derived as <grading> + <token>,
