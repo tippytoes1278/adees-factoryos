@@ -1226,7 +1226,7 @@ function renderGrid(c){
 
   // thead row 3: TODAY / TOTAL / BAL labels
   var tr2=document.createElement('tr');
-  for(var di=0;di<13;di++){
+  for(var di=0;di<MOVEMENTS.length;di++){   // F.5 follow-up 2: was hardcoded 13 — drove the ghost Today/Total/Bal group
     ['Today','Total','Bal'].forEach(function(lbl,ci){
       var th=document.createElement('th');
       th.textContent=lbl;
