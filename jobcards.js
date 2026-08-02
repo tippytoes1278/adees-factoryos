@@ -38,7 +38,7 @@ function issueJobCard(data) {
   var STORE_MOVEMENT_MAP = {
     'Upper Store':             ['Cutting IN','Cutting OUT','Preparation IN','Preparation OUT','Fitter IN','Fitter OUT'],
     'Lasting & Packing Store': ['Lasting IN','Lasting OUT','Packing IN','Packing OUT'],
-    'Dispatch Store':          ['Dispatch IN','Dispatch OUT']
+    'Dispatch Store':          ['Dispatch IN']
   };
   var orderRef       = safeStr(data.orderRef       || '').trim();
   var workOrder      = safeStr(data.workOrder      || '').trim();
@@ -291,7 +291,7 @@ function issueDepartmentJobCard(data) {
   var STORE_MOVEMENT_MAP = {
     'Upper Store':             ['Cutting IN','Cutting OUT','Preparation IN','Preparation OUT','Fitter IN','Fitter OUT'],
     'Lasting & Packing Store': ['Lasting IN','Lasting OUT','Packing IN','Packing OUT'],
-    'Dispatch Store':          ['Dispatch IN','Dispatch OUT']
+    'Dispatch Store':          ['Dispatch IN']
   };
   var DEPT_KEY = {
     'Cutting IN':'cutting','Preparation IN':'prep','Fitter IN':'fitter',
@@ -633,9 +633,11 @@ function receiveJobCard(data) {
   } catch(pe) {}
 
   var rcvWarning;
-  // F.5: 'Upper IN' retired (never used — zero rows on both sheets); every IN
-  // movement pairs with an OUT movement of the same prefix.
-  {
+  // F.5: 'Upper IN' retired (never used — zero rows on both sheets).
+  // F.5b: Dispatch is the terminal stage — nothing leaves it, so a Dispatch IN
+  // receive writes NO OUT-side WIP entry ('Dispatch OUT' retired, zero rows ever).
+  // Every other IN movement pairs with an OUT movement of the same prefix.
+  if (inMovement !== 'Dispatch IN') {
     var outMovement = inMovement.slice(0, -2) + 'OUT';
     try {
       var wipResult = saveWipEntry({

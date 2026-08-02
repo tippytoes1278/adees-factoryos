@@ -53,7 +53,7 @@ function saveWipEntry(data, status) {
   var STORE_MOVEMENT_MAP = {
     'Upper Store':              ['Cutting IN','Cutting OUT','Preparation IN','Preparation OUT','Fitter IN','Fitter OUT'],
     'Lasting & Packing Store':  ['Lasting IN','Lasting OUT','Packing IN','Packing OUT'],
-    'Dispatch Store':           ['Dispatch IN','Dispatch OUT']
+    'Dispatch Store':           ['Dispatch IN']
   };
   // Convention (S.8/S.6): ensure* helpers are called BEFORE taking the writer's
   // lock — they self-lock their one-time mutation paths, and nesting script
@@ -189,7 +189,7 @@ function getWipGrid() {
   var ALL_MOVEMENTS = [
     'Cutting IN','Cutting OUT','Preparation IN','Preparation OUT','Fitter IN','Fitter OUT',
     'Lasting IN','Lasting OUT','Packing IN','Packing OUT',
-    'Dispatch IN','Dispatch OUT'
+    'Dispatch IN'
   ];
   try {
     var ss = SpreadsheetApp.openById(SHEET_ID);

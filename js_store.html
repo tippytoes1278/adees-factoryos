@@ -1152,11 +1152,11 @@ function renderFloor(c){
 }
 // ── WIP GRID — Phase 5.2f ────────────────────────────────────────────────────
 function renderGrid(c){
-  var MOVEMENTS=['Cutting IN','Cutting OUT','Preparation IN','Preparation OUT','Fitter IN','Fitter OUT','Lasting IN','Lasting OUT','Packing IN','Packing OUT','Dispatch IN','Dispatch OUT'];
+  var MOVEMENTS=['Cutting IN','Cutting OUT','Preparation IN','Preparation OUT','Fitter IN','Fitter OUT','Lasting IN','Lasting OUT','Packing IN','Packing OUT','Dispatch IN'];
   // F.5 follow-up: store spans must total MOVEMENTS.length (12 since Upper IN
   // retired) — the stale c:5 shifted every group header one movement right and
   // left an orphan Today/Total/Bal group after Dispatch OUT.
-  var STORES=[{n:'Upper Store',c:6},{n:'Lasting & Packing',c:4},{n:'Dispatch',c:2}];
+  var STORES=[{n:'Upper Store',c:6},{n:'Lasting & Packing',c:4},{n:'Dispatch',c:1}];   // F.5b: Dispatch OUT retired (terminal stage)
   var orders=(D.wipGrid&&D.wipGrid.orders)||[];
   var entries=(D.wipGrid&&D.wipGrid.entries)||[];
   c.innerHTML='';
