@@ -1769,6 +1769,21 @@ function renderActivitySetup(body,article){
   }
   // ── END 8.P2 import panel ─────────────────────────────────────────────
 
+  // B.2b: prefetch Labour Rate Card rates for this article (reference pre-fill
+  // only — fields stay editable; enrollment rates remain the actuals). One
+  // batch call; server routes every name through getStandardRate().
+  var RATE_CARD={};
+  (function(){
+    var _nm={};MASTER_ACTS.forEach(function(ma){if(ma&&ma.name)_nm[ma.name]=1;});
+    var _list=Object.keys(_nm);
+    if(_list.length){
+      google.script.run
+        .withSuccessHandler(function(r){if(r&&!r.error)RATE_CARD=r||{};})
+        .withFailureHandler(function(){})
+        .getStandardRateBatch(_list,article.sheet);
+    }
+  })();
+
   DEPTS.forEach(function(dept){
     var section=el('div',{style:'margin-bottom:16px'});
     section.appendChild(el('div',{style:'font-size:12px;font-weight:500;color:var(--fos-ink-secondary);text-transform:uppercase;margin-bottom:6px',text:dept}));
@@ -1814,10 +1829,12 @@ function renderActivitySetup(body,article){
         var masterAct=MASTER_ACTS.filter(function(ma){return ma.name===name;})[0];
         var masterRate=masterAct?masterAct.stdRate:0;
         var masterComm=masterAct?masterAct.comm:0;
+        // B.2b: rate-card pre-fill priority: explicit preset (import) > rate card > master list.
+        var cardHit=RATE_CARD[name];var cardOk=!!(cardHit&&cardHit.found);
         var hasR=(presetRate!==undefined&&presetRate!==null&&presetRate!=='');
         var hasC=(presetComm!==undefined&&presetComm!==null&&presetComm!=='');
-        var useRate=hasR?(Number(presetRate)||0):(masterRate||0);
-        var useComm=hasC?(Number(presetComm)||0):(masterComm||0);
+        var useRate=hasR?(Number(presetRate)||0):(cardOk&&Number(cardHit.rate)>0?Number(cardHit.rate):(masterRate||0));
+        var useComm=hasC?(Number(presetComm)||0):(cardOk&&Number(cardHit.comm)>0?Number(cardHit.comm):(masterComm||0));
         var chk=el('input',{type:'checkbox',checked:true,style:'width:15px;height:15px;flex-shrink:0;accent-color:var(--fos-accent)'});
         var rowEl=el('div',{style:'padding:6px 0;border-top:0.5px solid var(--fos-border)'});
         var nameRow=el('div',{style:'display:flex;align-items:center;gap:8px;margin-bottom:6px'});
@@ -1834,7 +1851,10 @@ function renderActivitySetup(body,article){
         rateRow.appendChild(rateInp);
         rateRow.appendChild(commInp);
         rowEl.appendChild(rateRow);
-        if(masterRate>0){
+        if(cardOk){
+          rowEl.appendChild(el('div',{style:'font-size:10px;color:var(--fos-accent);margin-top:3px',
+            text:'Rate card: ₹'+cardHit.rate+'/pr'+(Number(cardHit.comm)>0?' + ₹'+cardHit.comm+' comm':'')+(cardHit.articleSpecific?' (article rate)':' (base rate)')}));
+        } else if(masterRate>0){
           var masterHint=el('div',{style:'font-size:10px;color:var(--fos-ink-secondary);margin-top:3px;margin-left:0',
             text:'Master rate: ₹'+masterRate+'/pr'+(masterComm?' + ₹'+masterComm+' comm':'')});
           rowEl.appendChild(masterHint);

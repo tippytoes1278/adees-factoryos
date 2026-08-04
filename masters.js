@@ -891,3 +891,18 @@ function setStyleStatus(styleId, status) {
     lock.releaseLock();
   }
 }
+
+// B.2b: batch wrapper for the activity-setup screen pre-fill. Preserves the
+// single-entry-point contract — every lookup goes through getStandardRate().
+// Returns { '<activity name>': getStandardRate result } for unique names.
+function getStandardRateBatch(names, articleId) {
+  var out = {};
+  try {
+    (Array.isArray(names) ? names : []).forEach(function(n) {
+      var key = safeStr(n).trim();
+      if (!key || out[key]) return;
+      out[key] = getStandardRate(key, articleId, null);
+    });
+    return out;
+  } catch(e) { return { error: e.message }; }
+}
