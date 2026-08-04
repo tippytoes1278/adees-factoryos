@@ -736,9 +736,9 @@ function doApproveSetupEditRequest(reqId){
 // ── MASTERS (Phase B) ─────────────────────────────────────────────────────────
 // Sub-tab dispatcher: renderMasters draws the pill bar + a body container,
 // then hands the body to exactly one renderMasters<Tab>(container) function.
-// Later commits fill in renderMastersStyles / renderMastersRates /
-// renderMastersMaterials by replacing their placeholder branch below with a
-// real pane function — nothing else changes.
+// Later commits fill in renderMastersStyles / renderMastersRates by replacing
+// their placeholder branch below with a real pane function — nothing else
+// changes.
 var MASTERS_TAB='suppliers';
 
 function renderMasters(c){
@@ -765,7 +765,7 @@ function renderMasters(c){
   if(MASTERS_TAB==='suppliers')renderMastersSuppliers(body);
   else if(MASTERS_TAB==='styles')renderMastersPlaceholder(body,'Styles');
   else if(MASTERS_TAB==='rates')renderMastersPlaceholder(body,'Rates');
-  else renderMastersPlaceholder(body,'Materials');
+  else renderMastersMaterials(body);
 }
 
 // Placeholder pane for sub-tabs that land in later Phase B commits.
@@ -902,5 +902,204 @@ function renderMastersSuppliers(container){
       container.appendChild(el('div',{style:'color:var(--fos-danger);padding:20px;text-align:center;font-size:13px',text:(e&&e.message)||'Error loading suppliers'}));
     })
     .getSuppliers();
+}
+
+// ── MASTERS · MATERIALS (B.3) ─────────────────────────────────────────────────
+// Needs BOTH getMaterials and getSuppliers (supplier names resolved from
+// SUPPLIER_ID; ACTIVE suppliers populate the form select) — the two
+// google.script.run calls are chained, then the pane is built once.
+function renderMastersMaterials(container){
+  container.innerHTML='';
+  container.appendChild(el('div',{style:'display:flex;justify-content:center;padding:40px',html:'<div class="loader"></div>'}));
+  var _matErr=function(msg){
+    container.innerHTML='';
+    container.appendChild(el('div',{style:'color:var(--fos-danger);padding:20px;text-align:center;font-size:13px',text:msg}));
+  };
+  google.script.run
+    .withSuccessHandler(function(matList){
+      if(matList&&matList.error){_matErr(matList.error);return;}
+      google.script.run
+        .withSuccessHandler(function(supList){
+          if(supList&&supList.error){_matErr(supList.error);return;}
+          _buildMaterialsPane(container,Array.isArray(matList)?matList:[],Array.isArray(supList)?supList:[]);
+        })
+        .withFailureHandler(function(e){_matErr((e&&e.message)||'Error loading suppliers');})
+        .getSuppliers();
+    })
+    .withFailureHandler(function(e){_matErr((e&&e.message)||'Error loading materials');})
+    .getMaterials();
+}
+
+function _buildMaterialsPane(container,mats,sups){
+  container.innerHTML='';
+  var UNITS=['mtr','kg','pair','pc','roll'];
+  var supName={};
+  sups.forEach(function(s){supName[s.supId]=s.name;});
+
+  // ── ADD / EDIT FORM (collapsed behind the button) ───────────────────────────
+  var addWrap=el('div',{style:'margin-bottom:12px'});
+  var addBtn=el('button',{cls:'primary-btn',text:'+ Add Material',style:'border-radius:8px;font-size:14px;font-weight:500;padding:12px;margin-bottom:0'});
+  var form=el('div',{style:'display:none;background:var(--fos-surface);border:0.5px solid var(--fos-border);border-radius:12px;padding:14px;margin-top:8px'});
+  var formTitle=el('div',{style:'font-size:13px;font-weight:700;color:var(--fos-ink);margin-bottom:10px',text:'Add Material'});
+  form.appendChild(formTitle);
+
+  var gName=el('div',{cls:'form-group'});
+  gName.appendChild(el('label',{cls:'form-label',text:'Name *'}));
+  var iName=el('input',{cls:'form-input',type:'text',placeholder:'e.g. Upper leather — black'});
+  gName.appendChild(iName);form.appendChild(gName);
+
+  var gUnit=el('div',{cls:'form-group'});
+  gUnit.appendChild(el('label',{cls:'form-label',text:'Unit *'}));
+  var iUnit=el('select',{cls:'form-input'});
+  iUnit.appendChild(el('option',{value:'',text:'— select unit —'}));
+  UNITS.forEach(function(u){iUnit.appendChild(el('option',{value:u,text:u}));});
+  gUnit.appendChild(iUnit);form.appendChild(gUnit);
+
+  var gRate=el('div',{cls:'form-group'});
+  gRate.appendChild(el('label',{cls:'form-label',text:'Rate'}));
+  var iRate=el('input',{cls:'form-input',type:'number',placeholder:'e.g. 450'});
+  gRate.appendChild(iRate);
+  var rateHint=el('div',{style:'display:none;font-size:11px;color:var(--fos-ink-secondary);margin-top:4px',text:'Changing the rate logs the old→new change in the rate history.'});
+  gRate.appendChild(rateHint);form.appendChild(gRate);
+
+  var gSup=el('div',{cls:'form-group'});
+  gSup.appendChild(el('label',{cls:'form-label',text:'Supplier'}));
+  var iSup=el('select',{cls:'form-input'});
+  iSup.appendChild(el('option',{value:'',text:'— none —'}));
+  sups.forEach(function(s){
+    if(s.status==='ARCHIVED')return;
+    iSup.appendChild(el('option',{value:s.supId,text:s.name+' ('+s.supId+')'}));
+  });
+  gSup.appendChild(iSup);form.appendChild(gSup);
+
+  var gNotes=el('div',{cls:'form-group'});
+  gNotes.appendChild(el('label',{cls:'form-label',text:'Notes'}));
+  var iNotes=el('input',{cls:'form-input',type:'text',placeholder:'e.g. min order 50 mtr'});
+  gNotes.appendChild(iNotes);form.appendChild(gNotes);
+
+  var editingId='',editingStatus='';
+  var btnRow=el('div',{style:'display:flex;gap:8px;align-items:center;margin-top:8px'});
+  var sub=el('button',{cls:'primary-btn',text:'Add Material',style:'flex:1;padding:12px'});
+  var cnl=el('a',{style:'font-size:12px;color:var(--fos-ink-secondary);cursor:pointer;text-decoration:underline',text:'Cancel'});
+  btnRow.appendChild(sub);btnRow.appendChild(cnl);form.appendChild(btnRow);
+  var openForm=function(m){
+    editingId=m?m.matId:'';
+    editingStatus=m?(m.status||'ACTIVE'):'';
+    iName.value=m?(m.name||''):'';
+    iUnit.value=m?(m.unit||''):'';
+    iRate.value=m?(m.rate||m.rate===0?m.rate:''):'';
+    iSup.value=m?(m.supplierId||''):'';
+    if(m&&m.supplierId&&iSup.value!==m.supplierId){
+      // Supplier is archived (not in the ACTIVE list) — add it so the edit
+      // form shows the current value instead of silently blanking it.
+      iSup.appendChild(el('option',{value:m.supplierId,text:(supName[m.supplierId]||m.supplierId)+' (archived)'}));
+      iSup.value=m.supplierId;
+    }
+    iNotes.value=m?(m.notes||''):'';
+    rateHint.style.display=m?'block':'none';
+    formTitle.textContent=m?('Edit Material — '+m.matId):'Add Material';
+    sub.textContent=m?'Save Changes':'Add Material';
+    form.style.display='block';addBtn.style.display='none';
+    form.scrollIntoView({behavior:'smooth',block:'nearest'});
+  };
+  var closeForm=function(){form.style.display='none';addBtn.style.display='';};
+  addBtn.onclick=function(){openForm(null);};
+  cnl.onclick=closeForm;
+  sub.onclick=function(){
+    var nm=iName.value.trim();
+    if(!nm){toast('Enter material name',true);return;}
+    if(!iUnit.value){toast('Select a unit',true);return;}
+    sub.disabled=true;sub.textContent='Saving…';
+    var idle=function(){sub.disabled=false;sub.textContent=editingId?'Save Changes':'Add Material';};
+    var payload={name:nm,unit:iUnit.value,rate:safeNum(iRate.value),supplierId:iSup.value,notes:iNotes.value.trim()};
+    if(editingId){payload.matId=editingId;payload.status=editingStatus;}
+    // S.9-style: server rejects a name duplicating an ACTIVE material; the
+    // admin is offered a deliberate override (confirm → resubmit with flag).
+    var _sendMat=function(p){
+      google.script.run
+        .withSuccessHandler(function(r){
+          if(r&&r.success){
+            toast(editingId?'Material updated':'Material added ('+(r.matId||'')+')');
+            renderMastersMaterials(container);
+          } else if(r&&r.duplicateOf&&USER&&USER.role==='admin'&&!p.allowDuplicateName){
+            if(window.confirm((r.error||'Duplicate name.')+'\n\nSave this material anyway?')){
+              p.allowDuplicateName=true;_sendMat(p);
+            } else {idle();}
+          } else {idle();toast((r&&r.error)||'Error',true);}
+        })
+        .withFailureHandler(function(){idle();toast('Error',true);})
+        .saveMaterial(p);
+    };
+    _sendMat(payload);
+  };
+  addWrap.appendChild(addBtn);addWrap.appendChild(form);
+  container.appendChild(addWrap);
+
+  // ── MATERIAL CARDS ──────────────────────────────────────────────────────────
+  if(!mats.length){
+    container.appendChild(el('div',{style:'color:var(--fos-ink-secondary);padding:40px;text-align:center',text:'No materials yet'}));
+    return;
+  }
+  mats.forEach(function(m){
+    var isActive=(m.status!=='ARCHIVED');
+    var card=el('div',{style:'background:var(--fos-surface);border-radius:12px;padding:16px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.06)'});
+    if(!isActive)card.style.opacity='0.6';
+    var topRow=el('div',{style:'display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px'});
+    var nameCol=el('div');
+    nameCol.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:m.matId}));
+    nameCol.appendChild(el('div',{style:'font-size:15px;font-weight:600;color:var(--fos-ink)',text:m.name}));
+    topRow.appendChild(nameCol);
+    var rightCol=el('div',{style:'display:flex;flex-direction:column;align-items:flex-end;gap:6px'});
+    rightCol.appendChild(el('span',{cls:'badge '+(isActive?'green':'grey'),text:m.status||'ACTIVE'}));
+    var linkRow=el('div',{style:'display:flex;gap:10px'});
+    var editLnk=el('a',{style:'font-size:11px;color:var(--fos-accent);cursor:pointer;text-decoration:underline',text:'Edit'});
+    var stLnk=el('a',{style:'font-size:11px;cursor:pointer;text-decoration:underline;color:'+(isActive?'var(--fos-danger)':'var(--fos-accent)'),text:isActive?'Archive':'Reactivate'});
+    var histLnk=el('a',{style:'font-size:11px;color:var(--fos-ink-secondary);cursor:pointer;text-decoration:underline',text:'History'});
+    linkRow.appendChild(editLnk);linkRow.appendChild(stLnk);linkRow.appendChild(histLnk);
+    rightCol.appendChild(linkRow);
+    topRow.appendChild(rightCol);
+    card.appendChild(topRow);
+    card.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink);font-weight:500',text:fmt(safeNum(m.rate))+' / '+(m.unit||'—')}));
+    card.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:2px',text:'Supplier: '+(m.supplierId?(supName[m.supplierId]||m.supplierId):'—')}));
+    if(m.notes)card.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:2px',text:'Notes: '+m.notes}));
+    var histBox=el('div',{style:'display:none;margin-top:8px;border-top:0.5px solid var(--fos-border);padding-top:8px'});
+    card.appendChild(histBox);
+    (function(mt,eLnk,sLnk,hLnk,hBox,act){
+      eLnk.onclick=function(){openForm(mt);};
+      sLnk.onclick=function(){
+        var next=act?'ARCHIVED':'ACTIVE';
+        if(!window.confirm((act?'Archive':'Reactivate')+' material "'+mt.name+'" ('+mt.matId+')?'))return;
+        google.script.run
+          .withSuccessHandler(function(r){
+            if(r&&r.success){toast(act?'Material archived':'Material reactivated');renderMastersMaterials(container);}
+            else toast((r&&r.error)||'Error',true);
+          })
+          .withFailureHandler(function(){toast('Error',true);})
+          .setMaterialStatus(mt.matId,next);
+      };
+      // History toggles an inline list of past rates (date · ₹rate · by),
+      // fetched once per open — re-opening refetches so it is never stale.
+      hLnk.onclick=function(){
+        if(hBox.style.display!=='none'){hBox.style.display='none';hLnk.textContent='History';return;}
+        hBox.style.display='block';hLnk.textContent='Hide history';
+        hBox.innerHTML='<div style="font-size:11px;color:var(--fos-ink-secondary)">Loading…</div>';
+        google.script.run
+          .withSuccessHandler(function(log){
+            hBox.innerHTML='';
+            if(log&&log.error){hBox.appendChild(el('div',{style:'font-size:11px;color:var(--fos-danger)',text:log.error}));return;}
+            var entries=Array.isArray(log)?log:[];
+            if(!entries.length){hBox.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary)',text:'No rate history'}));return;}
+            hBox.appendChild(el('div',{style:'font-size:11px;font-weight:700;color:var(--fos-ink);margin-bottom:4px',text:'Rate history'}));
+            entries.forEach(function(h){
+              hBox.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-top:2px',
+                text:(h.date||'—')+' · '+fmt(safeNum(h.rate))+(h.updatedBy?' · by '+h.updatedBy:'')}));
+            });
+          })
+          .withFailureHandler(function(){hBox.innerHTML='';hBox.appendChild(el('div',{style:'font-size:11px;color:var(--fos-danger)',text:'Error loading history'}));})
+          .getMaterialRateLog(mt.matId);
+      };
+    })(m,editLnk,stLnk,histLnk,histBox,isActive);
+    container.appendChild(card);
+  });
 }
 </script>
