@@ -736,8 +736,8 @@ function doApproveSetupEditRequest(reqId){
 // ── MASTERS (Phase B) ─────────────────────────────────────────────────────────
 // Sub-tab dispatcher: renderMasters draws the pill bar + a body container,
 // then hands the body to exactly one renderMasters<Tab>(container) function.
-// Later commits fill in renderMastersStyles by replacing its placeholder
-// branch below with a real pane function — nothing else changes.
+// All four panes are live: Styles (B.1), Rates (B.2), Materials (B.3),
+// Suppliers (B.4).
 var MASTERS_TAB='suppliers';
 
 function renderMasters(c){
@@ -762,18 +762,209 @@ function renderMasters(c){
   c.appendChild(body);
   // Dispatcher — one pane function per sub-tab.
   if(MASTERS_TAB==='suppliers')renderMastersSuppliers(body);
-  else if(MASTERS_TAB==='styles')renderMastersPlaceholder(body,'Styles');
+  else if(MASTERS_TAB==='styles')renderMastersStyles(body);
   else if(MASTERS_TAB==='rates')renderMastersRates(body);
   else renderMastersMaterials(body);
 }
 
-// Placeholder pane for sub-tabs that land in later Phase B commits.
-function renderMastersPlaceholder(container,label){
+// ── MASTERS · STYLES (B.1) ────────────────────────────────────────────────────
+// The style master records WHICH sizes a style runs in (size tokens, all
+// values 0) — quantities live on orders, never here.
+function renderMastersStyles(container){
   container.innerHTML='';
-  container.appendChild(el('div',{
-    style:'color:var(--fos-ink-secondary);text-align:center;padding:48px 20px;background:var(--fos-surface);border:0.5px solid var(--fos-border);border-radius:12px;font-size:13px',
-    text:label+' master — coming in this phase'
-  }));
+  container.appendChild(el('div',{style:'display:flex;justify-content:center;padding:40px',html:'<div class="loader"></div>'}));
+  google.script.run
+    .withSuccessHandler(function(list){
+      container.innerHTML='';
+      if(list&&list.error){
+        container.appendChild(el('div',{style:'color:var(--fos-danger);padding:20px;text-align:center;font-size:13px',text:list.error}));
+        return;
+      }
+      var stys=Array.isArray(list)?list:[];
+      var CATS=['Men','Ladies','Toddlers','Junior'];
+      // EDITABLE defaults: category pre-fills the tokens field, which the
+      // owner is free to change before saving.
+      var CAT_DEFAULTS={'Men':'6,7,8,9,10,11','Ladies':'3,4,5,6,7,8','Toddlers':'','Junior':''};
+
+      // ── ADD / EDIT FORM (collapsed behind the button) ─────────────────────
+      var addWrap=el('div',{style:'margin-bottom:12px'});
+      var addBtn=el('button',{cls:'primary-btn',text:'+ Add Style',style:'border-radius:8px;font-size:14px;font-weight:500;padding:12px;margin-bottom:0'});
+      var form=el('div',{style:'display:none;background:var(--fos-surface);border:0.5px solid var(--fos-border);border-radius:12px;padding:14px;margin-top:8px'});
+      var formTitle=el('div',{style:'font-size:13px;font-weight:700;color:var(--fos-ink);margin-bottom:10px',text:'Add Style'});
+      form.appendChild(formTitle);
+
+      var gName=el('div',{cls:'form-group'});
+      gName.appendChild(el('label',{cls:'form-label',text:'Name *'}));
+      var iName=el('input',{cls:'form-input',type:'text',placeholder:'e.g. Derby — brown crust'});
+      gName.appendChild(iName);form.appendChild(gName);
+
+      var gCat=el('div',{cls:'form-group'});
+      gCat.appendChild(el('label',{cls:'form-label',text:'Category *'}));
+      var iCat=el('select',{cls:'form-input'});
+      iCat.appendChild(el('option',{value:'',text:'— select category —'}));
+      CATS.forEach(function(cv){iCat.appendChild(el('option',{value:cv,text:cv}));});
+      gCat.appendChild(iCat);form.appendChild(gCat);
+
+      // Grading: two pill buttons (same pattern as the New Order form's grBtns).
+      var gGr=el('div',{cls:'form-group'});
+      gGr.appendChild(el('label',{cls:'form-label',text:'Grading *'}));
+      var grSel='',grBtns={};
+      var grRow=el('div',{style:'display:flex;gap:8px;flex-wrap:wrap;margin-top:4px'});
+      var setGr=function(g){
+        grSel=g||'';
+        ['UK','EU'].forEach(function(k){
+          var on=(k===grSel);
+          grBtns[k].style.background=on?'var(--fos-accent)':'var(--fos-surface)';
+          grBtns[k].style.color=on?'#fff':'var(--fos-ink)';
+          grBtns[k].style.borderColor=on?'var(--fos-accent)':'var(--fos-border)';
+        });
+      };
+      ['UK','EU'].forEach(function(g){
+        var gb=el('button',{text:g,style:'padding:8px 20px;border-radius:20px;border:1px solid var(--fos-border);background:var(--fos-surface);color:var(--fos-ink);font-size:13px;font-weight:500;cursor:pointer'});
+        grBtns[g]=gb;
+        gb.onclick=function(){setGr(g);};
+        grRow.appendChild(gb);
+      });
+      gGr.appendChild(grRow);form.appendChild(gGr);
+
+      var gSz=el('div',{cls:'form-group'});
+      gSz.appendChild(el('label',{cls:'form-label',text:'Size Run'}));
+      var iSz=el('input',{cls:'form-input',type:'text',placeholder:'e.g. 6,7,8,9,10,11'});
+      gSz.appendChild(iSz);
+      var szHint=el('div',{style:'display:none;font-size:11px;color:var(--fos-ink-secondary);margin-top:4px',text:'enter sizes for this category'});
+      gSz.appendChild(szHint);form.appendChild(gSz);
+
+      // Category change pre-fills the tokens — but ONLY when the field is
+      // empty or still equals the previous category's default, so owner
+      // edits are never clobbered.
+      var _normSz=function(s){return String(s||'').replace(/\s+/g,'');};
+      var prevCat='';
+      iCat.onchange=function(){
+        var newDef=CAT_DEFAULTS[iCat.value]||'';
+        var prevDef=CAT_DEFAULTS[prevCat]||'';
+        var cur=_normSz(iSz.value);
+        if(cur===''||cur===_normSz(prevDef))iSz.value=newDef;
+        szHint.style.display=(iCat.value&&!newDef&&!iSz.value.trim())?'block':'none';
+        prevCat=iCat.value;
+      };
+
+      var gNotes=el('div',{cls:'form-group'});
+      gNotes.appendChild(el('label',{cls:'form-label',text:'Construction Notes'}));
+      var iNotes=el('textarea',{cls:'form-input',rows:3,placeholder:'e.g. stitch-down construction, leather sole'});
+      gNotes.appendChild(iNotes);form.appendChild(gNotes);
+
+      var editingId='',editingStatus='';
+      var btnRow=el('div',{style:'display:flex;gap:8px;align-items:center;margin-top:8px'});
+      var sub=el('button',{cls:'primary-btn',text:'Add Style',style:'flex:1;padding:12px'});
+      var cnl=el('a',{style:'font-size:12px;color:var(--fos-ink-secondary);cursor:pointer;text-decoration:underline',text:'Cancel'});
+      btnRow.appendChild(sub);btnRow.appendChild(cnl);form.appendChild(btnRow);
+      var openForm=function(st){
+        editingId=st?st.styleId:'';
+        editingStatus=st?(st.status||'ACTIVE'):'';
+        iName.value=st?(st.name||''):'';
+        iCat.value=st?(st.category||''):'';
+        prevCat=iCat.value;
+        setGr(st?(st.grading||''):'');
+        iSz.value=st?Object.keys(st.sizeRun||{}).join(','):'';
+        szHint.style.display=(iCat.value&&!(CAT_DEFAULTS[iCat.value]||'')&&!iSz.value.trim())?'block':'none';
+        iNotes.value=st?(st.notes||''):'';
+        formTitle.textContent=st?('Edit Style — '+st.styleId):'Add Style';
+        sub.textContent=st?'Save Changes':'Add Style';
+        form.style.display='block';addBtn.style.display='none';
+        form.scrollIntoView({behavior:'smooth',block:'nearest'});
+      };
+      var closeForm=function(){form.style.display='none';addBtn.style.display='';};
+      addBtn.onclick=function(){openForm(null);};
+      cnl.onclick=closeForm;
+      sub.onclick=function(){
+        var nm=iName.value.trim();
+        if(!nm){toast('Enter style name',true);return;}
+        if(!iCat.value){toast('Select a category',true);return;}
+        if(!grSel){toast('Select grading (UK or EU)',true);return;}
+        // Tokens → {token:0,...}: sizes only, no quantities.
+        var sizeRun={};
+        iSz.value.split(',').forEach(function(t){
+          var tok=t.trim();
+          if(tok)sizeRun[tok]=0;
+        });
+        sub.disabled=true;sub.textContent='Saving…';
+        var idle=function(){sub.disabled=false;sub.textContent=editingId?'Save Changes':'Add Style';};
+        var payload={name:nm,category:iCat.value,grading:grSel,sizeRun:sizeRun,notes:iNotes.value.trim()};
+        if(editingId){payload.styleId=editingId;payload.status=editingStatus;}
+        // S.9-style: server rejects a name duplicating an ACTIVE style; the
+        // admin is offered a deliberate override (confirm → resubmit with flag).
+        var _sendSty=function(p){
+          google.script.run
+            .withSuccessHandler(function(r){
+              if(r&&r.success){
+                toast(editingId?'Style updated':'Style added ('+(r.styleId||'')+')');
+                renderMastersStyles(container);
+              } else if(r&&r.duplicateOf&&USER&&USER.role==='admin'&&!p.allowDuplicateName){
+                if(window.confirm((r.error||'Duplicate name.')+'\n\nSave this style anyway?')){
+                  p.allowDuplicateName=true;_sendSty(p);
+                } else {idle();}
+              } else {idle();toast((r&&r.error)||'Error',true);}
+            })
+            .withFailureHandler(function(){idle();toast('Error',true);})
+            .saveStyle(p);
+        };
+        _sendSty(payload);
+      };
+      addWrap.appendChild(addBtn);addWrap.appendChild(form);
+      container.appendChild(addWrap);
+
+      // ── STYLE CARDS ───────────────────────────────────────────────────────
+      if(!stys.length){
+        container.appendChild(el('div',{style:'color:var(--fos-ink-secondary);padding:40px;text-align:center',text:'No styles yet'}));
+        return;
+      }
+      stys.forEach(function(st){
+        var isActive=(st.status!=='ARCHIVED');
+        var card=el('div',{style:'background:var(--fos-surface);border-radius:12px;padding:16px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.06)'});
+        if(!isActive)card.style.opacity='0.6';
+        var topRow=el('div',{style:'display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px'});
+        var nameCol=el('div');
+        nameCol.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:st.styleId}));
+        nameCol.appendChild(el('div',{style:'font-size:15px;font-weight:600;color:var(--fos-ink)',text:st.name}));
+        var chipRow=el('div',{style:'display:flex;gap:6px;margin-top:4px'});
+        if(st.category)chipRow.appendChild(el('span',{cls:'badge grey',text:st.category}));
+        if(st.grading)chipRow.appendChild(el('span',{cls:'badge grey',text:st.grading}));
+        if(chipRow.children.length)nameCol.appendChild(chipRow);
+        topRow.appendChild(nameCol);
+        var rightCol=el('div',{style:'display:flex;flex-direction:column;align-items:flex-end;gap:6px'});
+        rightCol.appendChild(el('span',{cls:'badge '+(isActive?'green':'grey'),text:st.status||'ACTIVE'}));
+        var linkRow=el('div',{style:'display:flex;gap:10px'});
+        var editLnk=el('a',{style:'font-size:11px;color:var(--fos-accent);cursor:pointer;text-decoration:underline',text:'Edit'});
+        var stLnk=el('a',{style:'font-size:11px;cursor:pointer;text-decoration:underline;color:'+(isActive?'var(--fos-danger)':'var(--fos-accent)'),text:isActive?'Archive':'Reactivate'});
+        linkRow.appendChild(editLnk);linkRow.appendChild(stLnk);
+        rightCol.appendChild(linkRow);
+        topRow.appendChild(rightCol);
+        card.appendChild(topRow);
+        var toks=Object.keys(st.sizeRun||{});
+        if(toks.length)card.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:2px',text:'Sizes: '+toks.join(', ')}));
+        if(st.notes)card.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:2px',text:'Notes: '+st.notes}));
+        (function(s,eLnk,sLnk,act){
+          eLnk.onclick=function(){openForm(s);};
+          sLnk.onclick=function(){
+            var next=act?'ARCHIVED':'ACTIVE';
+            if(!window.confirm((act?'Archive':'Reactivate')+' style "'+s.name+'" ('+s.styleId+')?'))return;
+            google.script.run
+              .withSuccessHandler(function(r){
+                if(r&&r.success){toast(act?'Style archived':'Style reactivated');renderMastersStyles(container);}
+                else toast((r&&r.error)||'Error',true);
+              })
+              .withFailureHandler(function(){toast('Error',true);})
+              .setStyleStatus(s.styleId,next);
+          };
+        })(st,editLnk,stLnk,isActive);
+        container.appendChild(card);
+      });
+    })
+    .withFailureHandler(function(e){
+      container.innerHTML='';
+      container.appendChild(el('div',{style:'color:var(--fos-danger);padding:20px;text-align:center;font-size:13px',text:(e&&e.message)||'Error loading styles'}));
+    })
+    .getStyles();
 }
 
 // ── MASTERS · SUPPLIERS (B.4) ─────────────────────────────────────────────────

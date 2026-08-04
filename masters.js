@@ -667,3 +667,227 @@ function getMaterialRateLog(matId) {
     return { success: false, error: e.message };
   }
 }
+
+// ── B.1 STYLE MASTER ──────────────────────────────────────────────────────────
+// SIZE_RUN_DEFAULT holds a JSON object whose KEYS are size tokens and whose
+// values are all 0 — the style stores WHICH sizes exist, never quantities.
+
+var STYLE_CATEGORIES = ['Men','Ladies','Toddlers','Junior'];
+
+// S.8: same shape as ensureSuppliersSheet — fast path returns with no lock; a
+// wrong header on a sheet WITH data throws and touches nothing; headers are
+// bootstrapped only on a missing or genuinely empty sheet, inside the script
+// lock with a re-check.
+function ensureStylesSheet() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var HEADERS = ['STYLE_ID','STYLE_NAME','CATEGORY','GRADING_DEFAULT','SIZE_RUN_DEFAULT','CONSTRUCTION_NOTES','STATUS','CREATED_AT','UPDATED_AT'];
+  var ws = ss.getSheetByName('MASTER_STYLES');
+  if (ws && safeStr(ws.getRange(1, 1).getValue()) === 'STYLE_ID') return ws;  // fast path — no lock
+  if (ws && ws.getLastRow() > 1) {
+    throw new Error('Style sheet header mismatch — the MASTER_STYLES sheet has data but its header row is wrong. Nothing was changed. Call Ayush.');
+  }
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    ws = ss.getSheetByName('MASTER_STYLES');                                  // re-check inside lock
+    if (!ws) {
+      ws = ss.insertSheet('MASTER_STYLES');
+      ws.getRange(1, 1, 1, 9).setValues([HEADERS]);
+      ws.setFrozenRows(1);
+    } else if (safeStr(ws.getRange(1, 1).getValue()) !== 'STYLE_ID') {
+      if (ws.getLastRow() > 1) throw new Error('Style sheet header mismatch — the MASTER_STYLES sheet has data but its header row is wrong. Nothing was changed. Call Ayush.');
+      ws.getRange(1, 1, 1, 9).setValues([HEADERS]);                           // genuinely empty: bootstrap only
+      ws.setFrozenRows(1);
+    }
+    return ws;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Read-only style list. No lock. Blank-ID rows are skipped. sizeRun is the
+// parsed SIZE_RUN_DEFAULT object; an unreadable cell degrades to {}.
+function getStyles() {
+  try {
+    var ws = ensureStylesSheet();
+    if (ws.getLastRow() < 2) return [];
+    var rows = ws.getRange(2, 1, ws.getLastRow() - 1, 9).getValues();
+    var result = [];
+    rows.forEach(function(r) {
+      var styleId = safeStr(r[0]).trim();
+      if (!styleId) return;
+      var sizeRun = {};
+      try {
+        var parsed = JSON.parse(safeStr(r[4]).trim() || '{}');
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) sizeRun = parsed;
+      } catch(pe) { sizeRun = {}; }
+      result.push({
+        styleId:  styleId,
+        name:     safeStr(r[1]).trim(),
+        category: safeStr(r[2]).trim(),
+        grading:  safeStr(r[3]).trim().toUpperCase(),
+        sizeRun:  sizeRun,
+        notes:    safeStr(r[5]).trim(),
+        status:   safeStr(r[6]).trim().toUpperCase() || 'ACTIVE'
+      });
+    });
+    return result;
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// Create or edit a style. payload: { styleId?, name, category, grading,
+// sizeRun, notes, status?, allowDuplicateName? }. sizeRun is an OBJECT whose
+// keys are size tokens and whose values are all 0 (the style records sizes,
+// never quantities) — stored as JSON. With styleId → EDIT in place (cols B-G
+// plus UPDATED_AT col I; A and H are never touched). Duplicate-name guard
+// with admin override, same shape as saveSupplier.
+function saveStyle(payload) {
+  var user = getUserInfo();
+  if (user.role !== 'admin')
+    return { success: false, error: 'Not authorised' };
+  // S.8/S.6 convention: ensure* runs BEFORE the writer's lock — it self-locks
+  // its one-time mutation path, and nesting script locks is undefined.
+  var ws;
+  try { ws = ensureStylesSheet(); }
+  catch(ee) { return { success: false, error: ee.message }; }
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    try {
+    var newName = safeStr(payload && payload.name).trim();
+    if (!newName) return { success: false, error: 'Style name is required' };
+
+    // Category: canonical-cased match against the fixed list.
+    var catIn = safeStr(payload && payload.category).trim().toLowerCase();
+    var category = '';
+    STYLE_CATEGORIES.forEach(function(c) { if (c.toLowerCase() === catIn) category = c; });
+    if (!category)
+      return { success: false, error: 'Category must be one of: ' + STYLE_CATEGORIES.join(', ') };
+
+    var grading = safeStr(payload && payload.grading).trim().toUpperCase();
+    if (grading !== 'UK' && grading !== 'EU')
+      return { success: false, error: 'Grading must be UK or EU' };
+
+    // sizeRun: object of {token: 0}. Sizes only — any non-zero value means a
+    // quantity is being smuggled into the style master, which is refused.
+    var srIn = payload && payload.sizeRun;
+    if (!srIn || typeof srIn !== 'object' || Array.isArray(srIn))
+      return { success: false, error: 'Size run must be an object of size tokens' };
+    var sizeRun = {};
+    var srKeys = Object.keys(srIn);
+    for (var si = 0; si < srKeys.length; si++) {
+      var tok = safeStr(srKeys[si]).trim();
+      if (!tok) continue;
+      if (safeNum(srIn[srKeys[si]]) !== 0)
+        return { success: false, error: 'Size run holds sizes only — quantities live on orders, not the style. All size values must be 0.' };
+      sizeRun[tok] = 0;
+    }
+
+    var editId = safeStr(payload && payload.styleId).trim();
+
+    var rows = ws.getLastRow() > 1
+      ? ws.getRange(2, 1, ws.getLastRow() - 1, 9).getValues()
+      : [];
+
+    // Duplicate-name guard: refuse a name matching an existing ACTIVE style
+    // (renames included, excluding the row being edited) unless the admin
+    // deliberately resubmits with allowDuplicateName:true.
+    if (!(payload.allowDuplicateName === true)) {
+      for (var di = 0; di < rows.length; di++) {
+        var dId = safeStr(rows[di][0]).trim();
+        var dNm = safeStr(rows[di][1]).trim();
+        var dSt = safeStr(rows[di][6]).trim().toUpperCase();
+        if (!dId || !dNm) continue;
+        if (editId && dId === editId) continue;                              // renames: skip own row
+        if (dNm.toLowerCase() === newName.toLowerCase() && dSt !== 'ARCHIVED') {
+          return { success: false, duplicateOf: dId,
+                   error: 'A style named "' + dNm + '" already exists (' + dId + '). Duplicate style names confuse orders and costing. Use the existing style, or Ayush can deliberately force a duplicate.' };
+        }
+      }
+    }
+
+    var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
+    var vals = [
+      newName,
+      category,
+      grading,
+      JSON.stringify(sizeRun),
+      safeStr(payload.notes).trim()
+    ];
+
+    if (editId) {
+      // EDIT: locate the row by STYLE_ID; update cols B-G in place and refresh
+      // UPDATED_AT (col I). A (id) and H (CREATED_AT) are never touched.
+      var found = -1;
+      for (var i = 0; i < rows.length; i++) {
+        if (safeStr(rows[i][0]).trim() === editId) { found = i + 2; break; }
+      }
+      if (found < 0) return { success: false, error: 'Style ' + editId + ' not found' };
+      var newStatus = safeStr(payload.status).trim().toUpperCase()
+                   || safeStr(rows[found - 2][6]).trim().toUpperCase() || 'ACTIVE';
+      if (newStatus !== 'ACTIVE' && newStatus !== 'ARCHIVED')
+        return { success: false, error: 'Status must be ACTIVE or ARCHIVED' };
+      ws.getRange(found, 2, 1, 6).setValues([vals.concat([newStatus])]);     // B-G only; never A or H
+      ws.getRange(found, 9).setValue(now);                                   // col I = UPDATED_AT
+      SpreadsheetApp.flush();
+      return { success: true, styleId: editId };
+    }
+
+    // NEW: monotonic STY-#### id — max existing numeric suffix + 1, never row-count.
+    var maxNum = 0;
+    rows.forEach(function(r) {
+      var existing = safeStr(r[0]).trim();
+      if (/^STY-\d+$/.test(existing)) {
+        var n = parseInt(existing.replace('STY-', ''), 10);
+        if (n > maxNum) maxNum = n;
+      }
+    });
+    var seq = String(maxNum + 1);
+    while (seq.length < 4) seq = '0' + seq;
+    var styleId = 'STY-' + seq;
+    ws.getRange(ws.getLastRow() + 1, 1, 1, 9).setValues([
+      [styleId].concat(vals).concat(['ACTIVE', now, now])
+    ]);
+    SpreadsheetApp.flush();
+    return { success: true, styleId: styleId };
+    } catch(e) { return { success: false, error: e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Archive / reactivate a style. Admin only; locked; ACTIVE/ARCHIVED only.
+function setStyleStatus(styleId, status) {
+  var user = getUserInfo();
+  if (user.role !== 'admin')
+    return { success: false, error: 'Not authorised' };
+  var id = safeStr(styleId).trim();
+  if (!id) return { success: false, error: 'styleId is required' };
+  var st = safeStr(status).trim().toUpperCase();
+  if (st !== 'ACTIVE' && st !== 'ARCHIVED')
+    return { success: false, error: 'Status must be ACTIVE or ARCHIVED' };
+  var ws;
+  try { ws = ensureStylesSheet(); }
+  catch(ee) { return { success: false, error: ee.message }; }
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    try {
+    if (ws.getLastRow() < 2) return { success: false, error: 'Style ' + id + ' not found' };
+    var ids = ws.getRange(2, 1, ws.getLastRow() - 1, 1).getValues();
+    for (var i = 0; i < ids.length; i++) {
+      if (safeStr(ids[i][0]).trim() === id) {
+        ws.getRange(i + 2, 7).setValue(st);                                  // col G = STATUS
+        ws.getRange(i + 2, 9).setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm')); // col I = UPDATED_AT
+        SpreadsheetApp.flush();
+        return { success: true };
+      }
+    }
+    return { success: false, error: 'Style ' + id + ' not found' };
+    } catch(e) { return { success: false, error: e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
+}
