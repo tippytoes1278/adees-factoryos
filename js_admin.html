@@ -732,4 +732,175 @@ function doApproveSetupEditRequest(reqId){
     .withFailureHandler(function(){toast('Error',true);})
     .approveSetupEditRequest(reqId);
 }
+
+// ── MASTERS (Phase B) ─────────────────────────────────────────────────────────
+// Sub-tab dispatcher: renderMasters draws the pill bar + a body container,
+// then hands the body to exactly one renderMasters<Tab>(container) function.
+// Later commits fill in renderMastersStyles / renderMastersRates /
+// renderMastersMaterials by replacing their placeholder branch below with a
+// real pane function — nothing else changes.
+var MASTERS_TAB='suppliers';
+
+function renderMasters(c){
+  c.innerHTML='';
+  c.appendChild(sectionTitle('Masters'));
+  var tabs=[['styles','Styles'],['rates','Rates'],['materials','Materials'],['suppliers','Suppliers']];
+  var bar=el('div',{style:'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px'});
+  var body=el('div');
+  tabs.forEach(function(t){
+    var active=(MASTERS_TAB===t[0]);
+    var pill=el('button',{
+      text:t[1],
+      style:'border-radius:16px;padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;'+
+        (active
+          ?'background:var(--fos-accent);color:#fff;border:1px solid var(--fos-accent)'
+          :'background:var(--fos-surface);color:var(--fos-ink-secondary);border:1px solid var(--fos-border)')
+    });
+    (function(id){pill.onclick=function(){MASTERS_TAB=id;renderMasters(c);};})(t[0]);
+    bar.appendChild(pill);
+  });
+  c.appendChild(bar);
+  c.appendChild(body);
+  // Dispatcher — one pane function per sub-tab.
+  if(MASTERS_TAB==='suppliers')renderMastersSuppliers(body);
+  else if(MASTERS_TAB==='styles')renderMastersPlaceholder(body,'Styles');
+  else if(MASTERS_TAB==='rates')renderMastersPlaceholder(body,'Rates');
+  else renderMastersPlaceholder(body,'Materials');
+}
+
+// Placeholder pane for sub-tabs that land in later Phase B commits.
+function renderMastersPlaceholder(container,label){
+  container.innerHTML='';
+  container.appendChild(el('div',{
+    style:'color:var(--fos-ink-secondary);text-align:center;padding:48px 20px;background:var(--fos-surface);border:0.5px solid var(--fos-border);border-radius:12px;font-size:13px',
+    text:label+' master — coming in this phase'
+  }));
+}
+
+// ── MASTERS · SUPPLIERS (B.4) ─────────────────────────────────────────────────
+function renderMastersSuppliers(container){
+  container.innerHTML='';
+  container.appendChild(el('div',{style:'display:flex;justify-content:center;padding:40px',html:'<div class="loader"></div>'}));
+  google.script.run
+    .withSuccessHandler(function(list){
+      container.innerHTML='';
+      if(list&&list.error){
+        container.appendChild(el('div',{style:'color:var(--fos-danger);padding:20px;text-align:center;font-size:13px',text:list.error}));
+        return;
+      }
+      var sups=Array.isArray(list)?list:[];
+
+      // ── ADD / EDIT FORM (collapsed behind the button) ─────────────────────
+      var addWrap=el('div',{style:'margin-bottom:12px'});
+      var addBtn=el('button',{cls:'primary-btn',text:'+ Add Supplier',style:'border-radius:8px;font-size:14px;font-weight:500;padding:12px;margin-bottom:0'});
+      var form=el('div',{style:'display:none;background:var(--fos-surface);border:0.5px solid var(--fos-border);border-radius:12px;padding:14px;margin-top:8px'});
+      var formTitle=el('div',{style:'font-size:13px;font-weight:700;color:var(--fos-ink);margin-bottom:10px',text:'Add Supplier'});
+      form.appendChild(formTitle);
+      var fields=[['name','Name *','e.g. Sharma Leathers'],['contactPerson','Contact Person','e.g. Rakesh Sharma'],['phone','Phone','e.g. 9876543210'],['gstNo','GST No','e.g. 09ABCDE1234F1Z5'],['materials','Materials','e.g. Upper leather, soles'],['paymentTerms','Payment Terms','e.g. 30 days credit']];
+      var inp={};
+      fields.forEach(function(f){
+        var g=el('div',{cls:'form-group'});
+        g.appendChild(el('label',{cls:'form-label',text:f[1]}));
+        var i=el('input',{cls:'form-input',type:(f[0]==='phone'?'tel':'text'),placeholder:f[2]});
+        inp[f[0]]=i;g.appendChild(i);form.appendChild(g);
+      });
+      var editingId='',editingStatus='';
+      var btnRow=el('div',{style:'display:flex;gap:8px;align-items:center;margin-top:8px'});
+      var sub=el('button',{cls:'primary-btn',text:'Add Supplier',style:'flex:1;padding:12px'});
+      var cnl=el('a',{style:'font-size:12px;color:var(--fos-ink-secondary);cursor:pointer;text-decoration:underline',text:'Cancel'});
+      btnRow.appendChild(sub);btnRow.appendChild(cnl);form.appendChild(btnRow);
+      var openForm=function(sp){
+        editingId=sp?sp.supId:'';
+        editingStatus=sp?(sp.status||'ACTIVE'):'';
+        fields.forEach(function(f){inp[f[0]].value=sp?(sp[f[0]]||''):'';});
+        formTitle.textContent=sp?('Edit Supplier — '+sp.supId):'Add Supplier';
+        sub.textContent=sp?'Save Changes':'Add Supplier';
+        form.style.display='block';addBtn.style.display='none';
+        form.scrollIntoView({behavior:'smooth',block:'nearest'});
+      };
+      var closeForm=function(){form.style.display='none';addBtn.style.display='';};
+      addBtn.onclick=function(){openForm(null);};
+      cnl.onclick=closeForm;
+      sub.onclick=function(){
+        var nm=inp.name.value.trim();
+        if(!nm){toast('Enter supplier name',true);return;}
+        sub.disabled=true;sub.textContent='Saving…';
+        var idle=function(){sub.disabled=false;sub.textContent=editingId?'Save Changes':'Add Supplier';};
+        var payload={name:nm,contactPerson:inp.contactPerson.value.trim(),phone:inp.phone.value.trim(),gstNo:inp.gstNo.value.trim(),materials:inp.materials.value.trim(),paymentTerms:inp.paymentTerms.value.trim()};
+        if(editingId){payload.supId=editingId;payload.status=editingStatus;}
+        // S.9-style: server rejects a name duplicating an ACTIVE supplier; the
+        // admin is offered a deliberate override (confirm → resubmit with flag).
+        var _sendSup=function(p){
+          google.script.run
+            .withSuccessHandler(function(r){
+              if(r&&r.success){
+                toast(editingId?'Supplier updated':'Supplier added ('+(r.supId||'')+')');
+                renderMastersSuppliers(container);
+              } else if(r&&r.duplicateOf&&USER&&USER.role==='admin'&&!p.allowDuplicateName){
+                if(window.confirm((r.error||'Duplicate name.')+'\n\nSave this supplier anyway?')){
+                  p.allowDuplicateName=true;_sendSup(p);
+                } else {idle();}
+              } else {idle();toast((r&&r.error)||'Error',true);}
+            })
+            .withFailureHandler(function(){idle();toast('Error',true);})
+            .saveSupplier(p);
+        };
+        _sendSup(payload);
+      };
+      addWrap.appendChild(addBtn);addWrap.appendChild(form);
+      container.appendChild(addWrap);
+
+      // ── SUPPLIER CARDS ────────────────────────────────────────────────────
+      if(!sups.length){
+        container.appendChild(el('div',{style:'color:var(--fos-ink-secondary);padding:40px;text-align:center',text:'No suppliers yet'}));
+        return;
+      }
+      sups.forEach(function(sp){
+        var isActive=(sp.status!=='ARCHIVED');
+        var card=el('div',{style:'background:var(--fos-surface);border-radius:12px;padding:16px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.06)'});
+        if(!isActive)card.style.opacity='0.6';
+        var topRow=el('div',{style:'display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px'});
+        var nameCol=el('div');
+        nameCol.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary)',text:sp.supId}));
+        nameCol.appendChild(el('div',{style:'font-size:15px;font-weight:600;color:var(--fos-ink)',text:sp.name}));
+        topRow.appendChild(nameCol);
+        var rightCol=el('div',{style:'display:flex;flex-direction:column;align-items:flex-end;gap:6px'});
+        rightCol.appendChild(el('span',{cls:'badge '+(isActive?'green':'grey'),text:sp.status||'ACTIVE'}));
+        var linkRow=el('div',{style:'display:flex;gap:10px'});
+        var editLnk=el('a',{style:'font-size:11px;color:var(--fos-accent);cursor:pointer;text-decoration:underline',text:'Edit'});
+        var stLnk=el('a',{style:'font-size:11px;cursor:pointer;text-decoration:underline;color:'+(isActive?'var(--fos-danger)':'var(--fos-accent)'),text:isActive?'Archive':'Reactivate'});
+        linkRow.appendChild(editLnk);linkRow.appendChild(stLnk);
+        rightCol.appendChild(linkRow);
+        topRow.appendChild(rightCol);
+        card.appendChild(topRow);
+        var meta=[];
+        if(sp.contactPerson)meta.push(sp.contactPerson);
+        if(sp.phone)meta.push(sp.phone);
+        if(meta.length)card.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary)',text:meta.join(' · ')}));
+        if(sp.gstNo)card.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:2px',text:'GST: '+sp.gstNo}));
+        if(sp.materials)card.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:2px',text:'Materials: '+sp.materials}));
+        if(sp.paymentTerms)card.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);margin-top:2px',text:'Terms: '+sp.paymentTerms}));
+        (function(s,eLnk,sLnk,act){
+          eLnk.onclick=function(){openForm(s);};
+          sLnk.onclick=function(){
+            var next=act?'ARCHIVED':'ACTIVE';
+            if(!window.confirm((act?'Archive':'Reactivate')+' supplier "'+s.name+'" ('+s.supId+')?'))return;
+            google.script.run
+              .withSuccessHandler(function(r){
+                if(r&&r.success){toast(act?'Supplier archived':'Supplier reactivated');renderMastersSuppliers(container);}
+                else toast((r&&r.error)||'Error',true);
+              })
+              .withFailureHandler(function(){toast('Error',true);})
+              .setSupplierStatus(s.supId,next);
+          };
+        })(sp,editLnk,stLnk,isActive);
+        container.appendChild(card);
+      });
+    })
+    .withFailureHandler(function(e){
+      container.innerHTML='';
+      container.appendChild(el('div',{style:'color:var(--fos-danger);padding:20px;text-align:center;font-size:13px',text:(e&&e.message)||'Error loading suppliers'}));
+    })
+    .getSuppliers();
+}
 </script>
