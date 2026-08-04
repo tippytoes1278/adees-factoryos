@@ -409,6 +409,237 @@ function setMaterialStatus(matId, status) {
   }
 }
 
+// ── B.2 LABOUR RATE CARD ──────────────────────────────────────────────────────
+// APPEND-ONLY SUPERSEDE SEMANTICS: rates are never edited in place. Every save
+// appends a new LR-#### row (STATUS=ACTIVE) and, if an ACTIVE row already
+// existed for the same (stage, activity, article) tuple, that old row gets a
+// single-cell STATUS='SUPERSEDED' write — no other cell of a historical row is
+// ever touched. getStandardRate() is THE single lookup entry point for costing.
+
+var RATE_STAGES = ['cutting','prep','fitter','lasting','finish','dispatch'];
+
+// Normalize an EFFECTIVE_FROM cell (Date object or string) to 'yyyy-MM-dd'.
+function _rateDateStr_(v) {
+  if (Object.prototype.toString.call(v) === '[object Date]')
+    return Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  return safeStr(v).trim();
+}
+
+// S.8: same shape as ensureSuppliersSheet — fast path returns with no lock; a
+// wrong header on a sheet WITH data throws and touches nothing; headers are
+// bootstrapped only on a missing or genuinely empty sheet, inside the script
+// lock with a re-check.
+function ensureRatesSheet() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var HEADERS = ['RATE_ID','STAGE','ACTIVITY','ARTICLE_ID','RATE_PER_PAIR','COMMISSION_PER_PAIR','EFFECTIVE_FROM','STATUS','CREATED_AT'];
+  var ws = ss.getSheetByName('MASTER_RATES');
+  if (ws && safeStr(ws.getRange(1, 1).getValue()) === 'RATE_ID') return ws;   // fast path — no lock
+  if (ws && ws.getLastRow() > 1) {
+    throw new Error('Rates sheet header mismatch — the MASTER_RATES sheet has data but its header row is wrong. Nothing was changed. Call Ayush.');
+  }
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    ws = ss.getSheetByName('MASTER_RATES');                                   // re-check inside lock
+    if (!ws) {
+      ws = ss.insertSheet('MASTER_RATES');
+      ws.getRange(1, 1, 1, 9).setValues([HEADERS]);
+      ws.setFrozenRows(1);
+    } else if (safeStr(ws.getRange(1, 1).getValue()) !== 'RATE_ID') {
+      if (ws.getLastRow() > 1) throw new Error('Rates sheet header mismatch — the MASTER_RATES sheet has data but its header row is wrong. Nothing was changed. Call Ayush.');
+      ws.getRange(1, 1, 1, 9).setValues([HEADERS]);                           // genuinely empty: bootstrap only
+      ws.setFrozenRows(1);
+    }
+    return ws;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Read-only rate list. No lock. Blank-ID rows are skipped. STAGE is stored
+// canonical short-form; both stored and filter values go through deptKeyOf so
+// comparisons never depend on how a stage was typed.
+// filters (all optional): { activity, articleId, stage, activeOnly }.
+function getRates(filters) {
+  try {
+    var ws = ensureRatesSheet();
+    if (ws.getLastRow() < 2) return [];
+    var f = filters || {};
+    var fStage = safeStr(f.stage).trim() ? deptKeyOf(f.stage) : '';
+    var fAct   = safeStr(f.activity).trim().toLowerCase();
+    var fArt   = safeStr(f.articleId).trim();
+    var rows = ws.getRange(2, 1, ws.getLastRow() - 1, 9).getValues();
+    var result = [];
+    rows.forEach(function(r) {
+      var rateId = safeStr(r[0]).trim();
+      if (!rateId) return;
+      var stage    = deptKeyOf(r[1]);
+      var activity = safeStr(r[2]).trim();
+      var articleId = safeStr(r[3]).trim();
+      var status   = safeStr(r[7]).trim().toUpperCase() || 'ACTIVE';
+      if (fStage && stage !== fStage) return;
+      if (fAct && activity.toLowerCase() !== fAct) return;
+      if (fArt && articleId !== fArt) return;
+      if (f.activeOnly === true && status !== 'ACTIVE') return;
+      result.push({
+        rateId:        rateId,
+        stage:         stage,
+        activity:      activity,
+        articleId:     articleId,
+        rate:          safeNum(r[4]),
+        comm:          safeNum(r[5]),
+        effectiveFrom: _rateDateStr_(r[6]),
+        status:        status
+      });
+    });
+    return result;
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// Save a labour rate. Admin only; locked. payload: { stage, activity,
+// articleId?, rate, comm?, effectiveFrom? }. APPEND-ONLY: always appends a new
+// LR-#### row (max existing suffix + 1, never row-count) with STATUS=ACTIVE.
+// If an ACTIVE row already exists for the same (deptKeyOf(stage), activity
+// case-insens-trimmed, articleId) tuple, THAT row's STATUS cell — and only
+// that cell — is set to 'SUPERSEDED' before the append, inside the same lock.
+// articleId '' means the base/standard rate for the activity.
+function saveRate(payload) {
+  var user = getUserInfo();
+  if (user.role !== 'admin')
+    return { success: false, error: 'Not authorised' };
+  // S.8/S.6 convention: ensure* runs BEFORE the writer's lock — it self-locks
+  // its one-time mutation path, and nesting script locks is undefined.
+  var ws;
+  try { ws = ensureRatesSheet(); }
+  catch(ee) { return { success: false, error: ee.message }; }
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    try {
+    var stage = deptKeyOf(payload && payload.stage);
+    if (RATE_STAGES.indexOf(stage) < 0)
+      return { success: false, error: 'Stage must be one of: ' + RATE_STAGES.join(', ') };
+    var activity = safeStr(payload && payload.activity).trim();
+    if (!activity) return { success: false, error: 'Activity is required' };
+    var articleId = safeStr(payload && payload.articleId).trim();
+    var rate = safeNum(payload && payload.rate);
+    var comm = safeNum(payload && payload.comm);
+    var effFrom = safeStr(payload && payload.effectiveFrom).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(effFrom))
+      effFrom = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+
+    var rows = ws.getLastRow() > 1
+      ? ws.getRange(2, 1, ws.getLastRow() - 1, 9).getValues()
+      : [];
+
+    // One pass: track max LR suffix AND find the ACTIVE row this save supersedes.
+    var maxNum = 0, supersededId = '';
+    for (var i = 0; i < rows.length; i++) {
+      var rId = safeStr(rows[i][0]).trim();
+      if (/^LR-\d+$/.test(rId)) {
+        var n = parseInt(rId.replace('LR-', ''), 10);
+        if (n > maxNum) maxNum = n;
+      }
+      if (!rId) continue;
+      if (safeStr(rows[i][7]).trim().toUpperCase() !== 'ACTIVE') continue;
+      if (deptKeyOf(rows[i][1]) !== stage) continue;
+      if (safeStr(rows[i][2]).trim().toLowerCase() !== activity.toLowerCase()) continue;
+      if (safeStr(rows[i][3]).trim() !== articleId) continue;
+      // SUPERSEDE: single-cell STATUS write. NEVER any other cell of a
+      // historical row — history stays byte-for-byte intact.
+      ws.getRange(i + 2, 8).setValue('SUPERSEDED');                          // col H = STATUS
+      supersededId = rId;
+    }
+
+    var seq = String(maxNum + 1);
+    while (seq.length < 4) seq = '0' + seq;
+    var rateId = 'LR-' + seq;
+    var now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
+    ws.getRange(ws.getLastRow() + 1, 1, 1, 9).setValues([
+      [rateId, stage, activity, articleId, rate, comm, effFrom, 'ACTIVE', now]
+    ]);
+    SpreadsheetApp.flush();
+    var out = { success: true, rateId: rateId };
+    if (supersededId) out.supersededId = supersededId;
+    return out;
+    } catch(e) { return { success: false, error: e.message }; }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * getStandardRate(activity, articleId, onDate) — THE single rate-lookup entry
+ * point for all future costing. Any code that needs "what does this activity
+ * pay per pair" must call this function and nothing else.
+ *
+ * CONTRACT:
+ * (a) considers only STATUS='ACTIVE' rows with matching activity (case-insens trim);
+ * (b) rows with EFFECTIVE_FROM <= onDate (onDate optional, default today;
+ *     accepts Date or 'yyyy-mm-dd');
+ * (c) most specific wins: a row whose ARTICLE_ID matches the passed articleId
+ *     beats a blank-ARTICLE_ID base row;
+ * (d) among equals, latest EFFECTIVE_FROM wins, ties broken by highest RATE_ID
+ *     sequence;
+ * (e) returns {found:true, rateId, stage, rate, comm, articleSpecific:bool,
+ *     effectiveFrom} or {found:false}.
+ *
+ * Read-only, no lock.
+ */
+function getStandardRate(activity, articleId, onDate) {
+  try {
+    var act = safeStr(activity).trim().toLowerCase();
+    if (!act) return { found: false };
+    var art = safeStr(articleId).trim();
+    var onStr;
+    if (Object.prototype.toString.call(onDate) === '[object Date]')
+      onStr = Utilities.formatDate(onDate, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    else
+      onStr = safeStr(onDate).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(onStr))
+      onStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+
+    var ws = ensureRatesSheet();
+    if (ws.getLastRow() < 2) return { found: false };
+    var rows = ws.getRange(2, 1, ws.getLastRow() - 1, 9).getValues();
+    var best = null, bestSpecific = false, bestEff = '', bestSeq = -1;
+    rows.forEach(function(r) {
+      var rateId = safeStr(r[0]).trim();
+      if (!rateId) return;
+      if (safeStr(r[7]).trim().toUpperCase() !== 'ACTIVE') return;           // (a)
+      if (safeStr(r[2]).trim().toLowerCase() !== act) return;                // (a)
+      var rowArt = safeStr(r[3]).trim();
+      var specific = (art !== '' && rowArt === art);
+      if (rowArt !== '' && !specific) return;      // article-specific row for a DIFFERENT article never applies
+      var eff = _rateDateStr_(r[6]);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(eff)) return;                          // unreadable date: skip
+      if (eff > onStr) return;                                               // (b) not yet effective
+      var seq = /^LR-\d+$/.test(rateId) ? parseInt(rateId.replace('LR-', ''), 10) : 0;
+      // (c) specific beats base; (d) then latest EFFECTIVE_FROM; then highest seq.
+      var wins = false;
+      if (!best) wins = true;
+      else if (specific !== bestSpecific) wins = specific;
+      else if (eff !== bestEff) wins = (eff > bestEff);
+      else wins = (seq > bestSeq);
+      if (wins) { best = r; bestSpecific = specific; bestEff = eff; bestSeq = seq; }
+    });
+    if (!best) return { found: false };
+    return {
+      found:           true,
+      rateId:          safeStr(best[0]).trim(),
+      stage:           deptKeyOf(best[1]),
+      rate:            safeNum(best[4]),
+      comm:            safeNum(best[5]),
+      articleSpecific: bestSpecific,
+      effectiveFrom:   bestEff
+    };
+  } catch(e) {
+    return { found: false, error: e.message };
+  }
+}
+
 // Read-only rate history for one material, newest first. No lock.
 function getMaterialRateLog(matId) {
   try {

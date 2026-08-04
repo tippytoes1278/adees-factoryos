@@ -736,9 +736,8 @@ function doApproveSetupEditRequest(reqId){
 // ── MASTERS (Phase B) ─────────────────────────────────────────────────────────
 // Sub-tab dispatcher: renderMasters draws the pill bar + a body container,
 // then hands the body to exactly one renderMasters<Tab>(container) function.
-// Later commits fill in renderMastersStyles / renderMastersRates by replacing
-// their placeholder branch below with a real pane function — nothing else
-// changes.
+// Later commits fill in renderMastersStyles by replacing its placeholder
+// branch below with a real pane function — nothing else changes.
 var MASTERS_TAB='suppliers';
 
 function renderMasters(c){
@@ -764,7 +763,7 @@ function renderMasters(c){
   // Dispatcher — one pane function per sub-tab.
   if(MASTERS_TAB==='suppliers')renderMastersSuppliers(body);
   else if(MASTERS_TAB==='styles')renderMastersPlaceholder(body,'Styles');
-  else if(MASTERS_TAB==='rates')renderMastersPlaceholder(body,'Rates');
+  else if(MASTERS_TAB==='rates')renderMastersRates(body);
   else renderMastersMaterials(body);
 }
 
@@ -1101,5 +1100,228 @@ function _buildMaterialsPane(container,mats,sups){
     })(m,editLnk,stLnk,histLnk,histBox,isActive);
     container.appendChild(card);
   });
+}
+
+// ── MASTERS · RATES (B.2 Labour Rate Card) ────────────────────────────────────
+// Append-only rate card. Every save APPENDS a new LR row; the previous ACTIVE
+// row for the same (stage, activity, article) tuple is marked SUPERSEDED —
+// history is never edited. "Edit" therefore pre-fills the form and saves a
+// NEW rate; both add and edit go through the same saveRate call.
+function renderMastersRates(container){
+  container.innerHTML='';
+  container.appendChild(el('div',{style:'display:flex;justify-content:center;padding:40px',html:'<div class="loader"></div>'}));
+  google.script.run
+    .withSuccessHandler(function(list){
+      container.innerHTML='';
+      if(list&&list.error){
+        container.appendChild(el('div',{style:'color:var(--fos-danger);padding:20px;text-align:center;font-size:13px',text:list.error}));
+        return;
+      }
+      _buildRatesPane(container,Array.isArray(list)?list:[]);
+    })
+    .withFailureHandler(function(e){
+      container.innerHTML='';
+      container.appendChild(el('div',{style:'color:var(--fos-danger);padding:20px;text-align:center;font-size:13px',text:(e&&e.message)||'Error loading rates'}));
+    })
+    .getRates({});
+}
+
+function _buildRatesPane(container,rates){
+  container.innerHTML='';
+  // Canonical pipeline order + display labels: reuse FOS_PIPELINE_STAGES
+  // (js_core) with its line-broken labels flattened for selects/headers.
+  var STAGES=FOS_PIPELINE_STAGES.map(function(s){return {key:s.key,label:s.label.replace(/\n/g,' ')};});
+  var stageLbl={};STAGES.forEach(function(s){stageLbl[s.key]=s.label;});
+  var todayStr=(function(){
+    var d=new Date();
+    return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);
+  })();
+
+  // ── ADD / EDIT FORM (collapsed behind the button) ───────────────────────────
+  var addWrap=el('div',{style:'margin-bottom:12px'});
+  var addBtn=el('button',{cls:'primary-btn',text:'+ Add Rate',style:'border-radius:8px;font-size:14px;font-weight:500;padding:12px;margin-bottom:0'});
+  var form=el('div',{style:'display:none;background:var(--fos-surface);border:0.5px solid var(--fos-border);border-radius:12px;padding:14px;margin-top:8px'});
+  var formTitle=el('div',{style:'font-size:13px;font-weight:700;color:var(--fos-ink);margin-bottom:10px',text:'Add Rate'});
+  form.appendChild(formTitle);
+
+  var gStage=el('div',{cls:'form-group'});
+  gStage.appendChild(el('label',{cls:'form-label',text:'Stage *'}));
+  var iStage=el('select',{cls:'form-input'});
+  iStage.appendChild(el('option',{value:'',text:'— select stage —'}));
+  STAGES.forEach(function(s){iStage.appendChild(el('option',{value:s.key,text:s.label}));});
+  gStage.appendChild(iStage);form.appendChild(gStage);
+
+  var gAct=el('div',{cls:'form-group'});
+  gAct.appendChild(el('label',{cls:'form-label',text:'Activity *'}));
+  var iAct=el('input',{cls:'form-input',type:'text',placeholder:'e.g. Skiving'});
+  // Datalist of the chosen stage's master-activity names — cheap because
+  // MASTER_ACTS already lives in the client global when the entry data has
+  // loaded; when it has not, this stays a plain text input.
+  var dl=el('datalist',{id:'rateActDatalist'});
+  iAct.setAttribute('list','rateActDatalist');
+  var fillDatalist=function(){
+    dl.innerHTML='';
+    if(!(window.MASTER_ACTS&&MASTER_ACTS.length))return;
+    MASTER_ACTS.forEach(function(ma){
+      if(iStage.value&&deptKeyOf(ma.section)!==iStage.value)return;
+      dl.appendChild(el('option',{value:ma.name}));
+    });
+  };
+  iStage.onchange=fillDatalist;
+  gAct.appendChild(iAct);gAct.appendChild(dl);form.appendChild(gAct);
+
+  var gArt=el('div',{cls:'form-group'});
+  gArt.appendChild(el('label',{cls:'form-label',text:'Article ID'}));
+  var iArt=el('input',{cls:'form-input',type:'text',placeholder:'blank = standard/base rate'});
+  gArt.appendChild(iArt);form.appendChild(gArt);
+
+  var gRate=el('div',{cls:'form-group'});
+  gRate.appendChild(el('label',{cls:'form-label',text:'Rate ₹/pair *'}));
+  var iRate=el('input',{cls:'form-input',type:'number',placeholder:'e.g. 12'});
+  gRate.appendChild(iRate);form.appendChild(gRate);
+
+  var gComm=el('div',{cls:'form-group'});
+  gComm.appendChild(el('label',{cls:'form-label',text:'Commission ₹/pair'}));
+  var iComm=el('input',{cls:'form-input',type:'number',placeholder:'e.g. 2'});
+  gComm.appendChild(iComm);form.appendChild(gComm);
+
+  var gDate=el('div',{cls:'form-group'});
+  gDate.appendChild(el('label',{cls:'form-label',text:'Effective from'}));
+  var iDate=el('input',{cls:'form-input',type:'date'});
+  iDate.value=todayStr;
+  gDate.appendChild(iDate);form.appendChild(gDate);
+
+  var editHint=el('div',{style:'display:none;font-size:11px;color:var(--fos-ink-secondary);margin:4px 0 8px',
+    text:'Editing never changes history: this appends a new rate from the chosen date and marks the old row superseded.'});
+  form.appendChild(editHint);
+
+  var editing=false;
+  var btnRow=el('div',{style:'display:flex;gap:8px;align-items:center;margin-top:8px'});
+  var sub=el('button',{cls:'primary-btn',text:'Add Rate',style:'flex:1;padding:12px'});
+  var cnl=el('a',{style:'font-size:12px;color:var(--fos-ink-secondary);cursor:pointer;text-decoration:underline',text:'Cancel'});
+  btnRow.appendChild(sub);btnRow.appendChild(cnl);form.appendChild(btnRow);
+  var openForm=function(r){
+    editing=!!r;
+    iStage.value=r?(r.stage||''):'';
+    fillDatalist();
+    iAct.value=r?(r.activity||''):'';
+    iArt.value=r?(r.articleId||''):'';
+    iRate.value=r?(r.rate||r.rate===0?r.rate:''):'';
+    iComm.value=(r&&r.comm)?r.comm:'';
+    iDate.value=todayStr;                              // the NEW rate starts from the chosen date
+    formTitle.textContent=r?('Edit Rate — '+r.rateId):'Add Rate';
+    sub.textContent=r?'Save as New Rate (supersedes current)':'Add Rate';
+    editHint.style.display=r?'block':'none';
+    form.style.display='block';addBtn.style.display='none';
+    form.scrollIntoView({behavior:'smooth',block:'nearest'});
+  };
+  var closeForm=function(){form.style.display='none';addBtn.style.display='';};
+  addBtn.onclick=function(){openForm(null);};
+  cnl.onclick=closeForm;
+  sub.onclick=function(){
+    if(!iStage.value){toast('Select a stage',true);return;}
+    var act=iAct.value.trim();
+    if(!act){toast('Enter activity name',true);return;}
+    if(iRate.value===''||safeNum(iRate.value)<=0){toast('Enter rate per pair',true);return;}
+    sub.disabled=true;var subLbl=sub.textContent;sub.textContent='Saving…';
+    var idle=function(){sub.disabled=false;sub.textContent=subLbl;};
+    var payload={stage:iStage.value,activity:act,articleId:iArt.value.trim(),
+      rate:safeNum(iRate.value),comm:safeNum(iComm.value),
+      effectiveFrom:iDate.value||todayStr};
+    google.script.run
+      .withSuccessHandler(function(r){
+        if(r&&r.success){
+          toast('Rate saved ('+(r.rateId||'')+')'+(r.supersededId?' — superseded '+r.supersededId:''));
+          renderMastersRates(container);
+        } else {idle();toast((r&&r.error)||'Error',true);}
+      })
+      .withFailureHandler(function(){idle();toast('Error',true);})
+      .saveRate(payload);
+  };
+  addWrap.appendChild(addBtn);addWrap.appendChild(form);
+  container.appendChild(addWrap);
+
+  // ── FILTER BAR ──────────────────────────────────────────────────────────────
+  var iFilter=el('input',{cls:'form-input',type:'text',placeholder:'Filter by activity or article…'});
+  container.appendChild(el('div',{style:'margin-bottom:12px'},[iFilter]));
+  var listWrap=el('div');
+  container.appendChild(listWrap);
+
+  // ── RATE CARDS, GROUPED BY PIPELINE STAGE ───────────────────────────────────
+  var renderList=function(){
+    listWrap.innerHTML='';
+    var q=iFilter.value.trim().toLowerCase();
+    var shown=rates.filter(function(r){
+      if(!q)return true;
+      return (r.activity||'').toLowerCase().indexOf(q)>=0||(r.articleId||'').toLowerCase().indexOf(q)>=0;
+    });
+    if(!shown.length){
+      listWrap.appendChild(el('div',{style:'color:var(--fos-ink-secondary);padding:40px;text-align:center',
+        text:rates.length?'No rates match the filter':'No rates yet'}));
+      return;
+    }
+    var groups={};
+    shown.forEach(function(r){
+      var k=r.stage||'other';
+      if(!groups[k])groups[k]=[];
+      groups[k].push(r);
+    });
+    var order=STAGES.map(function(s){return s.key;});
+    Object.keys(groups).forEach(function(k){if(order.indexOf(k)<0)order.push(k);});
+    order.forEach(function(stKey){
+      var grp=groups[stKey];
+      if(!grp)return;
+      var active=grp.filter(function(r){return r.status==='ACTIVE';});
+      var superseded=grp.filter(function(r){return r.status!=='ACTIVE';});
+      var section=el('div',{style:'margin-bottom:18px'});
+      section.appendChild(el('div',{style:'font-size:12px;font-weight:700;color:var(--fos-ink-secondary);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px',
+        text:(stageLbl[stKey]||stKey)+' ('+active.length+')'}));
+      if(!active.length){
+        section.appendChild(el('div',{style:'font-size:12px;color:var(--fos-ink-secondary);padding:6px 2px',text:'No active rates'}));
+      }
+      active.forEach(function(r){
+        var card=el('div',{style:'background:var(--fos-surface);border-radius:12px;padding:14px 16px;margin-bottom:8px;box-shadow:0 1px 4px rgba(0,0,0,0.06)'});
+        var topRow=el('div',{style:'display:flex;align-items:flex-start;justify-content:space-between'});
+        var left=el('div');
+        var nameRow=el('div',{style:'display:flex;align-items:center;gap:8px;flex-wrap:wrap'});
+        nameRow.appendChild(el('span',{style:'font-size:14px;font-weight:600;color:var(--fos-ink)',text:r.activity}));
+        if(r.articleId){
+          nameRow.appendChild(el('span',{style:'font-family:var(--fos-font-mono);font-size:10px;font-weight:600;color:var(--fos-accent);border:1px solid var(--fos-accent);border-radius:10px;padding:1px 8px',text:r.articleId}));
+        } else {
+          nameRow.appendChild(el('span',{style:'font-family:var(--fos-font-mono);font-size:10px;color:var(--fos-ink-secondary);border:1px solid var(--fos-border);border-radius:10px;padding:1px 8px',text:'BASE'}));
+        }
+        left.appendChild(nameRow);
+        left.appendChild(el('div',{style:'font-size:13px;color:var(--fos-ink);font-weight:500;margin-top:4px',
+          text:'₹'+safeNum(r.rate)+'/pr'+(safeNum(r.comm)>0?' + ₹'+safeNum(r.comm)+' comm':'')}));
+        left.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);margin-top:2px',
+          text:'from '+(r.effectiveFrom||'—')+' · '+r.rateId}));
+        topRow.appendChild(left);
+        var editLnk=el('a',{style:'font-size:11px;color:var(--fos-accent);cursor:pointer;text-decoration:underline',text:'Edit'});
+        (function(rr){editLnk.onclick=function(){openForm(rr);};})(r);
+        topRow.appendChild(editLnk);
+        card.appendChild(topRow);
+        section.appendChild(card);
+      });
+      if(superseded.length){
+        var histLnk=el('a',{style:'font-size:11px;color:var(--fos-ink-secondary);cursor:pointer;text-decoration:underline',
+          text:'show history ('+superseded.length+')'});
+        var histBox=el('div',{style:'display:none;margin-top:6px'});
+        superseded.forEach(function(r){
+          histBox.appendChild(el('div',{style:'font-size:11px;color:var(--fos-ink-secondary);opacity:0.7;padding:3px 2px',
+            text:r.activity+(r.articleId?' · '+r.articleId:' · BASE')+' · ₹'+safeNum(r.rate)+'/pr'+(safeNum(r.comm)>0?' + ₹'+safeNum(r.comm)+' comm':'')+' · from '+(r.effectiveFrom||'—')+' · '+r.rateId+' · SUPERSEDED'}));
+        });
+        histLnk.onclick=function(){
+          var open=histBox.style.display!=='none';
+          histBox.style.display=open?'none':'block';
+          histLnk.textContent=open?('show history ('+superseded.length+')'):'hide history';
+        };
+        section.appendChild(histLnk);
+        section.appendChild(histBox);
+      }
+      listWrap.appendChild(section);
+    });
+  };
+  iFilter.oninput=renderList;
+  renderList();
 }
 </script>
