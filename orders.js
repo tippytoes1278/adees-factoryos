@@ -236,14 +236,20 @@ function createOrder(payload) {
       var _sizeVals = [23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46].map(function(s){ return parseInt(_sizeRun[String(s)])||0; });
       var _tsParts = safeStr(payload.tsNumber||'').split('-');
       var _season = _tsParts.length >= 2 ? _tsParts[1] : '';
-      // Columns A–K match the classic ORDER_INDEX layout; L–Q are new extended fields; R–AO are size values
-      oi.getRange(oiRow, 1, 1, 41).setValues([[
+      // Columns A–K match the classic ORDER_INDEX layout; L–Q are new extended fields; R–AO are size values;
+      // AP (42) = STYLE_ID (B.1 — appended column, never reordered).
+      // ORDER_INDEX has no ensure-function; label the appended header once here,
+      // inside createOrder's lock (same pattern as ensureJobCardsSheet cols 17/18).
+      try {
+        if (!safeStr(oi.getRange(3, 42).getValue()).trim()) oi.getRange(3, 42).setValue('STYLE_ID');
+      } catch(hdrE) { Logger.log('STYLE_ID header label: ' + hdrE.message); }
+      oi.getRange(oiRow, 1, 1, 42).setValues([[
         bomNumber, artSheet, safeStr(payload.styleName), safeStr(payload.color),
         safeStr(payload.buyer), safeStr(payload.brand||''), _season, safeStr(payload.deliveryDate||''), lotSize,
         now, 'Active',
         safeStr(payload.tsNumber||''), safeStr(payload.poNumber||''), safeStr(payload.poReceiveDate||''),
         safeStr(payload.grading||''), safeStr(payload.category||''), safeStr(payload.sizeBreakdown||'')
-      ].concat(_sizeVals)]);
+      ].concat(_sizeVals).concat([safeStr(payload.styleId||'')])]);
     }
     var ot = ss.getSheetByName('ORDER_TRACKER');
     if (ot) {

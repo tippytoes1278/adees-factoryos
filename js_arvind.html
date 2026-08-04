@@ -396,6 +396,31 @@ function renderNO_Step2(c){
   bmG.appendChild(el('div',{style:'padding:12px 14px;background:var(--fos-bg);border:1px solid var(--fos-border);border-radius:10px;color:var(--fos-ink-secondary);font-size:13px',text:'Auto-assigned on approval'}));card.appendChild(bmG);
   var aG=el('div',{cls:'form-group'});aG.appendChild(el('label',{cls:'form-label',text:'Article Number *'}));
   var aI=el('input',{cls:'form-input',type:'text',placeholder:'e.g. 203090',value:NO_TS.styleName||''});aG.appendChild(aI);card.appendChild(aG);
+  // B.1: optional Style pick — pre-fills category, grading and size run from the
+  // Style Master (all still editable below). Order stores STYLE_ID when chosen.
+  var syG=el('div',{cls:'form-group'});syG.appendChild(el('label',{cls:'form-label',text:'Style (optional)'}));
+  var syS=el('select',{cls:'form-select'});syS.appendChild(el('option',{text:'— none —',value:''}));
+  var NO_STYLES={};
+  google.script.run.withSuccessHandler(function(list){
+    if(!Array.isArray(list))return;
+    list.forEach(function(st){
+      if((st.status||'').toUpperCase()==='ARCHIVED')return;
+      NO_STYLES[st.styleId]=st;
+      syS.appendChild(el('option',{value:st.styleId,text:st.styleId+' · '+st.name}));
+    });
+  }).withFailureHandler(function(){}).getStyles();
+  syG.appendChild(syS);card.appendChild(syG);
+  syS.onchange=function(){
+    var st=NO_STYLES[syS.value];if(!st)return;
+    if(st.category){catS.value=st.category;grCat=st.category;}
+    if(st.grading&&grBtns[st.grading]){grBtns[st.grading].onclick();}   // sets grading + rebuilds grid…
+    var toks=Object.keys(st.sizeRun||{});
+    if(toks.length){                                                     // …then the style's own run replaces it
+      srG.innerHTML='';
+      toks.sort(function(a,b){return parseFloat(a)-parseFloat(b);}).forEach(function(t){makeSizeCol(null,t);});
+      recalc();rmSzBtn.disabled=srG.children.length<=1;
+    }
+  };
   var clG=el('div',{cls:'form-group'});clG.appendChild(el('label',{cls:'form-label',text:'Color *'}));
   var clI=el('input',{cls:'form-input',type:'text',placeholder:'e.g. Full Black'});clG.appendChild(clI);card.appendChild(clG);
   var byG=el('div',{cls:'form-group'});byG.appendChild(el('label',{cls:'form-label',text:'Buyer *'}));
@@ -570,7 +595,7 @@ function renderNO_Step2(c){
         else{toast((r&&r.error)||'Error',true);sbB.disabled=false;sbB.textContent='Submit for Approval';}
       })
       .withFailureHandler(function(){toast('Error',true);sbB.disabled=false;sbB.textContent='Submit for Approval';})
-      .submitRequest('NEW_ORDER',(function(){var p={tsNumber:NO_TS.tsNumber,styleName:art,color:col,buyer:buyer,brand:brI.value.trim(),poNumber:poI.value.trim(),poReceiveDate:prI.value,deliveryDate:dd,category:grCat,grading:grSel,sizeBreakdown:JSON.stringify(sizeBreakdown),sizeLabels:JSON.stringify(sizeLabels),lotSize:lot};if(NO_RESUBMIT&&NO_RESUBMIT.revisionRemark)p.revisionRemark=NO_RESUBMIT.revisionRemark;return JSON.stringify(p);})());
+      .submitRequest('NEW_ORDER',(function(){var p={tsNumber:NO_TS.tsNumber,styleName:art,color:col,buyer:buyer,brand:brI.value.trim(),poNumber:poI.value.trim(),poReceiveDate:prI.value,deliveryDate:dd,category:grCat,grading:grSel,sizeBreakdown:JSON.stringify(sizeBreakdown),sizeLabels:JSON.stringify(sizeLabels),lotSize:lot,styleId:(syS&&syS.value)||''};if(NO_RESUBMIT&&NO_RESUBMIT.revisionRemark)p.revisionRemark=NO_RESUBMIT.revisionRemark;return JSON.stringify(p);})());
   };
   sbC.appendChild(sbB);c.appendChild(sbC);
 }
