@@ -906,3 +906,61 @@ function getStandardRateBatch(names, articleId) {
     return out;
   } catch(e) { return { error: e.message }; }
 }
+
+// One-time seed (Phase B): copy MASTER_ACTIVITIES default rates into the Labour
+// Rate Card as BASE rows. DEV SHEET ONLY by construction (opens CONFIG.DEV_SHEET_ID
+// explicitly — immune to ENV). Idempotent: an activity that already has an ACTIVE
+// BASE row is skipped; catalog duplicates collapse to first occurrence. S.8-safe:
+// refuses if the MASTER_RATES tab holds foreign data. dryRun=true lists without writing.
+// Run from editor: importRatesFromActivitiesDryRun / importRatesFromActivities.
+function importRatesFromActivities(dryRun) {
+  var user = getUserInfo();
+  if (user.role !== 'admin') return { success:false, error:'Not authorised' };
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    try {
+      var devSs = SpreadsheetApp.openById(CONFIG.DEV_SHEET_ID);   // never the ENV sheet
+      var ma = devSs.getSheetByName('MASTER_ACTIVITIES');
+      if (!ma || ma.getLastRow() < 2) return { success:false, error:'MASTER_ACTIVITIES missing/empty on DEV' };
+      var HEAD = ['RATE_ID','STAGE','ACTIVITY','ARTICLE_ID','RATE_PER_PAIR','COMMISSION_PER_PAIR','EFFECTIVE_FROM','STATUS','CREATED_AT'];
+      var mr = devSs.getSheetByName('MASTER_RATES');
+      if (!mr) { mr = devSs.insertSheet('MASTER_RATES'); mr.getRange(1,1,1,9).setValues([HEAD]); mr.setFrozenRows(1); }
+      else if (safeStr(mr.getRange(1,1).getValue()) !== 'RATE_ID') {
+        if (mr.getLastRow() > 1) return { success:false, error:'MASTER_RATES header mismatch on DEV — the legacy tab still needs renaming. Nothing was changed.' };
+        mr.getRange(1,1,1,9).setValues([HEAD]); mr.setFrozenRows(1);
+      }
+      var haveBase = {}, maxSeq = 0;
+      if (mr.getLastRow() > 1) {
+        mr.getRange(2,1,mr.getLastRow()-1,8).getValues().forEach(function(r){
+          var m = safeStr(r[0]).match(/^LR-(\d+)$/); if (m) { var n = parseInt(m[1],10)||0; if (n > maxSeq) maxSeq = n; }
+          if (safeStr(r[7]).trim().toUpperCase() === 'ACTIVE' && !safeStr(r[3]).trim())
+            haveBase[safeStr(r[2]).trim().toLowerCase()] = true;
+        });
+      }
+      var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+      var nowTs = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM-yyyy HH:mm');
+      var toCreate = [], skipped = [], seen = {};
+      ma.getRange(2,1,ma.getLastRow()-1,5).getValues().forEach(function(r){
+        var name = safeStr(r[1]).trim();
+        if (!name) return;
+        if (safeStr(r[4]).trim().toUpperCase() !== 'APPROVED') { skipped.push(name + ' (status ' + (safeStr(r[4])||'blank') + ')'); return; }
+        var key = name.toLowerCase();
+        if (seen[key]) { skipped.push(name + ' (duplicate in catalog)'); return; }
+        seen[key] = true;
+        if (haveBase[key]) { skipped.push(name + ' (already has ACTIVE BASE row)'); return; }
+        toCreate.push({ activity:name, stage:deptKeyOf(r[0]), rate:safeNum(r[2]), comm:safeNum(r[3]) });
+      });
+      if (dryRun === true) return { success:true, dryRun:true, wouldCreate:toCreate, skipped:skipped };
+      var rows = toCreate.map(function(t, i){
+        var seq = String(maxSeq + 1 + i); while (seq.length < 4) seq = '0' + seq;
+        return ['LR-' + seq, t.stage, t.activity, '', t.rate, t.comm, today, 'ACTIVE', nowTs];
+      });
+      if (rows.length) mr.getRange(mr.getLastRow() + 1, 1, rows.length, 9).setValues(rows);
+      SpreadsheetApp.flush();
+      Logger.log('importRatesFromActivities: created ' + rows.length + ', skipped ' + skipped.length + ' — ' + JSON.stringify(skipped));
+      return { success:true, created:rows.length, skipped:skipped.length, skippedList:skipped };
+    } catch(e) { return { success:false, error:e.message }; }
+  } finally { lock.releaseLock(); }
+}
+function importRatesFromActivitiesDryRun() { var r = importRatesFromActivities(true); Logger.log(JSON.stringify(r, null, 2)); return r; }
