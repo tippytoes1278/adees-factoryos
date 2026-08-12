@@ -916,21 +916,24 @@ function getStandardRateBatch(names, articleId) {
 // BASE row is skipped; catalog duplicates collapse to first occurrence. S.8-safe:
 // refuses if the MASTER_RATES tab holds foreign data. dryRun=true lists without writing.
 // Run from editor: importRatesFromActivitiesDryRun / importRatesFromActivities.
-function importRatesFromActivities(dryRun) {
+function importRatesFromActivities(dryRun, sheetId) {
   var user = getUserInfo();
   if (user.role !== 'admin') return { success:false, error:'Not authorised' };
   var lock = LockService.getScriptLock();
   try {
     lock.waitLock(10000);
     try {
-      var devSs = SpreadsheetApp.openById(CONFIG.DEV_SHEET_ID);   // never the ENV sheet
+      // Explicit target only — defaults to DEV, LIVE via the …Live wrappers.
+      // Never the ENV sheet, so a config flip can't redirect an import.
+      var targetId = safeStr(sheetId).trim() || CONFIG.DEV_SHEET_ID;
+      var devSs = SpreadsheetApp.openById(targetId);
       var ma = devSs.getSheetByName('MASTER_ACTIVITIES');
-      if (!ma || ma.getLastRow() < 2) return { success:false, error:'MASTER_ACTIVITIES missing/empty on DEV' };
+      if (!ma || ma.getLastRow() < 2) return { success:false, error:'MASTER_ACTIVITIES missing/empty on the target sheet' };
       var HEAD = ['RATE_ID','STAGE','ACTIVITY','ARTICLE_ID','RATE_PER_PAIR','COMMISSION_PER_PAIR','EFFECTIVE_FROM','STATUS','CREATED_AT'];
       var mr = devSs.getSheetByName('MASTER_RATES');
       if (!mr) { mr = devSs.insertSheet('MASTER_RATES'); mr.getRange(1,1,1,9).setValues([HEAD]); mr.setFrozenRows(1); }
       else if (safeStr(mr.getRange(1,1).getValue()) !== 'RATE_ID') {
-        if (mr.getLastRow() > 1) return { success:false, error:'MASTER_RATES header mismatch on DEV — the legacy tab still needs renaming. Nothing was changed.' };
+        if (mr.getLastRow() > 1) return { success:false, error:'MASTER_RATES header mismatch on the target sheet — the legacy tab still needs renaming. Nothing was changed.' };
         mr.getRange(1,1,1,9).setValues([HEAD]); mr.setFrozenRows(1);
       }
       var haveBase = {}, maxSeq = 0;
@@ -967,6 +970,10 @@ function importRatesFromActivities(dryRun) {
   } finally { lock.releaseLock(); }
 }
 function importRatesFromActivitiesDryRun() { var r = importRatesFromActivities(true); Logger.log(JSON.stringify(r, null, 2)); return r; }
+// LIVE wrappers — same idempotent guarded body, explicitly CONFIG.LIVE_SHEET_ID
+// (…Live pattern, like the audit functions). Preview first, run after approval.
+function importRatesFromActivitiesLiveDryRun() { var r = importRatesFromActivities(true, CONFIG.LIVE_SHEET_ID); Logger.log(JSON.stringify(r, null, 2)); return r; }
+function importRatesFromActivitiesLive() { var r = importRatesFromActivities(false, CONFIG.LIVE_SHEET_ID); Logger.log(JSON.stringify(r, null, 2)); return r; }
 
 // Rate truth (2/2): one-pass BASE-rate map for bulk display surfaces (the
 // Activities tab ships via getEntryData — one lookup per activity per render
