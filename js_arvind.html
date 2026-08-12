@@ -1600,7 +1600,9 @@ function renderActivities(c){
       var top=el('div',{style:'display:flex;align-items:center;justify-content:space-between;gap:8px'});
       var nameDiv=el('div',{style:'flex:1;min-width:0'});
       nameDiv.appendChild(el('div',{style:'font-size:14px;font-weight:500;color:var(--fos-ink)',text:ma.name}));
-      nameDiv.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary);margin-top:2px',text:'₹'+ma.stdRate+'/pr'+(ma.comm?' + ₹'+ma.comm+' comm':'')}));
+      // Rate truth (2/2): the figure shown is the rate card's BASE rate; an
+      // activity with no card row shows its name only — never the catalog value.
+      if(ma.cardRate!=null)nameDiv.appendChild(el('div',{style:'font-family:var(--fos-font-mono);font-size:11px;color:var(--fos-ink-secondary);margin-top:2px',text:'₹'+ma.cardRate+'/pr'+(ma.cardComm?' + ₹'+ma.cardComm+' comm':'')}));
       top.appendChild(nameDiv);
       card.appendChild(top);
       var _nrrMatch=NO_RESUBMIT_RATE&&NO_RESUBMIT_RATE.rowIndex===ma.rowIndex;

@@ -561,6 +561,9 @@ function saveRate(payload) {
       [rateId, stage, activity, articleId, rate, comm, effFrom, 'ACTIVE', now]
     ]);
     SpreadsheetApp.flush();
+    // Rate truth (2/2): the Activities tab now displays card rates via the cached
+    // getEntryData payload — invalidate it so a supersede shows within a reload.
+    try { CacheService.getScriptCache().remove('entryData_' + CONFIG.ENV); } catch(ce) {}
     var out = { success: true, rateId: rateId };
     if (supersededId) out.supersededId = supersededId;
     return out;
@@ -964,3 +967,44 @@ function importRatesFromActivities(dryRun) {
   } finally { lock.releaseLock(); }
 }
 function importRatesFromActivitiesDryRun() { var r = importRatesFromActivities(true); Logger.log(JSON.stringify(r, null, 2)); return r; }
+
+// Rate truth (2/2): one-pass BASE-rate map for bulk display surfaces (the
+// Activities tab ships via getEntryData — one lookup per activity per render
+// would be N sheet reads). Follows the getStandardRate contract restricted to
+// BASE rows: STATUS ACTIVE, blank ARTICLE_ID, EFFECTIVE_FROM <= today; latest
+// EFFECTIVE_FROM wins, ties broken by highest LR sequence. Tolerant by design:
+// missing MASTER_RATES tab or a foreign header (LIVE still carries the legacy
+// log tab) returns {} — display surfaces then show no figure, never an error.
+// Returns { <activity name lowercased>: {rate, comm, effectiveFrom} }.
+function cardBaseRateMap_(ss) {
+  var map = {};
+  try {
+    if (!ss) ss = SpreadsheetApp.openById(SHEET_ID);
+    var mr = ss.getSheetByName('MASTER_RATES');
+    if (!mr || safeStr(mr.getRange(1, 1).getValue()) !== 'RATE_ID') return map;
+    if (mr.getLastRow() < 2) return map;
+    var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+    var best = {};
+    mr.getRange(2, 1, mr.getLastRow() - 1, 8).getValues().forEach(function(r) {
+      if (safeStr(r[7]).trim().toUpperCase() !== 'ACTIVE') return;
+      if (safeStr(r[3]).trim()) return;                                  // BASE rows only
+      var name = safeStr(r[2]).trim().toLowerCase();
+      if (!name) return;
+      var eff = r[6];
+      var effStr = (eff instanceof Date)
+        ? Utilities.formatDate(eff, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+        : safeStr(eff).slice(0, 10);
+      if (effStr && effStr > today) return;
+      var seqM = safeStr(r[0]).match(/^LR-(\d+)$/);
+      var seq = seqM ? (parseInt(seqM[1], 10) || 0) : 0;
+      var cur = best[name];
+      if (!cur || effStr > cur.effectiveFrom || (effStr === cur.effectiveFrom && seq > cur.seq)) {
+        best[name] = { rate: safeNum(r[4]), comm: safeNum(r[5]), effectiveFrom: effStr, seq: seq };
+      }
+    });
+    Object.keys(best).forEach(function(k) {
+      map[k] = { rate: best[k].rate, comm: best[k].comm, effectiveFrom: best[k].effectiveFrom };
+    });
+  } catch(e) { Logger.log('cardBaseRateMap_ error: ' + e.message); }
+  return map;
+}

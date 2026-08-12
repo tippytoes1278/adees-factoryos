@@ -106,11 +106,21 @@ function getEntryData(periodId, ss) {
   try {
     var maSheet = ss.getSheetByName('MASTER_ACTIVITIES');
     if (maSheet && maSheet.getLastRow() > 1) {
+      // Rate truth (2/2): the DISPLAYED rate comes from the Labour Rate Card —
+      // one bulk read (cardBaseRateMap_, masters.js), not per-activity lookups.
+      // stdRate/comm stay in the payload for the RATE_EDIT pipeline (out of
+      // scope, still reads/writes the catalog); display surfaces must use
+      // cardRate/cardComm and show nothing when they are null.
+      var _cardMap = {};
+      try { _cardMap = cardBaseRateMap_(ss); } catch(cme) { _cardMap = {}; }
       maSheet.getRange(2, 1, maSheet.getLastRow()-1, 7).getValues().forEach(function(r, i){
-        if (safeStr(r[1]) && safeStr(r[4]).toUpperCase() === 'APPROVED')
+        if (safeStr(r[1]) && safeStr(r[4]).toUpperCase() === 'APPROVED') {
+          var _ch = _cardMap[safeStr(r[1]).trim().toLowerCase()];
           masterActivities.push({ name:safeStr(r[1]), section:safeStr(r[0]),
             stdRate:safeNum(r[2]), comm:safeNum(r[3]),
+            cardRate: _ch ? _ch.rate : null, cardComm: _ch ? _ch.comm : null,
             rowIndex: 2 + i });
+        }
       });
       try {
         _REQ.forEach(function(rr) {
