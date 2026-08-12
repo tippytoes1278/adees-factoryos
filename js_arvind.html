@@ -1693,8 +1693,6 @@ function renderActivitySetup(body,article){
   var deptData={};
   DEPTS.forEach(function(d){deptData[d]=[];});
   var approvedContainers={};   // display dept -> box to fill with approved activity list
-  var actRateMap={};
-  MASTER_ACTS.forEach(function(ma){actRateMap[ma.name]=ma.stdRate;});
   var DEPT_VAL={
     'Cutting':'cutting','Preparation':'prep','Fitter':'fitter',
     'Lasting':'lasting','Finishing':'finish','Dispatch':'dispatch'
@@ -1826,15 +1824,15 @@ function renderActivitySetup(body,article){
         name=(name||'').toString().trim();
         if(!name)return false;
         for(var _e=0;_e<entries.length;_e++){if((entries[_e].activityName||'').toLowerCase()===name.toLowerCase())return false;}
-        var masterAct=MASTER_ACTS.filter(function(ma){return ma.name===name;})[0];
-        var masterRate=masterAct?masterAct.stdRate:0;
-        var masterComm=masterAct?masterAct.comm:0;
-        // B.2b: rate-card pre-fill priority: explicit preset (import) > rate card > master list.
+        // Rate card is the single displayed rate truth (owner decision, this session):
+        // priority = explicit preset (import) > rate card. NO fallback to
+        // MASTER_ACTIVITIES defaults — no card row means an empty rate field and
+        // no hint; Arvind types the rate exactly as always.
         var cardHit=RATE_CARD[name];var cardOk=!!(cardHit&&cardHit.found);
         var hasR=(presetRate!==undefined&&presetRate!==null&&presetRate!=='');
         var hasC=(presetComm!==undefined&&presetComm!==null&&presetComm!=='');
-        var useRate=hasR?(Number(presetRate)||0):(cardOk&&Number(cardHit.rate)>0?Number(cardHit.rate):(masterRate||0));
-        var useComm=hasC?(Number(presetComm)||0):(cardOk&&Number(cardHit.comm)>0?Number(cardHit.comm):(masterComm||0));
+        var useRate=hasR?(Number(presetRate)||0):(cardOk?(Number(cardHit.rate)||0):0);
+        var useComm=hasC?(Number(presetComm)||0):(cardOk?(Number(cardHit.comm)||0):0);
         var chk=el('input',{type:'checkbox',checked:true,style:'width:15px;height:15px;flex-shrink:0;accent-color:var(--fos-accent)'});
         var rowEl=el('div',{style:'padding:6px 0;border-top:0.5px solid var(--fos-border)'});
         var nameRow=el('div',{style:'display:flex;align-items:center;gap:8px;margin-bottom:6px'});
@@ -1854,10 +1852,6 @@ function renderActivitySetup(body,article){
         if(cardOk){
           rowEl.appendChild(el('div',{style:'font-size:10px;color:var(--fos-accent);margin-top:3px',
             text:'Rate card: ₹'+cardHit.rate+'/pr'+(Number(cardHit.comm)>0?' + ₹'+cardHit.comm+' comm':'')+(cardHit.articleSpecific?' (article rate)':' (base rate)')}));
-        } else if(masterRate>0){
-          var masterHint=el('div',{style:'font-size:10px;color:var(--fos-ink-secondary);margin-top:3px;margin-left:0',
-            text:'Master rate: ₹'+masterRate+'/pr'+(masterComm?' + ₹'+masterComm+' comm':'')});
-          rowEl.appendChild(masterHint);
         }
         var entry={chk:chk,department:d,activityName:name,rate:useRate||0,comm:useComm||0};
         rateInp.oninput=function(){entry.rate=parseFloat(rateInp.value)||0;};
